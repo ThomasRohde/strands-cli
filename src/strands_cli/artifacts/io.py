@@ -32,6 +32,9 @@ def write_artifacts(
     last_response: str,
     output_dir: str | Path = "./artifacts",
     force: bool = False,
+    *,
+    variables: dict[str, str] | None = None,
+    execution_context: dict[str, Any] | None = None,
 ) -> list[str]:
     """Write output artifacts from workflow execution.
 
@@ -43,6 +46,8 @@ def write_artifacts(
         last_response: The agent's last response text (for {{ last_response }} template)
         output_dir: Directory to write artifacts to (default: ./artifacts)
         force: If True, overwrite existing files; if False, error on existing files
+        variables: User-provided variables from --var flags (for template rendering)
+        execution_context: Additional context (steps, tasks) for template rendering
 
     Returns:
         List of written file paths (absolute)
@@ -61,16 +66,30 @@ def write_artifacts(
         raise ArtifactError(f"Failed to create output directory {output_dir}: {e}") from e
 
     # Template variables for artifact rendering
-    # Currently supports {{ last_response }}
-    # Future: {{ TRACE }} for OTEL trace ID, {{ PROVENANCE }} for execution metadata
+    # Supports {{ last_response }}, user variables from --var, and future OTEL metadata
     template_vars = {
         "last_response": last_response,
         # Future: Add $TRACE, $PROVENANCE, etc.
     }
+    
+    # Merge user-provided variables (e.g., topic from --var topic="value")
+    if variables:
+        template_vars.update(variables)
+    
+    # Merge execution context (steps, tasks, etc.)
+    if execution_context:
+        template_vars.update(execution_context)
 
     for artifact in spec_artifacts:
-        # Resolve artifact path (could be templated)
-        artifact_path = Path(artifact.path)
+        # Resolve artifact path (render template if it contains variables)
+        try:
+            rendered_path = render_template(artifact.path, template_vars)
+        except Exception as e:
+            raise ArtifactError(
+                f"Failed to render artifact path '{artifact.path}': {e}"
+            ) from e
+        
+        artifact_path = Path(rendered_path)
 
         # Make relative paths relative to output_dir
         if not artifact_path.is_absolute():

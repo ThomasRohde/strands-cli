@@ -126,9 +126,10 @@ def _build_step_context(
     context["steps"] = step_history
 
     # Add per-step variable overrides from step.vars
-    step = spec.pattern.config.steps[step_index]
-    if step.vars:
-        context.update(step.vars)
+    if spec.pattern.config.steps is not None:
+        step = spec.pattern.config.steps[step_index]
+        if step.vars:
+            context.update(step.vars)
 
     return context
 
@@ -312,4 +313,5 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
         completed_at=completed_at,
         duration_seconds=duration,
         artifacts_written=[],
+        execution_context={"steps": step_history},
     )

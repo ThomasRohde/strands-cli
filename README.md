@@ -2,28 +2,34 @@
 
 Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
 
-**MVP Status**: Single-agent workflows only | 177 tests passing | 88% coverage
+**Current Version**: v0.2.0 | 224 tests passing | 81% coverage
 
 ## Features
 
-### MVP (v0.1.0)
-- ✅ Execute single-agent workflows from YAML/JSON definitions
-- ✅ AWS Bedrock and Ollama provider support
-- ✅ Schema validation using JSON Schema with JSONPointer error reporting
-- ✅ Capability checking with graceful degradation (exit code 18)
-- ✅ Variable substitution via `--var` flags and Jinja2 templates
-- ✅ HTTP executor tools with timeout/retry
-- ✅ Python tool allowlist (`strands_tools.http_request`, `strands_tools.file_read`)
-- ✅ Artifact output with overwrite protection
-- ✅ Skills metadata injection (no code execution)
-- ✅ Environment variable secrets
-- ✅ Exponential backoff retry logic
-- ✅ Rich CLI interface with progress indicators
-- ✅ OpenTelemetry scaffolding (no-op in MVP, ready for future)
+### Core Capabilities (v0.2.0)
+- ✅ **Multi-step chain workflows** - Sequential execution with context threading
+- ✅ **Multi-task DAG workflows** - Parallel execution with dependency resolution
+- ✅ **Template-based context** - Access prior step/task outputs via `{{ steps[n].response }}` and `{{ tasks.<id>.response }}`
+- ✅ **AWS Bedrock and Ollama** provider support
+- ✅ **Schema validation** using JSON Schema Draft 2020-12 with JSONPointer error reporting
+- ✅ **Capability checking** with graceful degradation (exit code 18)
+- ✅ **Variable substitution** via `--var` flags and Jinja2 templates
+- ✅ **HTTP executor tools** with timeout/retry
+- ✅ **Python tool allowlist** (`strands_tools.http_request`, `strands_tools.file_read`)
+- ✅ **Artifact output** with overwrite protection (`--force` to override)
+- ✅ **Skills metadata** injection (no code execution)
+- ✅ **Environment secrets** (`source: env`)
+- ✅ **Budget enforcement** - Token and time limits
+- ✅ **Exponential backoff** retry logic per step/task
+- ✅ **Rich CLI interface** with progress indicators
+- ✅ **OpenTelemetry scaffolding** (no-op in current version, ready for future)
 
 ### Future Roadmap
-- 🚧 Multi-agent workflows
-- 🚧 Advanced patterns (routing, parallel, orchestrator-workers)
+- 🚧 Routing pattern with dynamic agent selection
+- 🚧 Parallel pattern with branch execution
+- 🚧 Orchestrator-workers pattern
+- 🚧 Evaluator-optimizer pattern
+- 🚧 Graph pattern with conditional logic
 - 🚧 MCP tools integration
 - 🚧 Guardrails enforcement
 - 🚧 Context policy execution

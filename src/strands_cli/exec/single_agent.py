@@ -19,6 +19,7 @@ Retry Strategy:
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from tenacity import (
@@ -32,6 +33,12 @@ from strands_cli.loader import render_template
 from strands_cli.runtime import build_agent
 from strands_cli.telemetry import get_tracer
 from strands_cli.types import PatternType, RunResult, Spec
+
+try:
+    from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
+except ImportError:
+    # Fallback type for type checking when SDK not installed
+    AgentResult = Any
 
 
 class ExecutionError(Exception):
@@ -174,7 +181,7 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
             wait=wait_exponential(multiplier=wait_min, max=wait_max),
             reraise=True,
         )
-        async def _execute_agent() -> str:
+        async def _execute_agent() -> AgentResult:
             """Execute agent with retry logic."""
             with tracer.start_span("agent_invoke"):
                 # Invoke the agent asynchronously

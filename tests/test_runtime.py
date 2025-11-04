@@ -42,12 +42,7 @@ class TestBedrockModelCreation:
 
     def test_creates_bedrock_model_with_region(self, mocker):
         """Should create BedrockModel with valid region."""
-        # Mock boto3.client
-        mock_boto_client = mocker.patch("strands_cli.runtime.providers.boto3.client")
-        mock_bedrock_client = Mock()
-        mock_boto_client.return_value = mock_bedrock_client
-
-        # Mock BedrockModel
+        # Mock BedrockModel (it creates boto3 client internally)
         mock_bedrock_model_cls = mocker.patch("strands_cli.runtime.providers.BedrockModel")
         mock_model = Mock()
         mock_bedrock_model_cls.return_value = mock_model
@@ -60,15 +55,8 @@ class TestBedrockModelCreation:
 
         result = create_bedrock_model(runtime)
 
-        # Verify boto3 client created with correct params
-        mock_boto_client.assert_called_once_with(
-            service_name="bedrock-runtime",
-            region_name="us-east-1",
-        )
-
-        # Verify BedrockModel created
+        # Verify BedrockModel created with correct model_id
         mock_bedrock_model_cls.assert_called_once_with(
-            client=mock_bedrock_client,
             model_id="anthropic.claude-3-sonnet-20240229-v1:0",
         )
 
@@ -76,7 +64,6 @@ class TestBedrockModelCreation:
 
     def test_uses_default_model_id_if_not_specified(self, mocker):
         """Should use default model ID when not provided."""
-        mocker.patch("strands_cli.runtime.providers.boto3.client")
         mock_bedrock_model_cls = mocker.patch("strands_cli.runtime.providers.BedrockModel")
 
         runtime = Runtime(
@@ -97,21 +84,8 @@ class TestBedrockModelCreation:
         with pytest.raises(ProviderError, match=r"Bedrock provider requires runtime\.region"):
             create_bedrock_model(runtime)
 
-    def test_raises_error_on_boto3_failure(self, mocker):
-        """Should raise ProviderError when boto3.client fails."""
-        mocker.patch(
-            "strands_cli.runtime.providers.boto3.client",
-            side_effect=Exception("AWS credentials not found"),
-        )
-
-        runtime = Runtime(provider=ProviderType.BEDROCK, region="us-east-1")
-
-        with pytest.raises(ProviderError, match="Failed to create Bedrock client"):
-            create_bedrock_model(runtime)
-
     def test_raises_error_on_bedrock_model_failure(self, mocker):
         """Should raise ProviderError when BedrockModel init fails."""
-        mocker.patch("strands_cli.runtime.providers.boto3.client")
         mocker.patch(
             "strands_cli.runtime.providers.BedrockModel",
             side_effect=Exception("Invalid model ID"),

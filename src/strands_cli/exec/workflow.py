@@ -42,6 +42,12 @@ from strands_cli.loader import render_template
 from strands_cli.runtime import build_agent
 from strands_cli.types import PatternType, RunResult, Spec
 
+try:
+    from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
+except ImportError:
+    # Fallback type for type checking when SDK not installed
+    AgentResult = Any
+
 
 class WorkflowExecutionError(Exception):
     """Raised when workflow execution fails."""
@@ -264,7 +270,8 @@ async def _execute_task(
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e
 
     # Execute with retry logic
-    async def _execute_with_retry(agent_instance, input_text):
+    async def _execute_with_retry(agent_instance: Any, input_text: str) -> AgentResult:
+        """Execute agent with retry logic."""
         return await agent_instance.invoke_async(input_text)
 
     retry_decorator = retry(
@@ -467,4 +474,5 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
         completed_at=completed_at,
         duration_seconds=duration,
         artifacts_written=[],
+        execution_context={"tasks": task_results},
     )

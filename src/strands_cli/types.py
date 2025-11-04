@@ -315,6 +315,7 @@ class RunResult(BaseModel):
         completed_at: ISO 8601 timestamp of execution completion
         duration_seconds: Total execution time
         artifacts_written: Paths to generated artifact files
+        execution_context: Additional context for artifact templating (steps, tasks, etc.)
     """
 
     success: bool
@@ -326,3 +327,4 @@ class RunResult(BaseModel):
     completed_at: str  # ISO 8601 timestamp
     duration_seconds: float
     artifacts_written: list[str] = Field(default_factory=list)
+    execution_context: dict[str, Any] = Field(default_factory=dict)

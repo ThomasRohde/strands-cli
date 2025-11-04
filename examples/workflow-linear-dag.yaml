@@ -47,7 +47,7 @@ inputs:
 
 outputs:
   artifacts:
-    - path: ./artifacts/analysis-{{topic}}.md
+    - path: "analysis-{{topic}}.md"
       from: |
         # Analysis: {{topic}}
         
@@ -60,5 +60,5 @@ outputs:
         ## Recommendations
         {{ last_response }}
     
-    - path: ./artifacts/summary-{{topic}}.txt
+    - path: "summary-{{topic}}.txt"
       from: "{{ tasks.recommend.response | truncate(500) }}"

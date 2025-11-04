@@ -8,15 +8,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Strands SDK API compatibility** - Updated to use correct Strands SDK API:
-  - Changed `OllamaModel` initialization from `base_url`/`model` to `host`/`model_id`
-  - Changed `Agent` initialization from `instructions` to `system_prompt`
-  - Changed agent execution from `.run()` to `await .invoke_async()` with async support
-  - Updated all tests to use `invoke_async` instead of `run`
-  - Fixed mock fixtures to use `AsyncMock` for async methods
-- **Documentation updates** - Updated all documentation to reflect correct API usage:
-  - Updated `.github/copilot-instructions.md` to show `invoke_async` in data flow
-  - Updated code comments to reference `invoke_async()` return values
+- **Artifact template variables** - User variables from `--var` flags now available in artifact paths and content
+  - Artifact paths support templates: `./artifacts/{{topic}}-report.md`
+  - Artifact content can access `{{topic}}` and other `--var` variables
+  - Execution context (`steps`, `tasks`) available in artifact templates
+  - Added `execution_context` parameter to `write_artifacts()`
+  - Updated `RunResult` to include `execution_context` field
+
+## [0.2.0] - 2025-11-04
+
+### Added - Multi-Step Workflows
+
+#### Chain Pattern
+- **Multi-step chains** - Execute sequential workflows with multiple steps
+  - Pass context from previous steps via `{{ steps[n].response }}`
+  - Per-step variable overrides with `step.vars`
+  - Token budget tracking across all steps
+  - Exponential backoff retry for each step
+
+#### Workflow Pattern  
+- **Multi-task workflows** - Execute DAG-based parallel workflows
+  - Topological sort for dependency resolution
+  - Parallel task execution when dependencies allow
+  - Reference task outputs via `{{ tasks.<id>.response }}`
+  - Cycle detection at validation time
+  - Per-task timeout and retry configuration
+
+#### Enhanced Templating
+- **Extended Jinja2 context** - Access to workflow state
+  - `{{ steps[<index>].response }}` - Prior step outputs in chains
+  - `{{ tasks.<id>.response }}` - Task outputs in workflows
+  - `{{ tasks.<id>.status }}` - Task completion status
+  - `{{ last_response }}` - Most recent agent output
+
+#### Observability
+- **Execution traces** - Parent-child span relationships for steps/tasks
+- **Budget enforcement** - Hard limits on token usage and execution time
+- **Failure handling** - Fail-fast mode with detailed error reporting
+
+### Changed
+- **BedrockModel initialization** - Simplified to use SDK's internal boto3 client
+  - Removed manual boto3 client creation
+  - BedrockModel now handles AWS credential resolution internally
+  - Region configuration via environment or `~/.aws/config`
+
+### Fixed
+- **Type safety** - All mypy strict mode checks passing
+  - Added proper type annotations to async functions
+  - Fixed return types for agent invocations
+  - Added type assertions for callable resolution
+- **Test suite** - Updated Bedrock tests to match new SDK API
+  - Removed boto3 mocking (handled internally by SDK)
+  - Fixed async test fixtures
+  - 224 tests passing, 81% coverage
 
 ## [0.1.0] - 2025-11-04
 

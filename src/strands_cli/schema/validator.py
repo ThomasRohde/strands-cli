@@ -51,7 +51,8 @@ def _load_embedded_schema() -> dict[str, Any]:
         Path(__file__).parent.parent.parent.parent / "docs" / "strands-workflow.schema.json"
     )
     with schema_path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        schema_dict: dict[str, Any] = json.load(f)
+        return schema_dict
 
 
 # Cache the schema and validator at module load time

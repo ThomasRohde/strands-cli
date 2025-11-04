@@ -65,7 +65,9 @@ def load_python_callable(import_path: str) -> Callable[..., Any]:
     if not callable(callable_obj):
         raise ToolError(f"'{import_path}' is not callable")
 
-    return callable_obj
+    # Type assertion for mypy - we verified it's callable
+    result: Callable[..., Any] = callable_obj
+    return result
 
 
 class HttpExecutorAdapter:
@@ -142,14 +144,14 @@ class HttpExecutorAdapter:
         except Exception as e:
             raise ToolError(f"Unexpected error in HTTP request: {e}") from e
 
-    def close(self):
+    def close(self) -> None:
         """Close the HTTP client."""
         self.client.close()
 
-    def __enter__(self):
+    def __enter__(self) -> "HttpExecutorAdapter":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> None:
         """Context manager exit."""
         self.close()

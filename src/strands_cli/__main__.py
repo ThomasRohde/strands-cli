@@ -201,6 +201,8 @@ def run(
                     result.last_response or "",
                     out,
                     force,
+                    variables=variables,
+                    execution_context=result.execution_context,
                 )
                 result.artifacts_written = written_files
             except ArtifactError as e:

@@ -4,9 +4,9 @@ Adapts runtime configuration to provider-specific model clients using
 the Strands Agents SDK. Each provider has different requirements:
 
 Bedrock:
-    - Requires AWS region for boto3 client
-    - Uses bedrock-runtime service
+    - Requires AWS region configured via environment or ~/.aws/config
     - Model IDs follow AWS format (e.g., anthropic.claude-3-sonnet-...)
+    - BedrockModel creates its own boto3 client internally
 
 Ollama:
     - Requires host URL (e.g., http://localhost:11434)
@@ -15,7 +15,6 @@ Ollama:
 Both providers support model_id override from runtime or agent config.
 """
 
-import boto3  # type: ignore[import-untyped]
 import structlog
 from strands.models.bedrock import BedrockModel
 from strands.models.ollama import OllamaModel
@@ -53,22 +52,15 @@ def create_bedrock_model(runtime: Runtime) -> BedrockModel:
     # Default model if not specified
     model_id = runtime.model_id or "us.anthropic.claude-3-sonnet-20240229-v1:0"
 
-    logger.debug("creating_bedrock_client", region=runtime.region, model_id=model_id)
+    logger.debug("creating_bedrock_model", region=runtime.region, model_id=model_id)
 
-    # Create Bedrock client
-    try:
-        bedrock_client = boto3.client(
-            service_name="bedrock-runtime",
-            region_name=runtime.region,
-        )
-    except Exception as e:
-        raise ProviderError(f"Failed to create Bedrock client: {e}") from e
-
-    # Create Strands model
+    # Create Strands BedrockModel
+    # BedrockModel creates its own boto3 client internally using AWS credentials from environment
     try:
         model = BedrockModel(
-            client=bedrock_client,
             model_id=model_id,
+            # Region is configured via AWS environment variables or ~/.aws/config
+            # The SDK will use boto3.client() internally with the configured region
         )
     except Exception as e:
         raise ProviderError(f"Failed to create BedrockModel: {e}") from e
