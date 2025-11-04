@@ -71,11 +71,11 @@ def write_artifacts(
         "last_response": last_response,
         # Future: Add $TRACE, $PROVENANCE, etc.
     }
-    
+
     # Merge user-provided variables (e.g., topic from --var topic="value")
     if variables:
         template_vars.update(variables)
-    
+
     # Merge execution context (steps, tasks, etc.)
     if execution_context:
         template_vars.update(execution_context)
@@ -85,10 +85,8 @@ def write_artifacts(
         try:
             rendered_path = render_template(artifact.path, template_vars)
         except Exception as e:
-            raise ArtifactError(
-                f"Failed to render artifact path '{artifact.path}': {e}"
-            ) from e
-        
+            raise ArtifactError(f"Failed to render artifact path '{artifact.path}': {e}") from e
+
         artifact_path = Path(rendered_path)
 
         # Make relative paths relative to output_dir

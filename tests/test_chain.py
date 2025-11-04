@@ -128,9 +128,7 @@ class TestRunChain:
         return load_spec(str(spec_file))
 
     @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_success(
-        self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
-    ) -> None:
+    def test_run_chain_success(self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec) -> None:
         """Test successful 3-step chain execution."""
         # Mock agent responses
         mock_agent = MagicMock()
@@ -219,7 +217,9 @@ class TestRunChain:
         chain_spec_3_steps.runtime.budgets = {"max_tokens": 5}
 
         mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(return_value="Response with many tokens that exceeds budget")
+        mock_agent.invoke_async = AsyncMock(
+            return_value="Response with many tokens that exceeds budget"
+        )
         mock_build_agent.return_value = mock_agent
 
         with pytest.raises(ChainExecutionError, match="budget exceeded"):

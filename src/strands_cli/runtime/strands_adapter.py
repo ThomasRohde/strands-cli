@@ -146,7 +146,9 @@ def build_agent(
                     callable_obj = load_python_callable(py_tool.callable)
                     tools.append(callable_obj)
                 except Exception as e:
-                    raise AdapterError(f"Failed to load Python tool '{py_tool.callable}': {e}") from e
+                    raise AdapterError(
+                        f"Failed to load Python tool '{py_tool.callable}': {e}"
+                    ) from e
 
     # Add HTTP executors
     if spec.tools and spec.tools.http_executors:
@@ -157,7 +159,9 @@ def build_agent(
                     adapter = HttpExecutorAdapter(http_exec)
                     tools.append(adapter)
                 except Exception as e:
-                    raise AdapterError(f"Failed to create HTTP executor '{http_exec.id}': {e}") from e
+                    raise AdapterError(
+                        f"Failed to create HTTP executor '{http_exec.id}': {e}"
+                    ) from e
 
     # Create the agent
     try:

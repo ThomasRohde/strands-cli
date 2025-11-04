@@ -9,9 +9,9 @@
 
 ## Phase 1 Progress Update (2025-11-04)
 
-**Status**: ✅ **COMPLETE**  
+**Status**: ✅ **COMPLETE** (Enhanced)
 **Version**: v0.2.0  
-**Tests**: 224 passing | 81% coverage (target 85%)  
+**Tests**: 238 passing | 83% coverage (target 85%)  
 **Type Safety**: All mypy strict checks passing
 
 ### Achievements
@@ -20,11 +20,18 @@
 - Extended Jinja2 templating with step/task history access
 - Fixed all type safety issues (mypy strict mode)
 - Updated Strands SDK integration (removed boto3 wrapper)
-- All 224 tests passing
+- All 238 tests passing
+
+### Phase 1 Enhancements (Post-Completion)
+- ✅ **Added `max_parallel` to Runtime model** - Properly supports concurrency control in workflow executor
+- ✅ **Tool override validation** - Capability checker validates `tool_overrides` against defined tools
+- ✅ **HttpExecutorAdapter cleanup** - Added destructor and improved resource management
+- ✅ **Updated docstrings** - Removed "currently limited to 1 step/task" references
+- ✅ **CLI integration tests** - Added comprehensive tests for `run`, `plan`, `validate`, `explain` commands
 
 ### Remaining Work for Coverage Target
-- Add CLI integration tests for `run`, `plan`, `doctor` commands
-- Consider refactoring complex functions (C901 warnings)
+- Add more CLI command edge case tests (`doctor`, error paths)
+- Consider refactoring complex functions (C901 warnings - cosmetic only)
 - Document new multi-step patterns in user guide
 
 **Next Phase**: Phase 2 (Routing & Conditional Logic) - Ready to start

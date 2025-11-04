@@ -91,7 +91,9 @@ def _topological_sort(tasks: list[Any]) -> list[list[str]]:
         if task.deps:
             for dep_id in task.deps:
                 if dep_id not in task_map:
-                    raise WorkflowExecutionError(f"Task '{task.id}' depends on non-existent task '{dep_id}'")
+                    raise WorkflowExecutionError(
+                        f"Task '{task.id}' depends on non-existent task '{dep_id}'"
+                    )
                 adj_list[dep_id].append(task.id)
                 in_degree[task.id] += 1
 
@@ -142,7 +144,9 @@ def _get_retry_config(spec: Spec) -> tuple[int, int, int]:
         retries = policy.get("retries", max_attempts - 1)
 
         if retries < 0:
-            raise WorkflowExecutionError(f"Invalid retry config: retries must be >= 0, got {retries}")
+            raise WorkflowExecutionError(
+                f"Invalid retry config: retries must be >= 0, got {retries}"
+            )
 
         max_attempts = retries + 1
         backoff = policy.get("backoff", "exponential")
@@ -353,10 +357,8 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
     if spec.runtime.budgets:
         max_tokens = spec.runtime.budgets.get("max_tokens")
 
-    # Get max_parallel limit
-    max_parallel = None
-    if hasattr(spec.runtime, "max_parallel"):
-        max_parallel = spec.runtime.max_parallel
+    # Get max_parallel limit from runtime configuration
+    max_parallel = spec.runtime.max_parallel
 
     started_at = datetime.now(UTC).isoformat()
 
@@ -377,11 +379,15 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
         for task_id in layer_task_ids:
             tasks_to_execute.append((task_id, task_map[task_id], dict(task_context)))
 
-        async def _execute_layer(tasks_with_context: list[tuple[str, Any, dict[str, Any]]]) -> list[tuple[str, int]]:
+        async def _execute_layer(
+            tasks_with_context: list[tuple[str, Any, dict[str, Any]]],
+        ) -> list[tuple[str, int]]:
             # Create semaphore for max_parallel if configured
             semaphore = asyncio.Semaphore(max_parallel) if max_parallel else None
 
-            async def _execute_with_semaphore(task_id: str, task_obj: Any, context: dict[str, Any]) -> tuple[str, int]:
+            async def _execute_with_semaphore(
+                task_id: str, task_obj: Any, context: dict[str, Any]
+            ) -> tuple[str, int]:
                 if semaphore:
                     async with semaphore:
                         return await _execute_task(
@@ -420,7 +426,9 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
             raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e
 
         # Process results
-        for task_id, (response_text, estimated_tokens) in zip(layer_task_ids, layer_results, strict=True):
+        for task_id, (response_text, estimated_tokens) in zip(
+            layer_task_ids, layer_results, strict=True
+        ):
             cumulative_tokens += estimated_tokens
 
             # Check budget

@@ -182,7 +182,9 @@ def run(
                     result = run_workflow(spec, variables)
             else:
                 # Other patterns (routing, parallel, etc.) - not yet supported
-                console.print(f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet")
+                console.print(
+                    f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet"
+                )
                 sys.exit(EX_UNSUPPORTED)
 
         except ExecutionError as e:

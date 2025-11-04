@@ -416,3 +416,81 @@ outputs:
 
         error_text = str(exc_info.value)
         assert "pattern/config" in error_text or "tasks" in error_text
+
+    def test_tool_overrides_validation(self, temp_output_dir: Path) -> None:
+        """Test that tool_overrides are validated against available tools."""
+        spec_file = temp_output_dir / "invalid-tool-override.yaml"
+        spec_content = """
+version: 0
+name: invalid-tool-override
+runtime:
+  provider: ollama
+  model_id: gpt
+  host: http://localhost:11434
+tools:
+  http_executors:
+    - id: my_api
+      base_url: http://example.com
+agents:
+  test:
+    prompt: "Test"
+    tools: [my_api]
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Step 1"
+      - agent: test
+        input: "Step 2"
+        tool_overrides: [nonexistent_tool]
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+        spec = load_spec(spec_file)
+        report = check_capability(spec)
+
+        assert report.supported is False
+
+        # Find the tool override issue
+        tool_issue = next(
+            (issue for issue in report.issues if "tool_overrides" in issue.pointer), None
+        )
+        assert tool_issue is not None
+        assert "nonexistent_tool" in tool_issue.reason
+        assert "undefined tool" in tool_issue.reason
+
+    def test_max_parallel_field_preserved(self, temp_output_dir: Path) -> None:
+        """Test that max_parallel from runtime is properly preserved."""
+        spec_file = temp_output_dir / "max-parallel.yaml"
+        spec_content = """
+version: 0
+name: max-parallel
+runtime:
+  provider: ollama
+  model_id: gpt
+  host: http://localhost:11434
+  max_parallel: 3
+agents:
+  test:
+    prompt: "Test"
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: task1
+        agent: test
+        input: "Task 1"
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+        spec = load_spec(spec_file)
+
+        # Verify max_parallel is preserved in the Runtime model
+        assert spec.runtime.max_parallel == 3

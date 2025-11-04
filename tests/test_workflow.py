@@ -27,11 +27,7 @@ class TestTopologicalSort:
             "runtime": {"provider": "bedrock", "model_id": "test-model"},
             "pattern": {
                 "type": "workflow",
-                "config": {
-                    "tasks": [
-                        {"id": "task1", "agent": "agent1", "input": "Do work"}
-                    ]
-                },
+                "config": {"tasks": [{"id": "task1", "agent": "agent1", "input": "Do work"}]},
             },
             "agents": {"agent1": {"prompt": "You are a worker"}},
         }
@@ -150,8 +146,18 @@ class TestTopologicalSort:
                 "config": {
                     "tasks": [
                         {"id": "collect", "agent": "agent1", "input": "Collect data"},
-                        {"id": "analyze_a", "agent": "agent1", "input": "Analyze A", "deps": ["collect"]},
-                        {"id": "analyze_b", "agent": "agent1", "input": "Analyze B", "deps": ["collect"]},
+                        {
+                            "id": "analyze_a",
+                            "agent": "agent1",
+                            "input": "Analyze A",
+                            "deps": ["collect"],
+                        },
+                        {
+                            "id": "analyze_b",
+                            "agent": "agent1",
+                            "input": "Analyze B",
+                            "deps": ["collect"],
+                        },
                         {
                             "id": "summarize",
                             "agent": "agent1",
@@ -197,9 +203,24 @@ class TestRunWorkflow:
                 "config": {
                     "tasks": [
                         {"id": "task1", "agent": "test-agent", "input": "Task 1"},
-                        {"id": "task2", "agent": "test-agent", "input": "Task 2 depends on task1", "deps": ["task1"]},
-                        {"id": "task3", "agent": "test-agent", "input": "Task 3 depends on task1", "deps": ["task1"]},
-                        {"id": "task4", "agent": "test-agent", "input": "Task 4 merges 2 and 3", "deps": ["task2", "task3"]},
+                        {
+                            "id": "task2",
+                            "agent": "test-agent",
+                            "input": "Task 2 depends on task1",
+                            "deps": ["task1"],
+                        },
+                        {
+                            "id": "task3",
+                            "agent": "test-agent",
+                            "input": "Task 3 depends on task1",
+                            "deps": ["task1"],
+                        },
+                        {
+                            "id": "task4",
+                            "agent": "test-agent",
+                            "input": "Task 4 merges 2 and 3",
+                            "deps": ["task2", "task3"],
+                        },
                     ],
                 },
             },
@@ -296,7 +317,12 @@ class TestRunWorkflow:
                 "config": {
                     "tasks": [
                         {"id": "task1", "agent": "agent1", "input": "Do work"},
-                        {"id": "task2", "agent": "agent1", "input": "Result was: {{ tasks.task1.response }}", "deps": ["task1"]},
+                        {
+                            "id": "task2",
+                            "agent": "agent1",
+                            "input": "Result was: {{ tasks.task1.response }}",
+                            "deps": ["task1"],
+                        },
                     ]
                 },
             },
@@ -385,7 +411,12 @@ class TestWorkflowTemplateRendering:
                 "config": {
                     "tasks": [
                         {"id": "fetch", "agent": "agent1", "input": "Fetch data"},
-                        {"id": "analyze", "agent": "agent1", "input": "Analyze: {{ tasks.fetch.response }}", "deps": ["fetch"]},
+                        {
+                            "id": "analyze",
+                            "agent": "agent1",
+                            "input": "Analyze: {{ tasks.fetch.response }}",
+                            "deps": ["fetch"],
+                        },
                     ]
                 },
             },

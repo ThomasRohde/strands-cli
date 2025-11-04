@@ -618,3 +618,17 @@ class TestHttpExecutorAdapter:
 
         # Client should be closed after exit
         assert adapter.client.is_closed
+
+    def test_destructor_closes_client(self):
+        """Should close client when adapter is deleted."""
+        config = HttpExecutor(
+            id="test-api",
+            base_url="https://api.example.com",
+            timeout=30,
+        )
+
+        adapter = HttpExecutorAdapter(config)
+        assert not adapter.client.is_closed
+
+        # Explicitly delete and verify cleanup
+        del adapter

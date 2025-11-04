@@ -145,13 +145,26 @@ class HttpExecutorAdapter:
             raise ToolError(f"Unexpected error in HTTP request: {e}") from e
 
     def close(self) -> None:
-        """Close the HTTP client."""
+        """Close the HTTP client and release resources.
+
+        Should be called when the tool is no longer needed to prevent
+        lingering sockets in long-running workflow orchestrations.
+        """
         self.client.close()
 
     def __enter__(self) -> "HttpExecutorAdapter":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> None:
-        """Context manager exit."""
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
+    ) -> None:
+        """Context manager exit - ensures cleanup on context exit."""
         self.close()
+
+    def __del__(self) -> None:
+        """Destructor to cleanup resources if not explicitly closed."""
+        from contextlib import suppress
+
+        with suppress(Exception):
+            self.client.close()

@@ -171,11 +171,11 @@ def check_capability(spec: Spec) -> CapabilityReport:
     if spec.pattern.type == PatternType.CHAIN and not spec.pattern.config.steps:
         issues.append(
             CapabilityIssue(
-                    pointer="/pattern/config/steps",
-                    reason="Chain pattern has no steps",
-                    remediation="Add at least 1 step to pattern.config.steps",
-                )
+                pointer="/pattern/config/steps",
+                reason="Chain pattern has no steps",
+                remediation="Add at least 1 step to pattern.config.steps",
             )
+        )
 
     # Check 7: Workflow must have at least 1 task with valid dependencies
     if spec.pattern.type == PatternType.WORKFLOW:
@@ -213,6 +213,29 @@ def check_capability(spec: Spec) -> CapabilityReport:
                             remediation="Remove circular dependencies to form a valid DAG",
                         )
                     )
+
+    # Check 7a: Validate tool_overrides in chain steps reference defined tools
+    if spec.pattern.type == PatternType.CHAIN and spec.pattern.config.steps:
+        # Build set of available tool IDs
+        available_tools: set[str] = set()
+        if spec.tools:
+            if spec.tools.python:
+                available_tools.update(tool.callable for tool in spec.tools.python)
+            if spec.tools.http_executors:
+                available_tools.update(executor.id for executor in spec.tools.http_executors)
+
+        # Validate each step's tool_overrides
+        for i, step in enumerate(spec.pattern.config.steps):
+            if step.tool_overrides:
+                for tool_id in step.tool_overrides:
+                    if tool_id not in available_tools:
+                        issues.append(
+                            CapabilityIssue(
+                                pointer=f"/pattern/config/steps/{i}/tool_overrides",
+                                reason=f"Step {i} references undefined tool '{tool_id}' in tool_overrides",
+                                remediation=f"Define '{tool_id}' in tools.python or tools.http_executors, or remove from tool_overrides",
+                            )
+                        )
 
     # Check 8: Secrets must use source=env
     if spec.env and spec.env.secrets:

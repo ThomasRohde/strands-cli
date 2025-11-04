@@ -37,17 +37,17 @@ class PatternType(str, Enum):
     """Supported workflow patterns.
 
     Defines how agents are orchestrated to complete tasks.
-    Currently supports single-agent patterns (chain, workflow).
-    Future patterns enable multi-agent collaboration.
+    Phase 1 supports multi-step chain and multi-task workflow patterns.
+    Future patterns enable multi-agent collaboration and advanced routing.
     """
 
-    CHAIN = "chain"  # Sequential steps (currently limited to 1 step)
-    WORKFLOW = "workflow"  # Task-based execution (currently limited to 1 task)
+    CHAIN = "chain"  # Sequential multi-step execution with context threading
+    WORKFLOW = "workflow"  # DAG-based multi-task execution with parallel support
     ROUTING = "routing"  # Conditional agent routing (future support)
     PARALLEL = "parallel"  # Parallel agent execution (future support)
     ORCHESTRATOR_WORKERS = "orchestrator_workers"  # Leader-worker pattern (future support)
     EVALUATOR_OPTIMIZER = "evaluator_optimizer"  # Evaluation-driven optimization (future support)
-    GRAPH = "graph"  # DAG-based execution (future support)
+    GRAPH = "graph"  # Graph-based execution with conditionals (future support)
 
 
 class SecretSource(str, Enum):
@@ -89,6 +89,7 @@ class Runtime(BaseModel):
     temperature: float | None = None  # Sampling temperature for generation
     top_p: float | None = None  # Nucleus sampling parameter
     max_tokens: int | None = None  # Maximum tokens to generate
+    max_parallel: int | None = Field(default=None, ge=1)  # Max concurrent tasks/workers
     budgets: dict[str, Any] | None = None  # Token/cost budgets (logged only)
     failure_policy: dict[str, Any] | None = None  # Retry and backoff configuration
 
