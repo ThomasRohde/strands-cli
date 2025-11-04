@@ -1,0 +1,34 @@
+version: 0
+name: with-tools
+description: MVP spec with Python tools and HTTP executors
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+tools:
+  http_executors:
+    - id: api
+      base_url: https://api.example.com
+      headers:
+        Authorization: "Bearer ${API_TOKEN}"
+      timeout_ms: 5000
+
+agents:
+  worker:
+    prompt: "You have access to tools."
+    tools:
+      - api
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: worker
+        input: "Use tools to complete task"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/result.md
+      from: "{{ last_response }}"

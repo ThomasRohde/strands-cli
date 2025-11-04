@@ -1,0 +1,45 @@
+version: 0
+name: single-agent-chain-bedrock
+description: Single-agent workflow using AWS Bedrock with Claude
+
+runtime:
+  provider: bedrock
+  model_id: us.anthropic.claude-3-sonnet-20240229-v1:0
+  region: us-east-1
+  budgets:
+    max_tokens: 4000
+    max_duration_s: 180
+  failure_policy:
+    retries: 3
+    backoff: exponential
+    wait_min: 1
+    wait_max: 60
+
+inputs:
+  values:
+    domain: "Healthcare"
+    focus: "L3 residual risk"
+
+agents:
+  risk_analyst:
+    prompt: |
+      You are a senior risk analyst specializing in regulatory compliance.
+      Provide detailed, actionable insights based on industry best practices.
+      Format responses in structured Markdown with clear sections.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: risk_analyst
+        input: |
+          Analyze {{ focus }} in the {{ domain }} domain.
+          Provide:
+          1. Key risk factors
+          2. Mitigation strategies
+          3. Regulatory considerations
+
+outputs:
+  artifacts:
+    - path: ./artifacts/risk-analysis-bedrock.md
+      from: "{{ last_response }}"

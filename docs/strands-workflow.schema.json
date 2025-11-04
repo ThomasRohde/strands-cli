@@ -1,0 +1,1066 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/strands-workflow.schema.json",
+  "title": "Strands Workflow Spec (v0)",
+  "description": "Declarative spec for executing agentic workflows (CLI) on AWS Strands SDK. Captures runtime, agents, tools, and Anthropic-style patterns (chain, routing, orchestrator-workers, evaluator-optimizer, graph, workflow).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "name",
+    "runtime",
+    "agents",
+    "pattern"
+  ],
+  "properties": {
+    "version": {
+      "type": [
+        "integer",
+        "string"
+      ],
+      "description": "Spec version. Use 0 initially."
+    },
+    "name": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "description": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tag"
+      },
+      "uniqueItems": true
+    },
+    "runtime": {
+      "$ref": "#/$defs/runtime"
+    },
+    "inputs": {
+      "$ref": "#/$defs/inputs"
+    },
+    "env": {
+      "$ref": "#/$defs/env"
+    },
+    "telemetry": {
+      "$ref": "#/$defs/telemetry"
+    },
+    "context_policy": {
+      "$ref": "#/$defs/contextPolicy"
+    },
+    "skills": {
+      "$ref": "#/$defs/skills"
+    },
+    "tools": {
+      "$ref": "#/$defs/tools"
+    },
+    "agents": {
+      "$ref": "#/$defs/agents"
+    },
+    "pattern": {
+      "$ref": "#/$defs/pattern"
+    },
+    "outputs": {
+      "$ref": "#/$defs/outputs"
+    },
+    "security": {
+      "$ref": "#/$defs/security"
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "examples": [
+        "writer",
+        "researcher",
+        "gh",
+        "report-1"
+      ]
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "LLM provider identifier (e.g., bedrock, openai, azure_openai, local).",
+          "examples": [
+            "bedrock"
+          ]
+        },
+        "model_id": {
+          "type": "string",
+          "description": "Default model for agents that don't override."
+        },
+        "region": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string",
+          "description": "Server host URL for providers like Ollama (e.g., http://localhost:11434).",
+          "format": "uri"
+        },
+        "max_parallel": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_steps": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_duration_s": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "failure_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "retries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "backoff": {
+              "type": "string",
+              "enum": [
+                "constant",
+                "exponential",
+                "jittered"
+              ],
+              "default": "exponential"
+            },
+            "wait_min": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum wait time in seconds between retries."
+            },
+            "wait_max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum wait time in seconds between retries."
+            }
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "$ref": "#/$defs/inputVarMap"
+        },
+        "optional": {
+          "$ref": "#/$defs/inputVarMap"
+        },
+        "values": {
+          "type": "object",
+          "description": "Actual input values provided at runtime (e.g., via --var flags or defaults).",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        }
+      }
+    },
+    "inputVarMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/inputVarSpec"
+      }
+    },
+    "inputVarSpec": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "array",
+            "object"
+          ],
+          "description": "Shorthand type name."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "array",
+                "object"
+              ]
+            },
+            "description": {
+              "type": "string"
+            },
+            "default": {},
+            "enum": {
+              "type": "array",
+              "items": {}
+            }
+          }
+        }
+      ]
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "source"
+            ],
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/identifier"
+              },
+              "name": {
+                "type": "string",
+                "description": "Optional display name for the secret."
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "env",
+                  "secrets_manager",
+                  "ssm",
+                  "file"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "description": "For source=file: path to file or key name."
+              }
+            }
+          }
+        },
+        "mounts": {
+          "type": "object",
+          "description": "Logical mount name to local path.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "otel": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "format": "uri"
+            },
+            "service_name": {
+              "type": "string"
+            },
+            "sample_ratio": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0
+            }
+          }
+        },
+        "redact": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tool_inputs": {
+              "type": "boolean",
+              "default": true
+            },
+            "tool_outputs": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    "contextPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "when_tokens_over": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "notes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "include_last": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "retrieval": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "jit_tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/identifier"
+          },
+          "path": {
+            "type": "string"
+          },
+          "preload_metadata": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "python": {
+          "type": "array",
+          "description": "Fully qualified callables or module paths.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mcp": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "command"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "http_executors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "base_url"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "base_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 2.0
+        },
+        "top_p": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "agentSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt"
+      ],
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provider": {
+          "type": "string",
+          "description": "Overrides runtime.provider"
+        },
+        "model_id": {
+          "type": "string",
+          "description": "Overrides runtime.model_id"
+        },
+        "inference": {
+          "$ref": "#/$defs/inference"
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Map of agent name -> spec",
+      "additionalProperties": {
+        "$ref": "#/$defs/agentSpec"
+      },
+      "minProperties": 1
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent"
+      ],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "description": "Reference to an agent key in `agents`."
+        },
+        "input": {
+          "type": "string",
+          "description": "Prompt supplement or instruction; templates allowed (e.g., {{topic}})."
+        },
+        "vars": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "tool_overrides": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "pattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "config"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "chain",
+            "routing",
+            "parallel",
+            "orchestrator_workers",
+            "evaluator_optimizer",
+            "graph",
+            "workflow"
+          ]
+        },
+        "config": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/chainConfig"
+            },
+            {
+              "$ref": "#/$defs/routingConfig"
+            },
+            {
+              "$ref": "#/$defs/parallelConfig"
+            },
+            {
+              "$ref": "#/$defs/orchestratorWorkersConfig"
+            },
+            {
+              "$ref": "#/$defs/evaluatorOptimizerConfig"
+            },
+            {
+              "$ref": "#/$defs/graphConfig"
+            },
+            {
+              "$ref": "#/$defs/workflowConfig"
+            }
+          ]
+        }
+      }
+    },
+    "chainConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      }
+    },
+    "routingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "router",
+        "routes"
+      ],
+      "properties": {
+        "router": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "agent"
+          ],
+          "properties": {
+            "agent": {
+              "type": "string",
+              "description": "Agent that decides route."
+            },
+            "input": {
+              "type": "string"
+            }
+          }
+        },
+        "routes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "then": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/step"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "parallelConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "branches"
+      ],
+      "properties": {
+        "branches": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "steps"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "steps": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/step"
+                }
+              }
+            }
+          }
+        },
+        "reduce": {
+          "$ref": "#/$defs/step"
+        }
+      }
+    },
+    "orchestratorWorkersConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "orchestrator",
+        "worker_template"
+      ],
+      "properties": {
+        "orchestrator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "agent"
+          ],
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_workers": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_rounds": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        },
+        "worker_template": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "agent"
+          ],
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "reduce": {
+          "$ref": "#/$defs/step"
+        },
+        "writeup": {
+          "$ref": "#/$defs/step"
+        }
+      }
+    },
+    "evaluatorOptimizerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "producer",
+        "evaluator",
+        "accept"
+      ],
+      "properties": {
+        "producer": {
+          "type": "string",
+          "description": "Agent that produces the draft."
+        },
+        "evaluator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "agent"
+          ],
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "input": {
+              "type": "string"
+            }
+          }
+        },
+        "accept": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min_score"
+          ],
+          "properties": {
+            "min_score": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "max_iters": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 3
+            }
+          }
+        },
+        "revise_prompt": {
+          "type": "string"
+        }
+      }
+    },
+    "graphConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "properties": {
+        "nodes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agent"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "input": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from"
+            ],
+            "properties": {
+              "from": {
+                "$ref": "#/$defs/identifier"
+              },
+              "to": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/identifier"
+                }
+              },
+              "choose": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "when",
+                    "to"
+                  ],
+                  "properties": {
+                    "when": {
+                      "type": "string",
+                      "description": "Expression; 'else' allowed."
+                    },
+                    "to": {
+                      "$ref": "#/$defs/identifier"
+                    }
+                  }
+                }
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "to"
+                ]
+              },
+              {
+                "required": [
+                  "choose"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "workflowConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tasks"
+      ],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "agent"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "agent": {
+                "type": "string"
+              },
+              "deps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/identifier"
+                },
+                "uniqueItems": true
+              },
+              "description": {
+                "type": "string"
+              },
+              "input": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "from"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Filesystem destination (can include templates)."
+              },
+              "from": {
+                "type": "string",
+                "description": "Source expression (e.g., '{{ last_response }}' or '$TRACE')."
+              }
+            }
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "guardrails": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "deny_network": {
+              "type": "boolean"
+            },
+            "pii_redaction": {
+              "type": "boolean"
+            },
+            "allow_tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": 0,
+      "name": "research-brief",
+      "runtime": {
+        "provider": "bedrock",
+        "model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "region": "eu-central-1",
+        "budgets": {
+          "max_steps": 200,
+          "max_tokens": 800000,
+          "max_duration_s": 900
+        }
+      },
+      "inputs": {
+        "required": {
+          "topic": "string"
+        },
+        "optional": {
+          "audience": "string"
+        }
+      },
+      "tools": {
+        "python": [
+          "strands_tools.http_request"
+        ],
+        "http_executors": [
+          {
+            "id": "gh",
+            "base_url": "https://api.github.com",
+            "headers": {
+              "Authorization": "Bearer ${GITHUB_TOKEN}"
+            }
+          }
+        ]
+      },
+      "agents": {
+        "researcher": {
+          "prompt": "Research {{topic}} and cite sources.",
+          "tools": [
+            "strands_tools.http_request",
+            "gh"
+          ]
+        },
+        "analyst": {
+          "prompt": "Verify, extract 3–5 insights with citations."
+        },
+        "writer": {
+          "prompt": "Write a concise report for {{audience|default:'experts'}}."
+        }
+      },
+      "pattern": {
+        "type": "chain",
+        "config": {
+          "steps": [
+            {
+              "agent": "researcher",
+              "input": "Find 6 diverse sources."
+            },
+            {
+              "agent": "analyst",
+              "input": "Verify and summarize with evidence."
+            },
+            {
+              "agent": "writer",
+              "input": "Produce a 600-word brief."
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "artifacts": [
+          {
+            "path": "./artifacts/research-brief.md",
+            "from": "{{ last_response }}"
+          }
+        ]
+      }
+    }
+  ]
+}

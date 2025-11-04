@@ -1,0 +1,24 @@
+version: 0
+name: minimal-ollama
+description: Bare minimum MVP spec for Ollama
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  simple:
+    prompt: "You are a helpful assistant."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: simple
+        input: "Hello"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

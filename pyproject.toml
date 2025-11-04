@@ -1,0 +1,177 @@
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "strands-cli"
+version = "0.1.0"
+description = "CLI to execute agentic workflows (YAML/JSON) on Strands agents (Ollama/Bedrock) with strong observability, schema validation, and safe orchestration."
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+authors = [
+  { name = "Thomas Klok Rohde", email = "thomas@rohde.name" }
+]
+maintainers = [
+  { name = "Thomas Klok Rohde", email = "thomas@rohde.name" }
+]
+keywords = ["aws", "bedrock", "ollama", "strands", "agents", "workflow", "yaml", "cli", "opentelemetry", "mcp"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Utilities"
+]
+
+# Core runtime dependencies (mature, enterprise-friendly)
+dependencies = [
+  "typer>=0.17.0",
+  "rich>=14.0.0",
+  "ruamel.yaml==0.18.10",
+  "jinja2==3.1.6",
+  "pydantic==2.12.3",
+  "pydantic-settings==2.11.0",
+  "jsonschema==4.25.1",
+  "anyio==4.11.0",
+  "tenacity>=9.0",
+  "jmespath>=1.0",
+  "httpx==0.28.1",
+  "orjson==3.11.4",
+  "structlog==25.5.0",
+  "opentelemetry-sdk==1.38.0",
+  "opentelemetry-exporter-otlp==1.38.0",
+  "opentelemetry-instrumentation-logging==0.59b0",
+  "opentelemetry-instrumentation-httpx==0.59b0",
+  "strands-agents>=1.14.0",
+  "strands-agents-tools>=0.1",
+  "boto3==1.40.65",
+  "ollama>=0.4.2",
+  "python-dotenv==1.2.1",
+  "diskcache==5.6.3",
+  "platformdirs>=4.2",
+  "filelock>=3.14"
+]
+
+# Optional feature groups exposed as extras (install with: uv pip install .[docs])
+[project.optional-dependencies]
+docs = [
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.6.3",
+  "mkdocstrings[python]==0.26.2",
+]
+openai = ["openai==2.7.0"]
+mcp = ["mcp>=1.11.0"]
+prometheus = ["prometheus-client>=0.20"]
+
+# CLI entry point
+[project.scripts]
+strands = "strands_cli.__main__:app"
+
+[project.urls]
+Homepage = "https://github.com/ThomasRohde/strands-cli"
+Repository = "https://github.com/ThomasRohde/strands-cli"
+Issues = "https://github.com/ThomasRohde/strands-cli/issues"
+Documentation = "https://github.com/ThomasRohde/strands-cli/tree/main/docs"
+
+# Hatch build settings: src-layout packaging
+[tool.hatch.build]
+packages = ["src/strands_cli"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/strands_cli",
+  "README.md",
+  "LICENSE",
+  "docs/strands-workflow.schema.json"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/strands_cli"]
+include = [
+  "docs/strands-workflow.schema.json"
+]
+
+# ---- uv configuration ----
+# Dev/test/docs groups and settings for uv users.
+[tool.uv]
+# You can install dev deps with: `uv sync --dev`
+dev-dependencies = [
+  "ruff>=0.7.5",
+  "mypy==1.13.0",
+  "pytest==8.3.4",
+  "pytest-asyncio==0.24.0",
+  "pytest-mock>=3.14.0",
+  "pytest-cov>=6.0.0",
+  "coverage==7.6.10",
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.6.3",
+  "mkdocstrings[python]==0.26.2",
+  "hatchling==1.27.0"
+]
+
+# ---- Linting & Formatting ----
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # isort
+  "B",   # flake8-bugbear
+  "UP",  # pyupgrade
+  "W",   # pycodestyle warnings
+  "C90", # mccabe complexity
+  "N",   # pep8-naming
+  "SIM", # flake8-simplify
+  "ASYNC",
+  "RUF"
+]
+ignore = [
+  "E501" # managed by formatter/line-length
+]
+
+[tool.ruff.format]
+quote-style = "preserve"
+indent-style = "space"
+docstring-code-format = true
+
+# ---- Type checking ----
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+
+# ---- Testing ----
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+xfail_strict = true
+
+# ---- Coverage ----
+[tool.coverage.run]
+branch = true
+source = ["src/strands_cli"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 85
+
+# ---- Structlog ----
+[tool.structlog]
+# Informational; configuration is typically done in code.
+# Kept here as a reminder for centralizing settings if desired.

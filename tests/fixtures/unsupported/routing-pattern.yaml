@@ -1,0 +1,35 @@
+version: 0
+name: routing-pattern
+description: Routing pattern (unsupported in MVP)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  router:
+    prompt: "You route requests."
+  worker:
+    prompt: "You do work."
+
+pattern:
+  type: routing
+  config:
+    router:
+      agent: router
+      input: "Route this request"
+    routes:
+      technical:
+        then:
+          - agent: worker
+            input: "Handle technical"
+      general:
+        then:
+          - agent: worker
+            input: "Handle general"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

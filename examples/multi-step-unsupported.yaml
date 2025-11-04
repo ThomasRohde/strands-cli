@@ -1,0 +1,28 @@
+version: 0
+name: multi-step-unsupported
+description: Example with multiple steps in chain (should trigger EX_UNSUPPORTED)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  processor:
+    prompt: You are a data processor.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: processor
+        input: "Step 1: Gather data"
+      - agent: processor
+        input: "Step 2: Analyze data from {{ step1 }}"
+      - agent: processor
+        input: "Step 3: Generate report from {{ step2 }}"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.md
+      from: "{{ last_response }}"

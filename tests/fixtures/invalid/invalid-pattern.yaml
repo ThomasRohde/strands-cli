@@ -1,0 +1,24 @@
+version: 0
+name: invalid-pattern
+description: Uses invalid pattern type
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  simple:
+    prompt: "Hello"
+
+pattern:
+  type: invalid_pattern_type  # Not a valid enum value
+  config:
+    steps:
+      - agent: simple
+        input: "Test"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

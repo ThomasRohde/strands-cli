@@ -1,0 +1,28 @@
+version: 0
+name: multi-agent
+description: Multiple agents (unsupported in MVP)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  researcher:
+    prompt: "You research topics."
+  writer:
+    prompt: "You write reports."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research AI"
+      - agent: writer
+        input: "Write a report"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/report.md
+      from: "{{ last_response }}"

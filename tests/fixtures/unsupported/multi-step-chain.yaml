@@ -1,0 +1,28 @@
+version: 0
+name: multi-step-chain
+description: Chain with more than 1 step (unsupported in MVP)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  worker:
+    prompt: "You complete tasks."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: worker
+        input: "Step 1"
+      - agent: worker
+        input: "Step 2"
+      - agent: worker
+        input: "Step 3"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

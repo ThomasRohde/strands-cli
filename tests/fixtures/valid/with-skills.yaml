@@ -1,0 +1,31 @@
+version: 0
+name: with-skills
+description: MVP spec with skills metadata injection
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+skills:
+  - id: python-basics
+    path: ./skills/python.md
+    preload_metadata: true
+  - id: testing
+    path: ./skills/testing.md
+
+agents:
+  coder:
+    prompt: "You are a Python expert. Use available skills."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: coder
+        input: "Write a test"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/code.py
+      from: "{{ last_response }}"

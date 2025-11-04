@@ -1,0 +1,24 @@
+version: 0
+name: minimal-bedrock
+description: Bare minimum MVP spec for Bedrock
+
+runtime:
+  provider: bedrock
+  model_id: us.anthropic.claude-3-sonnet-20240229-v1:0
+  region: us-east-1
+
+agents:
+  simple:
+    prompt: "You are a helpful assistant."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: simple
+        input: "Hello"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

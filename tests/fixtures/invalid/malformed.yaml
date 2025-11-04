@@ -1,0 +1,12 @@
+version: 0
+name: malformed
+description: "This YAML has syntax errors
+# Missing closing quote and invalid structure
+runtime:
+  provider: ollama
+    model_id: "gpt-oss
+  host http://localhost:11434
+
+agents
+  simple:
+    prompt: "Hello

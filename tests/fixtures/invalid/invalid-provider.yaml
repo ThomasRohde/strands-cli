@@ -1,0 +1,23 @@
+version: 0
+name: invalid-provider
+description: Uses unsupported provider
+
+runtime:
+  provider: openai  # Not supported in MVP
+  model_id: gpt-4
+
+agents:
+  simple:
+    prompt: "Hello"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: simple
+        input: "Test"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

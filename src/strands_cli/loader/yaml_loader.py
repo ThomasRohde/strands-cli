@@ -1,0 +1,148 @@
+"""YAML/JSON loader for workflow specifications.
+
+Handles loading, parsing, and validating workflow specs from YAML or JSON files.
+Supports CLI variable overrides (--var) which are merged into inputs.values.
+
+Validation Flow:
+    1. Read and parse YAML/JSON file
+    2. Merge CLI variables into inputs.values
+    3. Validate against JSON Schema Draft 2020-12
+    4. Convert to typed Pydantic Spec model
+
+Supported Formats:
+    - .yaml, .yml: Parsed with ruamel.yaml (safe mode)
+    - .json: Parsed with standard json module
+"""
+
+import json
+from pathlib import Path
+
+from pydantic import ValidationError as PydanticValidationError
+from ruamel.yaml import YAML
+
+from strands_cli.schema import validate_spec
+from strands_cli.types import Spec
+
+# Security: Maximum spec file size to prevent memory exhaustion
+# 10MB should be more than sufficient for any reasonable workflow spec
+MAX_SPEC_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
+
+
+class LoadError(Exception):
+    """Raised when a spec file cannot be loaded or parsed."""
+
+    pass
+
+
+def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) -> Spec:
+    """Load and validate a workflow spec from YAML or JSON.
+
+    This is the primary entry point for loading workflow specifications.
+    Performs multi-stage validation: file parsing, schema validation, and
+    Pydantic model conversion for type safety.
+
+    Args:
+        file_path: Path to the spec file (.yaml, .yml, or .json)
+        variables: Optional CLI variables (--var k=v) to merge into inputs.values.
+                   These override values in the spec file.
+
+    Returns:
+        Validated Spec object with full type information
+
+    Raises:
+        LoadError: If file cannot be read, parsed, or format is unsupported
+        SchemaValidationError: If spec doesn't conform to JSON Schema
+        PydanticValidationError: If spec cannot be converted to typed Spec
+                                 (should be rare if schema validation passed)
+    """
+    file_path = Path(file_path)
+
+    if not file_path.exists():
+        raise LoadError(f"Spec file not found: {file_path}")
+
+    # Security check: Ensure file size is reasonable
+    file_size = file_path.stat().st_size
+    if file_size > MAX_SPEC_SIZE_BYTES:
+        size_mb = file_size / (1024 * 1024)
+        max_mb = MAX_SPEC_SIZE_BYTES / (1024 * 1024)
+        raise LoadError(f"Spec file too large: {size_mb:.1f}MB exceeds maximum of {max_mb:.0f}MB")
+
+    # Read file content
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except Exception as e:
+        raise LoadError(f"Failed to read {file_path}: {e}") from e
+
+    # Parse based on extension
+    suffix = file_path.suffix.lower()
+    try:
+        if suffix in {".yaml", ".yml"}:
+            yaml = YAML(typ="safe", pure=True)
+            spec_data = yaml.load(content)
+        elif suffix == ".json":
+            spec_data = json.loads(content)
+        else:
+            raise LoadError(f"Unsupported file extension: {suffix}. Use .yaml, .yml, or .json")
+    except Exception as e:
+        raise LoadError(f"Failed to parse {file_path}: {e}") from e
+
+    if not isinstance(spec_data, dict):
+        raise LoadError(f"Spec must be a dictionary/object, got {type(spec_data)}")
+
+    # Merge CLI variables into inputs.values
+    # This allows runtime overrides without modifying the spec file
+    if variables:
+        if "inputs" not in spec_data:
+            spec_data["inputs"] = {}
+        if not isinstance(spec_data["inputs"], dict):
+            spec_data["inputs"] = {}
+
+        # Merge variables into inputs.values
+        if "values" not in spec_data["inputs"]:
+            spec_data["inputs"]["values"] = {}
+        if not isinstance(spec_data["inputs"]["values"], dict):
+            spec_data["inputs"]["values"] = {}
+
+        spec_data["inputs"]["values"].update(variables)
+
+    # Validate against JSON Schema
+    validate_spec(spec_data)
+
+    # Convert to typed Pydantic model
+    # This provides a second validation layer and ensures type safety
+    # throughout the codebase (should rarely fail if schema validation passed)
+    try:
+        return Spec.model_validate(spec_data)
+    except PydanticValidationError as e:
+        # This shouldn't happen if schema validation passed,
+        # but catch it for safety
+        raise LoadError(f"Failed to create typed Spec: {e}") from e
+
+
+def parse_variables(var_args: list[str]) -> dict[str, str]:
+    """Parse --var arguments into a dictionary.
+
+    Args:
+        var_args: List of "key=value" strings from CLI
+
+    Returns:
+        Dictionary of variables
+
+    Raises:
+        LoadError: If a variable is malformed
+    """
+    variables = {}
+    for var in var_args:
+        if "=" not in var:
+            raise LoadError(f"Invalid variable format: {var}. Expected key=value")
+
+        key, value = var.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not key:
+            raise LoadError(f"Empty variable key in: {var}")
+
+        variables[key] = value
+
+    return variables

@@ -1,0 +1,37 @@
+version: 0
+name: with-budgets
+description: MVP spec with budget configuration
+
+runtime:
+  provider: bedrock
+  model_id: us.anthropic.claude-3-sonnet-20240229-v1:0
+  region: us-east-1
+  budgets:
+    max_steps: 100
+    max_tokens: 50000
+    max_duration_s: 300
+  failure_policy:
+    retries: 3
+    backoff: exponential
+    wait_min: 1
+    wait_max: 30
+
+agents:
+  analyst:
+    prompt: "You are an analyst."
+    inference:
+      temperature: 0.7
+      top_p: 0.9
+      max_tokens: 2000
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: analyst
+        input: "Analyze data"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/analysis.md
+      from: "{{ last_response }}"

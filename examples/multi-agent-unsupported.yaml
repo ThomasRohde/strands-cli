@@ -1,0 +1,29 @@
+version: 0
+name: multi-agent-unsupported
+description: Example with multiple agents (should trigger EX_UNSUPPORTED)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  researcher:
+    prompt: You are a researcher.
+  
+  writer:
+    prompt: You are a writer.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research the topic"
+      - agent: writer
+        input: "Write a report based on: {{ previous_output }}"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/report.md
+      from: "{{ last_response }}"

@@ -1,0 +1,2 @@
+# Missing required fields: version, name, runtime, agents, pattern
+description: This spec is incomplete and should fail validation

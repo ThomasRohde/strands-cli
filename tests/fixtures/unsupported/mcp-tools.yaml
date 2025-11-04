@@ -1,0 +1,32 @@
+version: 0
+name: mcp-tools
+description: MCP tools (unsupported in MVP)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+tools:
+  mcp:
+    - id: filesystem
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+agents:
+  worker:
+    prompt: "You use MCP tools."
+    tools:
+      - filesystem
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: worker
+        input: "List files"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

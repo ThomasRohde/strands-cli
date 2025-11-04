@@ -1,0 +1,29 @@
+version: 0
+name: multi-task-workflow
+description: Workflow with more than 1 task (unsupported in MVP)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  worker:
+    prompt: "You complete tasks."
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: task1
+        agent: worker
+        input: "Do task 1"
+      - id: task2
+        agent: worker
+        deps: [task1]
+        input: "Do task 2"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

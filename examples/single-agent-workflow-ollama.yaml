@@ -1,0 +1,31 @@
+version: 0
+name: single-agent-workflow-ollama
+description: Single-agent workflow using Ollama with workflow pattern
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+inputs:
+  values:
+    query: "What is quantum computing?"
+
+agents:
+  responder:
+    prompt: |
+      You are a helpful assistant that provides clear, accurate answers.
+      Format your responses in Markdown.
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: respond
+        agent: responder
+        input: "Answer this question: {{ query }}"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/response-ollama.md
+      from: "{{ last_response }}"
