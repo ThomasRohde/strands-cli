@@ -149,17 +149,37 @@ class Agent(BaseModel):
 
 
 class ChainStep(BaseModel):
-    """Single step in a chain pattern."""
+    """Single step in a chain pattern.
+
+    Attributes:
+        agent: Reference to an agent key in the agents map
+        input: Prompt supplement or instruction (template allowed)
+        vars: Per-step variable overrides for template rendering
+        tool_overrides: Override agent's default tools for this step
+    """
 
     agent: str  # Agent ID
-    input: str  # Prompt template
+    input: str | None = None  # Prompt template (optional)
+    vars: dict[str, str | int | bool] | None = None  # Per-step variables
+    tool_overrides: list[str] | None = None  # Tool ID overrides
 
 
 class WorkflowTask(BaseModel):
-    """Single task in a workflow pattern."""
+    """Single task in a workflow pattern.
 
-    agent: str  # Agent ID
-    input: str  # Prompt template
+    Attributes:
+        id: Unique identifier for the task
+        agent: Reference to an agent key in the agents map
+        deps: List of task IDs this task depends on
+        description: Human-readable task description
+        input: Prompt supplement or instruction (template allowed)
+    """
+
+    id: str  # Unique task identifier (required)
+    agent: str  # Agent ID (required)
+    deps: list[str] | None = None  # Task dependencies
+    description: str | None = None  # Human-readable description
+    input: str | None = None  # Prompt template (optional)
 
 
 class PatternConfig(BaseModel):

@@ -9,12 +9,18 @@ Safety controls prevent common issues:
 4. Token budget enforcement: Optional output length limiting
 5. No file system access: Templates are strings only (no file loader)
 
+Custom Filters (Phase 1):
+    - truncate(n): Truncate text to n characters with ellipsis
+    - tojson: Serialize Python object to JSON string
+
 Used for:
     - Rendering agent prompts with input variables
     - Generating output artifacts with {{ last_response }}
     - Injecting runtime context into system prompts
+    - Multi-step context: {{ steps[0].response }}, {{ tasks.<id>.response }}
 """
 
+import json
 import re
 import unicodedata
 from typing import Any
@@ -54,6 +60,37 @@ def _strip_control_chars(text: str) -> str:
     return text
 
 
+def _filter_truncate(text: str, length: int = 100) -> str:
+    """Truncate text to specified length with ellipsis.
+
+    Custom Jinja2 filter for token budget control in templates.
+
+    Args:
+        text: Text to truncate
+        length: Maximum length (default 100)
+
+    Returns:
+        Truncated text with "..." appended if truncated
+    """
+    if len(text) <= length:
+        return text
+    return text[: length - 3] + "..."
+
+
+def _filter_tojson(obj: Any) -> str:
+    """Serialize object to JSON string.
+
+    Custom Jinja2 filter for structured data in templates.
+
+    Args:
+        obj: Python object to serialize
+
+    Returns:
+        JSON string representation
+    """
+    return json.dumps(obj, ensure_ascii=False)
+
+
 def render_template(
     template_str: str,
     variables: dict[str, Any],
@@ -78,13 +115,17 @@ def render_template(
         TemplateError: If template syntax is invalid, variable is undefined,
                       or rendering fails for any reason
     """
-    # Create a simple Jinja2 environment
+    # Create a simple Jinja2 environment with custom filters
     # (no file system access, only string templates)
     env = Environment(
         loader=BaseLoader(),
         autoescape=False,  # We're generating prompts, not HTML
         undefined=StrictUndefined,  # Raise on undefined variables
     )
+
+    # Register custom filters
+    env.filters["truncate"] = _filter_truncate
+    env.filters["tojson"] = _filter_tojson
 
     try:
         template = env.from_string(template_str)
@@ -127,6 +168,9 @@ class TemplateRenderer:
             autoescape=False,
             undefined=StrictUndefined,
         )
+        # Register custom filters
+        self.env.filters["truncate"] = _filter_truncate
+        self.env.filters["tojson"] = _filter_tojson
 
     def render(self, template_str: str, variables: dict[str, Any]) -> str:
         """Render a template.

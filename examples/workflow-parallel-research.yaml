@@ -1,0 +1,89 @@
+version: 0
+name: workflow-parallel-research
+description: Workflow with parallel tasks demonstrating DAG execution
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+  max_parallel: 2
+  budgets:
+    max_tokens: 15000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant specializing in technology trends.
+      Provide factual, well-structured responses.
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      # Root task - no dependencies
+      - id: overview
+        agent: researcher
+        description: "Get high-level overview of the topic"
+        input: "Provide a brief overview (2-3 sentences) of: {{topic}}"
+      
+      # Parallel branch 1 - depends on overview
+      - id: technical
+        agent: researcher
+        deps: [overview]
+        description: "Research technical aspects"
+        input: |
+          Topic: {{topic}}
+          Overview: {{ tasks.overview.response }}
+          
+          Research the technical implementation details. List 3 key technical points.
+      
+      # Parallel branch 2 - depends on overview
+      - id: applications
+        agent: researcher
+        deps: [overview]
+        description: "Research practical applications"
+        input: |
+          Topic: {{topic}}
+          Overview: {{ tasks.overview.response }}
+          
+          Research practical applications and use cases. List 3 real-world examples.
+      
+      # Synthesis - depends on both parallel branches
+      - id: synthesis
+        agent: researcher
+        deps: [technical, applications]
+        description: "Synthesize findings into final report"
+        input: |
+          Synthesize the following research into a cohesive report:
+          
+          Technical Details:
+          {{ tasks.technical.response }}
+          
+          Applications:
+          {{ tasks.applications.response }}
+          
+          Write a 3-paragraph report combining technical and practical insights.
+
+inputs:
+  values:
+    topic: "edge computing"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/{{topic}}-workflow.md
+      from: |
+        # {{topic | title}} Research Report
+        
+        ## Overview
+        {{ tasks.overview.response }}
+        
+        ## Technical Analysis
+        Status: {{ tasks.technical.status }}
+        {{ tasks.technical.response }}
+        
+        ## Applications
+        Status: {{ tasks.applications.status }}
+        {{ tasks.applications.response }}
+        
+        ## Synthesis
+        {{ tasks.synthesis.response }}

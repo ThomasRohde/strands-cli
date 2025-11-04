@@ -153,7 +153,7 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
 
         # Render task input
         try:
-            task_input = render_template(task_input_template, template_vars)
+            task_input = render_template(task_input_template or "", template_vars)
         except Exception as e:
             raise ExecutionError(f"Failed to render task input: {e}") from e
 
@@ -174,7 +174,7 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
             wait=wait_exponential(multiplier=wait_min, max=wait_max),
             reraise=True,
         )
-        async def _execute_agent():
+        async def _execute_agent() -> str:
             """Execute agent with retry logic."""
             with tracer.start_span("agent_invoke"):
                 # Invoke the agent asynchronously

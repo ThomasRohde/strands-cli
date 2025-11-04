@@ -31,7 +31,12 @@ from rich.table import Table
 from strands_cli import __version__
 from strands_cli.artifacts import ArtifactError, write_artifacts
 from strands_cli.capability import check_capability, generate_markdown_report
-from strands_cli.exec import ExecutionError, run_single_agent
+from strands_cli.exec.chain import ChainExecutionError, run_chain
+
+# Import executors
+from strands_cli.exec.single_agent import ExecutionError as SingleAgentExecutionError
+from strands_cli.exec.single_agent import run_single_agent
+from strands_cli.exec.workflow import WorkflowExecutionError, run_workflow
 from strands_cli.exit_codes import (
     EX_IO,
     EX_OK,
@@ -43,6 +48,10 @@ from strands_cli.exit_codes import (
 from strands_cli.loader import LoadError, load_spec, parse_variables
 from strands_cli.schema import SchemaValidationError
 from strands_cli.telemetry import configure_telemetry
+from strands_cli.types import PatternType
+
+# Combine execution errors for exception handling
+ExecutionError = (SingleAgentExecutionError, ChainExecutionError, WorkflowExecutionError)
 
 app = typer.Typer(
     name="strands",
@@ -153,9 +162,29 @@ def run(
         if verbose:
             console.print(f"[dim]Provider: {spec.runtime.provider}[/dim]")
             console.print(f"[dim]Model: {spec.runtime.model_id or 'default'}[/dim]")
+            console.print(f"[dim]Pattern: {spec.pattern.type}[/dim]")
 
         try:
-            result = run_single_agent(spec, variables)
+            # Route to appropriate executor based on pattern type
+            if spec.pattern.type == PatternType.CHAIN:
+                if spec.pattern.config.steps and len(spec.pattern.config.steps) == 1:
+                    # Single-step chain - use legacy executor for backward compatibility
+                    result = run_single_agent(spec, variables)
+                else:
+                    # Multi-step chain - use new chain executor
+                    result = run_chain(spec, variables)
+            elif spec.pattern.type == PatternType.WORKFLOW:
+                if spec.pattern.config.tasks and len(spec.pattern.config.tasks) == 1:
+                    # Single-task workflow - use legacy executor for backward compatibility
+                    result = run_single_agent(spec, variables)
+                else:
+                    # Multi-task workflow - use new workflow executor
+                    result = run_workflow(spec, variables)
+            else:
+                # Other patterns (routing, parallel, etc.) - not yet supported
+                console.print(f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet")
+                sys.exit(EX_UNSUPPORTED)
+
         except ExecutionError as e:
             console.print(f"\n[red]Execution failed:[/red] {e}")
             sys.exit(EX_RUNTIME)
@@ -413,23 +442,24 @@ def list_supported() -> None:
     Displays a comprehensive table of currently supported workflow features,
     including agent limits, pattern types, providers, tools, and configuration options.
     """
-    console.print(Panel("[bold]Strands CLI MVP — Supported Features[/bold]", style="green"))
+    console.print(Panel("[bold]Strands CLI Phase 1 — Supported Features[/bold]", style="green"))
 
     features = [
         ("Agents", "Exactly 1 agent"),
-        ("Patterns", "chain (1 step) OR workflow (1 task)"),
+        ("Patterns", "chain (multi-step) OR workflow (multi-task DAG)"),
         ("Providers", "bedrock, ollama"),
         ("Python Tools", "strands_tools.http_request, strands_tools.file_read"),
         ("HTTP Executors", "Full support"),
         ("Secrets", "source: env only"),
         ("Skills", "Metadata injection (no code exec)"),
-        ("Budgets", "Logged (no enforcement)"),
+        ("Budgets", "Tracked with 80% warning threshold"),
         ("Retries", "Exponential backoff for transient errors"),
-        ("Artifacts", "{{ last_response }} template"),
+        ("Artifacts", "{{ last_response }}, {{ steps[n].response }}, {{ tasks.<id>.response }}"),
+        ("Context", "Explicit step/task references in templates"),
         ("OTEL", "Parsed (no-op; scaffolding ready)"),
     ]
 
-    table = Table(title="MVP Features")
+    table = Table(title="Phase 1 Features (v0.2.0)")
     table.add_column("Feature", style="cyan", no_wrap=True)
     table.add_column("Support", style="green")
 
@@ -440,7 +470,7 @@ def list_supported() -> None:
 
     console.print("\n[dim]For the full schema and roadmap, see:[/dim]")
     console.print("[dim]  docs/strands-workflow.schema.json[/dim]")
-    console.print("[dim]  docs/PRD_SingleAgent_MVP.md[/dim]")
+    console.print("[dim]  PLAN.md - Multi-agent roadmap[/dim]")
 
     sys.exit(EX_OK)
 
@@ -489,7 +519,7 @@ def doctor() -> None:
         checks_passed += 1
     else:
         console.print(f"  [red]✗[/red] Schema file not found: {schema_path}")
-        console.print(f"      [yellow]Try reinstalling with:[/yellow] uv sync")
+        console.print("      [yellow]Try reinstalling with:[/yellow] uv sync")
         checks_failed += 1
 
     # Check 3: Core dependencies

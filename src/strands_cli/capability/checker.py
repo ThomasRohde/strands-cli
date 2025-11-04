@@ -4,9 +4,9 @@ Analyzes validated workflow specs to determine if they can be executed
 with current capabilities. Gracefully rejects unsupported features with
 structured error reports rather than silently ignoring them.
 
-Supported Features:
+Supported Features (Phase 1):
     - Exactly 1 agent in agents map
-    - Pattern: chain (1 step) OR workflow (1 task)
+    - Pattern: chain (multi-step) OR workflow (multi-task with DAG)
     - Providers: bedrock, ollama
     - Python tools: strands_tools.http_request, strands_tools.file_read
     - HTTP executors: full support
@@ -15,12 +15,14 @@ Supported Features:
 
 Unsupported (with remediation):
     - Multiple agents
-    - Multi-step chains or multi-task workflows
     - Patterns: routing, parallel, orchestrator_workers, evaluator_optimizer, graph
     - MCP tools
     - Non-env secret sources
     - Non-allowlisted Python callables
 """
+
+from collections import deque
+from typing import Any
 
 from strands_cli.types import (
     CapabilityIssue,
@@ -37,6 +39,54 @@ ALLOWED_PYTHON_CALLABLES = {
     "strands_tools.http_request",
     "strands_tools.file_read",
 }
+
+
+def detect_cycles_in_dag(tasks: list[Any]) -> list[str]:
+    """Detect cycles in workflow task dependencies using Kahn's algorithm.
+
+    Args:
+        tasks: List of WorkflowTask objects with id and deps fields
+
+    Returns:
+        List of error messages describing cycles found (empty if no cycles)
+    """
+    # Build adjacency list and in-degree count
+    task_map = {task.id: task for task in tasks}
+    in_degree = {task.id: 0 for task in tasks}
+    adj_list: dict[str, list[str]] = {task.id: [] for task in tasks}
+
+    # Calculate in-degrees and build adjacency list
+    for task in tasks:
+        if task.deps:
+            for dep_id in task.deps:
+                if dep_id not in task_map:
+                    # Invalid dependency - will be caught by separate validation
+                    continue
+                adj_list[dep_id].append(task.id)
+                in_degree[task.id] += 1
+
+    # Kahn's algorithm for topological sort
+    queue = deque([task_id for task_id, degree in in_degree.items() if degree == 0])
+    processed = []
+
+    while queue:
+        current = queue.popleft()
+        processed.append(current)
+
+        for neighbor in adj_list[current]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+
+    # If not all tasks processed, there's a cycle
+    errors = []
+    if len(processed) < len(tasks):
+        unprocessed = [task_id for task_id in task_map if task_id not in processed]
+        errors.append(
+            f"Cycle detected in task dependencies. Tasks involved: {', '.join(unprocessed)}"
+        )
+
+    return errors
 
 
 def check_capability(spec: Spec) -> CapabilityReport:
@@ -117,43 +167,52 @@ def check_capability(spec: Spec) -> CapabilityReport:
             )
         )
 
-    # Check 6: Chain must have exactly 1 step
-    if spec.pattern.type == PatternType.CHAIN:
-        if not spec.pattern.config.steps:
-            issues.append(
-                CapabilityIssue(
+    # Check 6: Chain must have at least 1 step
+    if spec.pattern.type == PatternType.CHAIN and not spec.pattern.config.steps:
+        issues.append(
+            CapabilityIssue(
                     pointer="/pattern/config/steps",
                     reason="Chain pattern has no steps",
-                    remediation="Add exactly 1 step to pattern.config.steps",
-                )
-            )
-        elif len(spec.pattern.config.steps) > 1:
-            issues.append(
-                CapabilityIssue(
-                    pointer="/pattern/config/steps",
-                    reason=f"Chain has {len(spec.pattern.config.steps)} steps, but MVP supports only 1",
-                    remediation="Reduce to 1 step in pattern.config.steps",
+                    remediation="Add at least 1 step to pattern.config.steps",
                 )
             )
 
-    # Check 7: Workflow must have exactly 1 task
+    # Check 7: Workflow must have at least 1 task with valid dependencies
     if spec.pattern.type == PatternType.WORKFLOW:
         if not spec.pattern.config.tasks:
             issues.append(
                 CapabilityIssue(
                     pointer="/pattern/config/tasks",
                     reason="Workflow pattern has no tasks",
-                    remediation="Add exactly 1 task to pattern.config.tasks",
+                    remediation="Add at least 1 task to pattern.config.tasks",
                 )
             )
-        elif len(spec.pattern.config.tasks) > 1:
-            issues.append(
-                CapabilityIssue(
-                    pointer="/pattern/config/tasks",
-                    reason=f"Workflow has {len(spec.pattern.config.tasks)} tasks, but MVP supports only 1",
-                    remediation="Reduce to 1 task in pattern.config.tasks",
-                )
-            )
+        else:
+            # Validate task dependencies
+            task_ids = {task.id for task in spec.pattern.config.tasks}
+            for i, task in enumerate(spec.pattern.config.tasks):
+                if task.deps:
+                    for dep in task.deps:
+                        if dep not in task_ids:
+                            issues.append(
+                                CapabilityIssue(
+                                    pointer=f"/pattern/config/tasks/{i}/deps",
+                                    reason=f"Task '{task.id}' depends on non-existent task '{dep}'",
+                                    remediation=f"Ensure dependency '{dep}' exists in tasks list",
+                                )
+                            )
+
+            # Check for cycles in DAG
+            if not issues:  # Only check cycles if dependencies are valid
+                cycle_errors = detect_cycles_in_dag(spec.pattern.config.tasks)
+                for error in cycle_errors:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer="/pattern/config/tasks",
+                            reason=error,
+                            remediation="Remove circular dependencies to form a valid DAG",
+                        )
+                    )
 
     # Check 8: Secrets must use source=env
     if spec.env and spec.env.secrets:
@@ -197,19 +256,10 @@ def check_capability(spec: Spec) -> CapabilityReport:
         agent_id = next(iter(spec.agents.keys()))
         agent = spec.agents[agent_id]
 
-        # Extract the single step/task
-        if spec.pattern.type == PatternType.CHAIN:
-            step = spec.pattern.config.steps[0]  # type: ignore
-            task_input = step.input
-        else:  # WORKFLOW
-            task = spec.pattern.config.tasks[0]  # type: ignore
-            task_input = task.input
-
         normalized = {
             "agent_id": agent_id,
             "agent": agent,
             "pattern_type": spec.pattern.type,
-            "task_input": task_input,
             "provider": spec.runtime.provider,
             "model_id": spec.runtime.model_id,
             "region": spec.runtime.region,

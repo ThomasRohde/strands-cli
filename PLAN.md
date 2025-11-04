@@ -95,6 +95,14 @@ This phased plan extends the strands-cli from its current MVP (single-agent exec
 - [ ] Coverage ≥85%
 - [ ] New tests: `test_chain.py`, `test_workflow.py`, `test_dag.py`
 
+### Implementation Decisions
+
+**Context Threading**: Explicit step/task references using `{{ steps[n].response }}` and `{{ tasks.<id>.response }}` syntax. Opt-in full conversation history via `runtime.include_full_history: true` (deferred to future enhancement).
+
+**Failure Handling**: Fail-fast mode initially - stop entire workflow on first step/task failure. Resilient mode (continue independent branches) deferred to future enhancement with configuration option.
+
+**Token Budget Warnings**: Warn at 80% of `budgets.max_tokens` threshold; hard stop at 100%.
+
 ### Implementation Checklist
 
 - [ ] **Consult `strands-workflow-manual.md`** section 12.1 (Chain) and 12.7 (Workflow) for pattern semantics

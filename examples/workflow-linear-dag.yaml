@@ -1,0 +1,64 @@
+version: 0
+name: workflow-linear-dag
+description: Simple linear DAG workflow (sequential task dependencies)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  analyst:
+    prompt: |
+      You are a data analyst. Provide structured, analytical responses.
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: collect
+        agent: analyst
+        description: "Collect data about the topic"
+        input: "List 5 key data points about: {{topic}}"
+      
+      - id: analyze
+        agent: analyst
+        deps: [collect]
+        description: "Analyze the collected data"
+        input: |
+          Data collected:
+          {{ tasks.collect.response }}
+          
+          Analyze this data and identify the top 2 trends.
+      
+      - id: recommend
+        agent: analyst
+        deps: [analyze]
+        description: "Generate recommendations based on analysis"
+        input: |
+          Analysis:
+          {{ tasks.analyze.response }}
+          
+          Based on these trends, provide 3 actionable recommendations.
+
+inputs:
+  values:
+    topic: "remote work productivity"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/analysis-{{topic}}.md
+      from: |
+        # Analysis: {{topic}}
+        
+        ## Data Collection
+        {{ tasks.collect.response }}
+        
+        ## Analysis
+        {{ tasks.analyze.response }}
+        
+        ## Recommendations
+        {{ last_response }}
+    
+    - path: ./artifacts/summary-{{topic}}.txt
+      from: "{{ tasks.recommend.response | truncate(500) }}"

@@ -16,6 +16,7 @@ Artifact Templates:
 """
 
 from pathlib import Path
+from typing import Any
 
 from strands_cli.loader import render_template
 
@@ -27,7 +28,7 @@ class ArtifactError(Exception):
 
 
 def write_artifacts(
-    spec_artifacts: list,
+    spec_artifacts: list[Any],
     last_response: str,
     output_dir: str | Path = "./artifacts",
     force: bool = False,

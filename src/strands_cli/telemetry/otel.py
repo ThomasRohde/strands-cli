@@ -33,11 +33,11 @@ class NoOpSpan:
     without runtime overhead when OTEL is disabled.
     """
 
-    def __enter__(self):
+    def __enter__(self) -> "NoOpSpan":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         pass
 

@@ -32,7 +32,7 @@ class ToolError(Exception):
     pass
 
 
-def load_python_callable(import_path: str) -> Callable:
+def load_python_callable(import_path: str) -> Callable[..., Any]:
     """Load a Python callable from an import path.
 
     Security: Only loads callables from the ALLOWED_PYTHON_CALLABLES allowlist

@@ -116,15 +116,15 @@ def multi_agent_spec(unsupported_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
-def multi_step_chain_spec(unsupported_fixtures_dir: Path) -> Path:
-    """Path to multi-step chain spec (unsupported)."""
-    return unsupported_fixtures_dir / "multi-step-chain.yaml"
+def multi_step_chain_spec(valid_fixtures_dir: Path) -> Path:
+    """Path to multi-step chain spec (now supported in Phase 1)."""
+    return valid_fixtures_dir / "multi-step-chain.yaml"
 
 
 @pytest.fixture
-def multi_task_workflow_spec(unsupported_fixtures_dir: Path) -> Path:
-    """Path to multi-task workflow spec (unsupported)."""
-    return unsupported_fixtures_dir / "multi-task-workflow.yaml"
+def multi_task_workflow_spec(valid_fixtures_dir: Path) -> Path:
+    """Path to multi-task workflow spec (now supported in Phase 1)."""
+    return valid_fixtures_dir / "multi-task-workflow.yaml"
 
 
 @pytest.fixture

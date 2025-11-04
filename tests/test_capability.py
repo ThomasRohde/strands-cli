@@ -58,37 +58,23 @@ class TestCapabilityChecker:
         assert "exactly 1" in agent_issue.reason
         assert "remediation" in agent_issue.model_dump()
 
-    def test_multi_step_chain_unsupported(self, multi_step_chain_spec: Path) -> None:
-        """Test that multi-step chain is rejected."""
+    def test_multi_step_chain_supported(self, multi_step_chain_spec: Path) -> None:
+        """Test that multi-step chain is now supported in Phase 1."""
         spec = load_spec(multi_step_chain_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
-        assert len(report.issues) >= 1
+        # Phase 1: Multi-step chains are now supported
+        assert report.supported is True
+        assert len(report.issues) == 0
 
-        # Find the steps issue
-        steps_issue = next(
-            (issue for issue in report.issues if "/pattern/config/steps" in issue.pointer), None
-        )
-        assert steps_issue is not None
-        assert "3 steps" in steps_issue.reason
-        assert "only 1" in steps_issue.reason
-
-    def test_multi_task_workflow_unsupported(self, multi_task_workflow_spec: Path) -> None:
-        """Test that multi-task workflow is rejected."""
+    def test_multi_task_workflow_supported(self, multi_task_workflow_spec: Path) -> None:
+        """Test that multi-task workflow is now supported in Phase 1."""
         spec = load_spec(multi_task_workflow_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
-        assert len(report.issues) >= 1
-
-        # Find the tasks issue
-        tasks_issue = next(
-            (issue for issue in report.issues if "/pattern/config/tasks" in issue.pointer), None
-        )
-        assert tasks_issue is not None
-        assert "2 tasks" in tasks_issue.reason
-        assert "only 1" in tasks_issue.reason
+        # Phase 1: Multi-task workflows are now supported
+        assert report.supported is True
+        assert len(report.issues) == 0
 
     def test_routing_pattern_unsupported(self, routing_pattern_spec: Path) -> None:
         """Test that routing pattern is rejected."""
@@ -287,7 +273,9 @@ outputs:
         assert report.normalized is not None
         assert report.normalized["agent_id"] == "simple"
         assert report.normalized["pattern_type"] == PatternType.CHAIN
-        assert "task_input" in report.normalized
+        # Phase 1: task_input removed from normalized since executors handle it directly
+        assert "provider" in report.normalized
+        assert "model_id" in report.normalized
         assert report.normalized["provider"] == ProviderType.OLLAMA
         assert report.normalized["model_id"] == "gpt-oss"
         assert report.normalized["host"] == "http://localhost:11434"
@@ -325,7 +313,9 @@ outputs:
         assert report.normalized is not None
         assert report.normalized["agent_id"] == "worker"
         assert report.normalized["pattern_type"] == PatternType.WORKFLOW
-        assert report.normalized["task_input"] == "Do the task"
+        # Phase 1: task_input removed from normalized since executors handle it directly
+        assert "provider" in report.normalized
+        assert "model_id" in report.normalized
 
     def test_no_normalized_values_when_unsupported(self, multi_agent_spec: Path) -> None:
         """Test that normalized values are None when spec is unsupported."""
@@ -335,9 +325,10 @@ outputs:
         assert report.supported is False
         assert report.normalized is None
 
-    def test_jsonpointer_accuracy(self, multi_step_chain_spec: Path) -> None:
+    def test_jsonpointer_accuracy(self, routing_pattern_spec: Path) -> None:
         """Test that JSONPointer paths are accurate."""
-        spec = load_spec(multi_step_chain_spec)
+        # Use routing pattern spec since it's still unsupported
+        spec = load_spec(routing_pattern_spec)
         report = check_capability(spec)
 
         # All issues should have valid JSONPointer format

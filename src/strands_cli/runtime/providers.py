@@ -15,7 +15,7 @@ Ollama:
 Both providers support model_id override from runtime or agent config.
 """
 
-import boto3
+import boto3  # type: ignore[import-untyped]
 import structlog
 from strands.models.bedrock import BedrockModel
 from strands.models.ollama import OllamaModel
@@ -113,7 +113,7 @@ def create_ollama_model(runtime: Runtime) -> OllamaModel:
     return model
 
 
-def create_model(runtime: Runtime):
+def create_model(runtime: Runtime) -> BedrockModel | OllamaModel:
     """Create a model client based on the provider.
 
     Args:

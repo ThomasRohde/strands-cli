@@ -82,7 +82,12 @@ def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) ->
     return "\n\n".join(sections)
 
 
-def build_agent(spec: Spec, agent_id: str, agent_config: AgentConfig) -> Agent:
+def build_agent(
+    spec: Spec,
+    agent_id: str,
+    agent_config: AgentConfig,
+    tool_overrides: list[str] | None = None,
+) -> Agent:
     """Build a Strands Agent from a spec.
 
     Complete agent construction workflow:
@@ -96,6 +101,8 @@ def build_agent(spec: Spec, agent_id: str, agent_config: AgentConfig) -> Agent:
         spec: Full workflow spec (used for runtime, tools, skills)
         agent_id: ID of the agent to build from spec.agents
         agent_config: Configuration for this agent
+        tool_overrides: Optional list of tool IDs to use instead of agent's default tools
+                       (used for per-step tool_overrides in chain pattern)
 
     Returns:
         Configured Strands Agent ready for invoke_async()
@@ -112,6 +119,7 @@ def build_agent(spec: Spec, agent_id: str, agent_config: AgentConfig) -> Agent:
         agent_id=agent_id,
         provider=spec.runtime.provider.value,
         model_id=spec.runtime.model_id or agent_config.model_id,
+        tool_overrides=tool_overrides,
     )
 
     # Create the model
@@ -123,26 +131,33 @@ def build_agent(spec: Spec, agent_id: str, agent_config: AgentConfig) -> Agent:
     # Build system prompt
     system_prompt = build_system_prompt(agent_config, spec, agent_id)
 
+    # Determine which tools to use
+    tools_to_use = tool_overrides if tool_overrides is not None else agent_config.tools
+
     # Create tools list
     tools = []
 
     # Add Python callables
     if spec.tools and spec.tools.python:
         for py_tool in spec.tools.python:
-            try:
-                callable_obj = load_python_callable(py_tool.callable)
-                tools.append(callable_obj)
-            except Exception as e:
-                raise AdapterError(f"Failed to load Python tool '{py_tool.callable}': {e}") from e
+            # Only add if in tools_to_use (or if no tool filtering)
+            if tools_to_use is None or py_tool.callable in tools_to_use:
+                try:
+                    callable_obj = load_python_callable(py_tool.callable)
+                    tools.append(callable_obj)
+                except Exception as e:
+                    raise AdapterError(f"Failed to load Python tool '{py_tool.callable}': {e}") from e
 
     # Add HTTP executors
     if spec.tools and spec.tools.http_executors:
         for http_exec in spec.tools.http_executors:
-            try:
-                adapter = HttpExecutorAdapter(http_exec)
-                tools.append(adapter)
-            except Exception as e:
-                raise AdapterError(f"Failed to create HTTP executor '{http_exec.id}': {e}") from e
+            # Only add if in tools_to_use (or if no tool filtering)
+            if tools_to_use is None or http_exec.id in tools_to_use:
+                try:
+                    adapter = HttpExecutorAdapter(http_exec)
+                    tools.append(adapter)
+                except Exception as e:
+                    raise AdapterError(f"Failed to create HTTP executor '{http_exec.id}': {e}") from e
 
     # Create the agent
     try:
@@ -150,7 +165,7 @@ def build_agent(spec: Spec, agent_id: str, agent_config: AgentConfig) -> Agent:
             name=agent_id,
             model=model,
             system_prompt=system_prompt,
-            tools=tools if tools else None,
+            tools=tools if tools else None,  # type: ignore[arg-type]
         )
     except Exception as e:
         raise AdapterError(f"Failed to create Strands Agent: {e}") from e

@@ -186,30 +186,29 @@ class TestUnsupportedFeaturesE2E:
             or "reduce" in issue.remediation.lower()
         )
 
-    def test_multi_step_chain_rejected(
+    def test_multi_step_chain_supported(
         self,
         multi_step_chain_spec: Path,
     ) -> None:
-        """Test multi-step chain spec fails capability check."""
+        """Test multi-step chain spec is now supported in Phase 1."""
         spec = load_spec(str(multi_step_chain_spec))
 
         capability_report = check_capability(spec)
-        assert not capability_report.supported
-        assert len(capability_report.issues) > 0
+        # Phase 1: Multi-step chains are now supported
+        assert capability_report.supported
+        assert len(capability_report.issues) == 0
 
-        # Should mention multiple steps
-        assert any("step" in issue.reason.lower() for issue in capability_report.issues)
-
-    def test_multi_task_workflow_rejected(
+    def test_multi_task_workflow_supported(
         self,
         multi_task_workflow_spec: Path,
     ) -> None:
-        """Test multi-task workflow spec fails capability check."""
+        """Test multi-task workflow spec is now supported in Phase 1."""
         spec = load_spec(str(multi_task_workflow_spec))
 
         capability_report = check_capability(spec)
-        assert not capability_report.supported
-        assert any("task" in issue.reason.lower() for issue in capability_report.issues)
+        # Phase 1: Multi-task workflows are now supported
+        assert capability_report.supported
+        assert len(capability_report.issues) == 0
 
     def test_routing_pattern_rejected(
         self,

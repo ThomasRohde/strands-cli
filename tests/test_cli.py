@@ -153,11 +153,12 @@ class TestExplainCommand:
         assert "Remediation:" in result.stdout or "remediation" in result.stdout.lower()
 
     def test_explain_multi_step_chain(self, multi_step_chain_spec: Path) -> None:
-        """Test explain command for multi-step chain."""
+        """Test explain command for multi-step chain (now supported)."""
         result = runner.invoke(app, ["explain", str(multi_step_chain_spec)])
 
+        # Phase 1: Multi-step chains are now supported, so explain should show no issues
         assert result.exit_code == EX_OK
-        assert "step" in result.stdout.lower()
+        assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
 
     def test_explain_routing_pattern(self, routing_pattern_spec: Path) -> None:
         """Test explain command for routing pattern."""
