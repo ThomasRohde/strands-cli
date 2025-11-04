@@ -19,7 +19,7 @@ pattern:
   config:
     steps:
       - agent: researcher
-        input: "Research the topic"
+        input: "Research the topic: {{ topic}}"
       - agent: writer
         input: "Write a report based on: {{ previous_output }}"
 
