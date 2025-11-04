@@ -33,7 +33,7 @@ classifiers = [
 dependencies = [
   "typer>=0.17.0",
   "rich>=14.0.0",
-  "ruamel.yaml==0.18.10",
+  "ruamel.yaml==0.18.16",
   "jinja2==3.1.6",
   "pydantic==2.12.3",
   "pydantic-settings==2.11.0",
