@@ -109,7 +109,11 @@ strands-cli resume <session-id>
 runtime:
   provider: bedrock                 # REQUIRED: e.g., bedrock | openai | azure_openai | local
   model_id: "us.anthropic.claude-sonnet-4-20250514-v1:0"  # optional (default for agents)
-  region: "eu-central-1"            # optional
+  region: "eu-central-1"            # optional (required for bedrock)
+  host: "http://localhost:11434"    # optional (required for ollama, optional for openai)
+  temperature: 0.7                  # optional (0.0-2.0)
+  max_tokens: 2000                  # optional (min: 1)
+  top_p: 0.95                       # optional (0.0-1.0)
   max_parallel: 4                   # optional (min: 1)
   budgets:                          # optional
     max_steps: 200                  # optional (min: 1)
@@ -120,10 +124,33 @@ runtime:
     backoff: exponential            # optional: constant | exponential | jittered (default: exponential)
 ```
 
+### Provider-Specific Requirements
+
+**Bedrock**
+- Requires: `region` (e.g., `us-east-1`, `eu-central-1`)
+- Authentication: AWS credentials via environment, `~/.aws/credentials`, or IAM role
+- Default model: `us.anthropic.claude-3-sonnet-20240229-v1:0`
+- Example model IDs: `us.anthropic.claude-3-sonnet-20240229-v1:0`, `anthropic.claude-3-haiku-20240307-v1:0`
+
+**OpenAI**
+- Requires: `OPENAI_API_KEY` environment variable
+- Optional: `host` for OpenAI-compatible servers (default: OpenAI API)
+- Default model: `gpt-4o-mini`
+- Example model IDs: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`
+- Get API key from: https://platform.openai.com/api-keys
+
+**Ollama**
+- Requires: `host` (e.g., `http://localhost:11434`)
+- Authentication: None (local server)
+- Default model: `gpt-oss`
+- Example model IDs: `llama3`, `gpt-oss`, `mistral`
+- Install from: https://ollama.ai/
+
 **Best practices**
 - Keep a **default model** in `runtime` and override per-agent only when needed.
 - Use **budgets** to avoid runaway loops.
 - Prefer **exponential** backoff with small retry counts; surface failures early.
+- Store provider credentials securely (environment variables or AWS secrets, never in spec files)
 
 ---
 

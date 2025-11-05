@@ -97,7 +97,9 @@
           "type": "string",
           "description": "LLM provider identifier (e.g., bedrock, openai, azure_openai, local).",
           "examples": [
-            "bedrock"
+            "bedrock",
+            "openai",
+            "ollama"
           ]
         },
         "model_id": {
@@ -109,7 +111,7 @@
         },
         "host": {
           "type": "string",
-          "description": "Server host URL for providers like Ollama (e.g., http://localhost:11434).",
+          "description": "Server host URL for providers like Ollama or OpenAI-compatible servers (e.g., http://localhost:11434).",
           "format": "uri"
         },
         "temperature": {
