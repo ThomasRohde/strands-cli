@@ -1,0 +1,112 @@
+# Parallel Research Workflow Example with OpenAI Provider
+#
+# This example demonstrates parallel task execution in a workflow pattern.
+# Multiple tasks execute concurrently when dependencies allow, then synthesize
+# at the end.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/workflow-parallel-research-openai.yaml --var topic="edge computing"
+#
+# Features Demonstrated:
+#   - OpenAI provider configuration with max_parallel control
+#   - DAG-based workflow with parallel execution
+#   - Complex task dependencies
+#   - Budget tracking (max_tokens)
+#   - Multi-task context in artifacts
+
+version: 0
+name: workflow-parallel-research-openai
+description: Workflow with parallel tasks demonstrating DAG execution
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  max_tokens: 12000
+  max_parallel: 2
+  budgets:
+    max_tokens: 15000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant specializing in technology trends.
+      Provide factual, well-structured responses.
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      # Root task - no dependencies
+      - id: overview
+        agent: researcher
+        description: "Get high-level overview of the topic"
+        input: "Provide a brief overview (2-3 sentences) of: {{topic}}"
+      
+      # Parallel branch 1 - depends on overview
+      - id: technical
+        agent: researcher
+        deps: [overview]
+        description: "Research technical aspects"
+        input: |
+          Topic: {{topic}}
+          Overview: {{ tasks.overview.response }}
+          
+          Research the technical implementation details. List 3 key technical points.
+      
+      # Parallel branch 2 - depends on overview
+      - id: applications
+        agent: researcher
+        deps: [overview]
+        description: "Research practical applications"
+        input: |
+          Topic: {{topic}}
+          Overview: {{ tasks.overview.response }}
+          
+          Research practical applications and use cases. List 3 real-world examples.
+      
+      # Synthesis - depends on both parallel branches
+      - id: synthesis
+        agent: researcher
+        deps: [technical, applications]
+        description: "Synthesize findings into final report"
+        input: |
+          Synthesize the following research into a cohesive report:
+          
+          Technical Details:
+          {{ tasks.technical.response }}
+          
+          Applications:
+          {{ tasks.applications.response }}
+          
+          Write a 3-paragraph report combining technical and practical insights.
+
+inputs:
+  values:
+    topic: "edge computing"
+
+outputs:
+  artifacts:
+    - path: "{{topic}}-workflow.md"
+      from: |
+        # {{topic | title}} Research Report
+        
+        ## Overview
+        {{ tasks.overview.response }}
+        
+        ## Technical Analysis
+        Status: {{ tasks.technical.status }}
+        {{ tasks.technical.response }}
+        
+        ## Applications
+        Status: {{ tasks.applications.status }}
+        {{ tasks.applications.response }}
+        
+        ## Synthesis
+        {{ tasks.synthesis.response }}

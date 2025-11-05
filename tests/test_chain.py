@@ -302,3 +302,110 @@ class TestChainTemplateRendering:
         assert result.success is True
         # Verify second invocation received rendered template with first response
         # (The actual template rendering is tested separately)
+
+
+class TestSingleAgentRegression:
+    """Regression tests for single_agent.py fixes."""
+
+    @patch("strands_cli.exec.single_agent.build_agent")
+    def test_single_step_uses_step_agent(self, mock_build_agent: MagicMock, tmp_path: Path) -> None:
+        """Test that single-step chain uses agent referenced in step, not first agent in map.
+
+        Regression test for issue where run_single_agent always used first agent in spec.agents dict.
+        """
+        from ruamel.yaml import YAML
+
+        from strands_cli.exec.single_agent import run_single_agent
+        from strands_cli.loader.yaml_loader import load_spec
+
+        yaml = YAML()
+        # Create spec with agents in different order
+        spec_data = {
+            "name": "Test Agent Selection",
+            "version": "1.0.0",
+            "runtime": {"provider": "bedrock", "model_id": "test-model", "region": "us-east-1"},
+            "pattern": {
+                "type": "chain",
+                "config": {
+                    "steps": [
+                        {"agent": "agent_b", "input": "Test task"}  # References agent_b
+                    ]
+                },
+            },
+            "agents": {
+                "agent_a": {"prompt": "I am agent A"},  # First in dict
+                "agent_b": {"prompt": "I am agent B"},  # Should be selected
+            },
+        }
+
+        spec_file = tmp_path / "test.yaml"
+        with open(spec_file, "w") as f:
+            yaml.dump(spec_data, f)
+
+        spec = load_spec(str(spec_file))
+
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Response from B")
+        mock_build_agent.return_value = mock_agent
+
+        result = run_single_agent(spec, variables=None)
+
+        # Verify build_agent was called with agent_b, not agent_a
+        assert mock_build_agent.call_count == 1
+        call_args = mock_build_agent.call_args
+        assert call_args[0][1] == "agent_b"  # agent_id argument
+        assert result.agent_id == "agent_b"
+        assert result.success is True
+
+    @patch("strands_cli.exec.single_agent.build_agent")
+    def test_single_agent_respects_cli_vars(
+        self, mock_build_agent: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test that --var CLI overrides are merged into template variables.
+
+        Regression test for issue where variables argument was ignored in run_single_agent.
+        """
+        from ruamel.yaml import YAML
+
+        from strands_cli.exec.single_agent import run_single_agent
+        from strands_cli.loader.yaml_loader import load_spec
+
+        yaml = YAML()
+        spec_data = {
+            "name": "Test CLI Variables",
+            "version": "1.0.0",
+            "runtime": {"provider": "bedrock", "model_id": "test-model", "region": "us-east-1"},
+            "inputs": {"values": {"default_topic": "default"}},
+            "pattern": {
+                "type": "chain",
+                "config": {"steps": [{"agent": "test", "input": "Process topic: {{ topic }}"}]},
+            },
+            "agents": {"test": {"prompt": "Test agent"}},
+        }
+
+        spec_file = tmp_path / "test.yaml"
+        with open(spec_file, "w") as f:
+            yaml.dump(spec_data, f)
+
+        spec = load_spec(str(spec_file))
+
+        # Capture the rendered input passed to agent
+        captured_input = None
+
+        async def capture_invoke(input_text: str) -> str:
+            nonlocal captured_input
+            captured_input = input_text
+            return "Response"
+
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = capture_invoke
+        mock_build_agent.return_value = mock_agent
+
+        # Run with CLI variable override
+        result = run_single_agent(spec, variables={"topic": "cli_override"})
+
+        assert result.success is True
+        # Verify the template was rendered with CLI variable, not default
+        assert captured_input is not None
+        assert "cli_override" in captured_input
+        assert "default" not in captured_input

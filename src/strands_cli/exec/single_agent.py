@@ -131,8 +131,24 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
     started_at = datetime.now(UTC)
 
     with tracer.start_span("run_single_agent"):
-        # Extract normalized values (assuming capability check passed)
-        agent_id = next(iter(spec.agents.keys()))
+        # Extract pattern info and determine which agent to use
+        # Use the agent referenced in the step/task, not just the first agent in the spec
+        if spec.pattern.type == PatternType.CHAIN:
+            step = spec.pattern.config.steps[0]  # type: ignore
+            agent_id = step.agent
+            task_input_template = step.input
+        elif spec.pattern.type == PatternType.WORKFLOW:
+            task = spec.pattern.config.tasks[0]  # type: ignore
+            agent_id = task.agent
+            task_input_template = task.input
+        else:
+            raise ExecutionError(f"Unsupported pattern type: {spec.pattern.type}")
+
+        # Validate agent exists and get configuration
+        if agent_id not in spec.agents:
+            raise ExecutionError(
+                f"Agent '{agent_id}' referenced by {spec.pattern.type} not found in agents map"
+            )
         agent_config = spec.agents[agent_id]
 
         logger.info(
@@ -143,20 +159,13 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
             provider=spec.runtime.provider.value,
         )
 
-        # Extract pattern info
-        if spec.pattern.type == PatternType.CHAIN:
-            step = spec.pattern.config.steps[0]  # type: ignore
-            task_input_template = step.input
-        elif spec.pattern.type == PatternType.WORKFLOW:
-            task = spec.pattern.config.tasks[0]  # type: ignore
-            task_input_template = task.input
-        else:
-            raise ExecutionError(f"Unsupported pattern type: {spec.pattern.type}")
-
         # Build template variables
+        # Start with spec inputs, then merge CLI variables so CLI overrides win
         template_vars = {}
         if spec.inputs and spec.inputs.get("values"):
             template_vars.update(spec.inputs["values"])
+        if variables:
+            template_vars.update(variables)
 
         # Render task input
         try:

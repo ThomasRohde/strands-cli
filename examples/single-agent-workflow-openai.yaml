@@ -1,0 +1,52 @@
+# Single-Agent Workflow Example with OpenAI Provider
+#
+# This example demonstrates a minimal workflow pattern using OpenAI's GPT models.
+# Unlike chain pattern, workflow uses task-based execution with dependencies.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/single-agent-workflow-openai.yaml --var query="What is quantum computing?"
+#
+# Features Demonstrated:
+#   - OpenAI provider configuration
+#   - Workflow pattern with single task
+#   - Jinja2 template variable substitution
+#   - Artifact output to file
+
+version: 0
+name: single-agent-workflow-openai
+description: Single-agent workflow using OpenAI with workflow pattern
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  max_tokens: 1500
+
+inputs:
+  values:
+    query: "What is quantum computing?"
+
+agents:
+  responder:
+    prompt: |
+      You are a helpful assistant that provides clear, accurate answers.
+      Format your responses in Markdown.
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: respond
+        agent: responder
+        input: "Answer this question: {{ query }}"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/response-openai.md
+      from: "{{ last_response }}"

@@ -235,8 +235,6 @@ def _check_budget_warning(
 async def _execute_task(
     spec: Spec,
     task: Any,
-    agent_id: str,
-    agent_config: Any,
     task_context: dict[str, Any],
     max_attempts: int,
     wait_min: int,
@@ -247,8 +245,6 @@ async def _execute_task(
     Args:
         spec: Workflow spec
         task: WorkflowTask object
-        agent_id: Agent ID to use
-        agent_config: Agent configuration
         task_context: Template context for task input
         max_attempts: Max retry attempts
         wait_min: Min retry wait (seconds)
@@ -267,9 +263,18 @@ async def _execute_task(
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to render task '{task.id}' input: {e}") from e
 
+    # Get agent configuration for this task (supports multi-agent workflows)
+    task_agent_id = task.agent
+    if task_agent_id not in spec.agents:
+        raise WorkflowExecutionError(
+            f"Task '{task.id}' references unknown agent '{task_agent_id}'. "
+            f"Available agents: {', '.join(spec.agents.keys())}"
+        )
+    task_agent_config = spec.agents[task_agent_id]
+
     # Build agent for this task
     try:
-        agent = build_agent(spec, task.agent, agent_config)
+        agent = build_agent(spec, task_agent_id, task_agent_config)
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e
 
@@ -329,10 +334,6 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
 
     if not spec.pattern.config.tasks:
         raise WorkflowExecutionError("Workflow pattern has no tasks")
-
-    # Extract single agent (Phase 1 limitation)
-    agent_id = next(iter(spec.agents.keys()))
-    agent_config = spec.agents[agent_id]
 
     # Get retry config
     max_attempts, wait_min, wait_max = _get_retry_config(spec)
@@ -396,8 +397,6 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
                         return await _execute_task(
                             spec,
                             task_obj,
-                            agent_id,
-                            agent_config,
                             context,
                             max_attempts,
                             wait_min,
@@ -407,8 +406,6 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
                     return await _execute_task(
                         spec,
                         task_obj,
-                        agent_id,
-                        agent_config,
                         context,
                         max_attempts,
                         wait_min,
@@ -438,16 +435,18 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
             if max_tokens:
                 _check_budget_warning(cumulative_tokens, max_tokens, task_id)
 
-            # Store result
+            # Store result with agent ID for tracking
             task_results[task_id] = {
                 "response": response_text,
                 "status": "success",
                 "tokens_estimated": estimated_tokens,
+                "agent": task_map[task_id].agent,  # Track which agent executed this task
             }
 
             logger.info(
                 "workflow_task_complete",
                 task=task_id,
+                agent=task_map[task_id].agent,
                 response_length=len(response_text),
                 cumulative_tokens=cumulative_tokens,
             )
@@ -466,6 +465,7 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
     # Final response is from last executed task
     last_task_id = execution_layers[-1][-1]
     final_response = task_results[last_task_id]["response"]
+    final_agent_id = task_results[last_task_id]["agent"]
 
     logger.info(
         "workflow_execution_complete",
@@ -479,7 +479,7 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
         success=True,
         last_response=final_response,
         error=None,
-        agent_id=agent_id,
+        agent_id=final_agent_id,
         pattern_type=PatternType.WORKFLOW,
         started_at=started_at,
         completed_at=completed_at,

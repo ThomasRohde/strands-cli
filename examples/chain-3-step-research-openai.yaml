@@ -1,0 +1,60 @@
+version: 0
+name: chain-3-step-research-openai
+description: Three-step chain demonstrating sequential context passing
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  max_tokens: 8000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant. Provide clear, concise, and factual responses.
+      Focus on accuracy and cite sources when possible.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research the topic: {{topic}}. List 3-5 key points."
+      
+      - agent: researcher
+        input: |
+          Based on this research:
+          {{ steps[0].response }}
+          
+          Analyze the most important point and explain why it matters.
+        vars:
+          analysis_depth: "detailed"
+      
+      - agent: researcher
+        input: |
+          Previous research:
+          {{ steps[0].response | truncate(200) }}
+          
+          Analysis:
+          {{ steps[1].response }}
+          
+          Write a 2-paragraph summary combining both insights.
+
+inputs:
+  values:
+    topic: "artificial intelligence safety"
+
+outputs:
+  artifacts:
+    - path: "{{topic}}-research.md"
+      from: |
+        # Research Report: {{topic}}
+        
+        ## Initial Research
+        {{ steps[0].response }}
+        
+        ## Analysis
+        {{ steps[1].response }}
+        
+        ## Summary
+        {{ last_response }}

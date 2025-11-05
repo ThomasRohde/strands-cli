@@ -1,0 +1,86 @@
+# Linear DAG Workflow Example with OpenAI Provider
+#
+# This example demonstrates sequential task dependencies in a workflow pattern.
+# Each task depends on the previous one, creating a linear execution path.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/workflow-linear-dag-openai.yaml --var topic="remote work"
+#
+# Features Demonstrated:
+#   - OpenAI provider configuration
+#   - Workflow pattern with task dependencies
+#   - Task context passing via {{ tasks.<id>.response }}
+#   - Multiple artifact outputs
+#   - Template truncate filter
+
+version: 0
+name: workflow-linear-dag-openai
+description: Simple linear DAG workflow (sequential task dependencies)
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  max_tokens: 6000
+
+agents:
+  analyst:
+    prompt: |
+      You are a data analyst. Provide structured, analytical responses.
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: collect
+        agent: analyst
+        description: "Collect data about the topic"
+        input: "List 5 key data points about: {{topic}}"
+      
+      - id: analyze
+        agent: analyst
+        deps: [collect]
+        description: "Analyze the collected data"
+        input: |
+          Data collected:
+          {{ tasks.collect.response }}
+          
+          Analyze this data and identify the top 2 trends.
+      
+      - id: recommend
+        agent: analyst
+        deps: [analyze]
+        description: "Generate recommendations based on analysis"
+        input: |
+          Analysis:
+          {{ tasks.analyze.response }}
+          
+          Based on these trends, provide 3 actionable recommendations.
+
+inputs:
+  values:
+    topic: "remote work productivity"
+
+outputs:
+  artifacts:
+    - path: "analysis-{{topic}}.md"
+      from: |
+        # Analysis: {{topic}}
+        
+        ## Data Collection
+        {{ tasks.collect.response }}
+        
+        ## Analysis
+        {{ tasks.analyze.response }}
+        
+        ## Recommendations
+        {{ last_response }}
+    
+    - path: "summary-{{topic}}.txt"
+      from: "{{ tasks.recommend.response | truncate(500) }}"

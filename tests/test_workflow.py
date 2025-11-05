@@ -441,3 +441,75 @@ class TestWorkflowTemplateRendering:
         result = run_workflow(spec, variables=None)
 
         assert result.success is True
+
+
+class TestMultiAgentWorkflowRegression:
+    """Regression tests for workflow.py multi-agent support."""
+
+    @patch("strands_cli.exec.workflow.build_agent")
+    def test_tasks_use_declared_agents(self, mock_build_agent: MagicMock, tmp_path: Path) -> None:
+        """Test that multi-agent workflows use correct agent per task.
+
+        Regression test for issue where run_workflow reused one agent config for all tasks.
+        """
+        from ruamel.yaml import YAML
+
+        from strands_cli.loader.yaml_loader import load_spec
+
+        yaml = YAML()
+        # Create workflow with different agents per task
+        spec_data = {
+            "name": "Multi-Agent Workflow",
+            "version": "1.0.0",
+            "runtime": {"provider": "bedrock", "model_id": "test-model", "region": "us-east-1"},
+            "pattern": {
+                "type": "workflow",
+                "config": {
+                    "tasks": [
+                        {"id": "task1", "agent": "researcher", "input": "Research topic"},
+                        {
+                            "id": "task2",
+                            "agent": "writer",
+                            "input": "Write article",
+                            "deps": ["task1"],
+                        },
+                    ]
+                },
+            },
+            "agents": {
+                "researcher": {"prompt": "You are a researcher"},
+                "writer": {"prompt": "You are a writer"},
+            },
+        }
+
+        spec_file = tmp_path / "multi_agent.yaml"
+        with open(spec_file, "w") as f:
+            yaml.dump(spec_data, f)
+
+        spec = load_spec(str(spec_file))
+
+        # Track which agents were built
+        agent_ids_built = []
+
+        def track_build_agent(spec_arg, agent_id, agent_config):
+            agent_ids_built.append(agent_id)
+            mock_agent = MagicMock()
+            mock_agent.invoke_async = AsyncMock(return_value=f"Response from {agent_id}")
+            return mock_agent
+
+        mock_build_agent.side_effect = track_build_agent
+
+        result = run_workflow(spec, variables=None)
+
+        # Verify both agents were used
+        assert result.success is True
+        assert "researcher" in agent_ids_built
+        assert "writer" in agent_ids_built
+        assert len(agent_ids_built) == 2
+
+        # Verify tasks were executed with correct agents
+        assert result.execution_context["tasks"]["task1"]["agent"] == "researcher"
+        assert result.execution_context["tasks"]["task2"]["agent"] == "writer"
+
+        # Verify final result came from writer (last task)
+        assert result.agent_id == "writer"

@@ -2,15 +2,17 @@
 
 Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
 
-**Current Version**: v0.2.0 | 224 tests passing | 81% coverage
+**Current Version**: v0.3.0 | 268 tests passing | 88% coverage
 
 ## Features
 
-### Core Capabilities (v0.2.0)
-- ✅ **Multi-step chain workflows** - Sequential execution with context threading
+### Core Capabilities (v0.3.0)
+- ✅ **Multi-agent workflows** - Support for multiple agents in chain, workflow, and routing patterns
+- ✅ **Routing pattern** - Dynamic agent selection based on input classification with JSON-based routing
+- ✅ **Multi-step chain workflows** - Sequential execution with context threading across steps
 - ✅ **Multi-task DAG workflows** - Parallel execution with dependency resolution
 - ✅ **Template-based context** - Access prior step/task outputs via `{{ steps[n].response }}` and `{{ tasks.<id>.response }}`
-- ✅ **AWS Bedrock, Ollama, and OpenAI** provider support
+- ✅ **AWS Bedrock, Ollama, and OpenAI** provider support with comprehensive authentication
 - ✅ **Schema validation** using JSON Schema Draft 2020-12 with JSONPointer error reporting
 - ✅ **Capability checking** with graceful degradation (exit code 18)
 - ✅ **Variable substitution** via `--var` flags and Jinja2 templates
@@ -25,7 +27,6 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ✅ **OpenTelemetry scaffolding** (no-op in current version, ready for future)
 
 ### Future Roadmap
-- 🚧 Routing pattern with dynamic agent selection
 - 🚧 Parallel pattern with branch execution
 - 🚧 Orchestrator-workers pattern
 - 🚧 Evaluator-optimizer pattern

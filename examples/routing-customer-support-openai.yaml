@@ -1,0 +1,114 @@
+# Customer Support Routing Example with OpenAI Provider
+#
+# This example demonstrates the routing pattern with multi-agent workflows.
+# A classifier agent analyzes customer queries and routes them to specialized
+# support agents based on the query type.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/routing-customer-support-openai.yaml --var customer_query="How do I reset my password?"
+#
+# Features Demonstrated:
+#   - OpenAI provider with low temperature for classification
+#   - Routing pattern with JSON-based decision making
+#   - Multi-agent workflows (4 agents)
+#   - Router retry logic (max_retries: 2)
+#   - Conditional execution paths
+#   - Multi-step routes (technical route has 2 steps)
+
+version: 0
+name: "customer-support-router-openai"
+description: "Route customer queries to appropriate support handlers using OpenAI"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.3
+  max_tokens: 3000
+
+inputs:
+  values:
+    customer_query: "How do I reset my password?"
+
+agents:
+  classifier:
+    prompt: |
+      You are a customer support classifier. Analyze customer queries and route them to the appropriate handler.
+      
+      Available routes:
+      - faq: Simple questions with straightforward answers (password resets, account setup, basic features)
+      - technical: Complex technical issues requiring troubleshooting (bugs, errors, performance)
+      - escalate: Issues requiring human intervention (billing disputes, complaints, security concerns)
+      
+      Respond with ONLY valid JSON in this exact format:
+      {"route": "<route_name>"}
+      
+      Choose the most appropriate route based on the query complexity and nature.
+
+  faq_agent:
+    prompt: |
+      You are a helpful FAQ assistant. Provide clear, concise answers to common customer questions.
+      Focus on being friendly and helpful while keeping responses brief.
+
+  technical_agent:
+    prompt: |
+      You are a technical support specialist. Analyze technical issues, provide debugging steps,
+      and offer detailed solutions. Be thorough and systematic in your approach.
+
+  escalation_agent:
+    prompt: |
+      You are a support escalation handler. Acknowledge the customer's concern, explain that you're
+      routing them to a specialist, and provide a ticket reference number.
+
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: |
+        Customer Query: {{ customer_query }}
+        
+        Classify this query into: faq, technical, or escalate
+      max_retries: 2
+    
+    routes:
+      faq:
+        then:
+          - agent: faq_agent
+            input: |
+              Customer asked: {{ customer_query }}
+              
+              Provide a helpful FAQ-style answer.
+      
+      technical:
+        then:
+          - agent: technical_agent
+            input: |
+              Customer reported: {{ customer_query }}
+              
+              Provide step-by-step troubleshooting guidance.
+          - agent: faq_agent
+            input: |
+              Technical solution from our specialist:
+              
+              {{ steps[0].response }}
+              
+              Summarize the above into a brief, customer-friendly response (3-5 bullet points max).
+      
+      escalate:
+        then:
+          - agent: escalation_agent
+            input: |
+              Customer issue: {{ customer_query }}
+              
+              Generate an escalation ticket and acknowledgment message.
+
+outputs:
+  artifacts:
+    - path: "./customer-response.md"
+      from: "{{ last_response }}"
