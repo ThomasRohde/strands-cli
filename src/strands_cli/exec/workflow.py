@@ -33,13 +33,13 @@ from typing import Any
 import structlog
 
 from strands_cli.exec.utils import (
+    AgentCache,
     check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
-from strands_cli.runtime import build_agent
 from strands_cli.types import PatternType, RunResult, Spec
 
 try:
@@ -157,6 +157,7 @@ async def _execute_task(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    cache: AgentCache,
 ) -> tuple[str, int]:
     """Execute a single task asynchronously.
 
@@ -190,9 +191,13 @@ async def _execute_task(
         )
     task_agent_config = spec.agents[task_agent_id]
 
-    # Build agent for this task
+    # Phase 5: Use cached agent instead of rebuilding per task
     try:
-        agent = build_agent(spec, task_agent_id, task_agent_config)
+        # Use task's tool_overrides if provided, else use agent's tools
+        tools_for_task = task.tool_overrides if hasattr(task, 'tool_overrides') and task.tool_overrides else None
+        agent = await cache.get_or_build_agent(
+            spec, task_agent_id, task_agent_config, tool_overrides=tools_for_task
+        )
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e
 
@@ -257,6 +262,7 @@ async def _execute_workflow_layer(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    cache: AgentCache,
 ) -> list[tuple[str, int]]:
     """Execute all tasks in a workflow layer (potentially in parallel).
 
@@ -305,6 +311,7 @@ async def _execute_workflow_layer(
                         max_attempts,
                         wait_min,
                         wait_max,
+                        cache,
                     )
             else:
                 return await _execute_task(
@@ -314,6 +321,7 @@ async def _execute_workflow_layer(
                     max_attempts,
                     wait_min,
                     wait_max,
+                    cache,
                 )
 
         # Execute all tasks in layer (parallel where possible)
@@ -327,11 +335,16 @@ async def _execute_workflow_layer(
     return await _execute_layer(tasks_to_execute)
 
 
-def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute a multi-task workflow with DAG dependencies.
 
     Executes tasks in topological order with parallel execution within each layer.
     Tasks can reference completed task outputs via {{ tasks.<id>.response }}.
+
+    Phase 5 Performance Optimizations:
+        - Agent caching: Reuses agents across tasks with same (agent_id, tools)
+        - Single event loop: No per-layer asyncio.run() overhead
+        - HTTP client cleanup: Proper resource management via AgentCache.close()
 
     Args:
         spec: Workflow spec with workflow pattern
@@ -371,18 +384,21 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
     task_results: dict[str, dict[str, Any]] = {}
     started_at = datetime.now(UTC).isoformat()
 
-    # Execute each layer
-    for layer_index, layer_task_ids in enumerate(execution_layers):
-        logger.info(
-            "workflow_layer_start",
-            layer=layer_index,
-            tasks=layer_task_ids,
-        )
+    # Phase 5: Create AgentCache for agent reuse across tasks
+    cache = AgentCache()
+    try:
 
-        # Execute all tasks in this layer
-        try:
-            layer_results = asyncio.run(
-                _execute_workflow_layer(
+        # Execute each layer
+        for layer_index, layer_task_ids in enumerate(execution_layers):
+            logger.info(
+                "workflow_layer_start",
+                layer=layer_index,
+                tasks=layer_task_ids,
+            )
+
+            # Phase 5: Direct await instead of asyncio.run() per layer
+            try:
+                layer_results = await _execute_workflow_layer(
                     spec,
                     layer_task_ids,
                     task_map,
@@ -391,70 +407,73 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
                     max_attempts,
                     wait_min,
                     wait_max,
+                    cache,
                 )
-            )
-        except Exception as e:
-            raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e
+            except Exception as e:
+                raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e
 
-        # Process results
-        for task_id, (response_text, estimated_tokens) in zip(
-            layer_task_ids, layer_results, strict=True
-        ):
-            cumulative_tokens += estimated_tokens
+            # Process results
+            for task_id, (response_text, estimated_tokens) in zip(
+                layer_task_ids, layer_results, strict=True
+            ):
+                cumulative_tokens += estimated_tokens
 
-            # Check budget
-            if max_tokens:
-                check_budget_threshold(cumulative_tokens, max_tokens, task_id)
+                # Check budget
+                if max_tokens:
+                    check_budget_threshold(cumulative_tokens, max_tokens, task_id)
 
-            # Store result with agent ID for tracking
-            task_results[task_id] = {
-                "response": response_text,
-                "status": "success",
-                "tokens_estimated": estimated_tokens,
-                "agent": task_map[task_id].agent,  # Track which agent executed this task
-            }
+                # Store result with agent ID for tracking
+                task_results[task_id] = {
+                    "response": response_text,
+                    "status": "success",
+                    "tokens_estimated": estimated_tokens,
+                    "agent": task_map[task_id].agent,  # Track which agent executed this task
+                }
+
+                logger.info(
+                    "workflow_task_complete",
+                    task=task_id,
+                    agent=task_map[task_id].agent,
+                    response_length=len(response_text),
+                    cumulative_tokens=cumulative_tokens,
+                )
 
             logger.info(
-                "workflow_task_complete",
-                task=task_id,
-                agent=task_map[task_id].agent,
-                response_length=len(response_text),
-                cumulative_tokens=cumulative_tokens,
+                "workflow_layer_complete",
+                layer=layer_index,
+                tasks_completed=len(layer_task_ids),
             )
 
+        completed_at = datetime.now(UTC).isoformat()
+        started_dt = datetime.fromisoformat(started_at)
+        completed_dt = datetime.fromisoformat(completed_at)
+        duration = (completed_dt - started_dt).total_seconds()
+
+        # Final response is from last executed task
+        last_task_id = execution_layers[-1][-1]
+        final_response = task_results[last_task_id]["response"]
+        final_agent_id = task_results[last_task_id]["agent"]
+
         logger.info(
-            "workflow_layer_complete",
-            layer=layer_index,
-            tasks_completed=len(layer_task_ids),
+            "workflow_execution_complete",
+            spec_name=spec.name,
+            tasks_executed=len(task_results),
+            duration_seconds=duration,
+            cumulative_tokens=cumulative_tokens,
         )
 
-    completed_at = datetime.now(UTC).isoformat()
-    started_dt = datetime.fromisoformat(started_at)
-    completed_dt = datetime.fromisoformat(completed_at)
-    duration = (completed_dt - started_dt).total_seconds()
-
-    # Final response is from last executed task
-    last_task_id = execution_layers[-1][-1]
-    final_response = task_results[last_task_id]["response"]
-    final_agent_id = task_results[last_task_id]["agent"]
-
-    logger.info(
-        "workflow_execution_complete",
-        spec_name=spec.name,
-        tasks_executed=len(task_results),
-        duration_seconds=duration,
-        cumulative_tokens=cumulative_tokens,
-    )
-
-    return RunResult(
-        success=True,
-        last_response=final_response,
-        error=None,
-        agent_id=final_agent_id,
-        pattern_type=PatternType.WORKFLOW,
-        started_at=started_at,
-        completed_at=completed_at,
-        duration_seconds=duration,
-        artifacts_written=[],
-        execution_context={"tasks": task_results},
-    )
+        return RunResult(
+            success=True,
+            last_response=final_response,
+            error=None,
+            agent_id=final_agent_id,
+            pattern_type=PatternType.WORKFLOW,
+            started_at=started_at,
+            completed_at=completed_at,
+            duration_seconds=duration,
+            artifacts_written=[],
+            execution_context={"tasks": task_results},
+        )
+    finally:
+        # Phase 5: Clean up cached agents and HTTP clients
+        await cache.close()

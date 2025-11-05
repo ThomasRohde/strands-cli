@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**strands-cli** is a Python 3.12+ CLI that executes declarative agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with schema validation, observability scaffolding, and safe orchestration. The MVP (v0.1.0, 177 tests, 88% coverage) focuses on **single-agent execution** while parsing and validating the full multi-agent workflow schema.
+**strands-cli** is a Python 3.12+ CLI that executes declarative agentic workflows (YAML/JSON) on AWS Bedrock/Ollama/OpenAI with schema validation, observability scaffolding, and safe orchestration. Version 0.4.0 (287 tests, 83% coverage) supports **multi-agent workflows** with chain, workflow, routing, and parallel patterns.
 
 **Key Design Principle**: Parse the full schema, but gracefully stop with actionable errors (exit code 18) on unsupported features rather than silently ignoring them.
 
@@ -36,7 +36,12 @@ src/strands_cli/
 │   ├── strands_adapter.py # Map Spec → Strands Agent
 │   └── tools.py          # Safe tool adapters (allowlisted python, http_executors)
 ├── exec/
-│   └── single_agent.py   # Render prompts, run agent, capture result
+│   ├── single_agent.py   # Single-agent workflow executor (async)
+│   ├── chain.py          # Chain pattern executor (async)
+│   ├── workflow.py       # Workflow/DAG pattern executor (async)
+│   ├── parallel.py       # Parallel pattern executor (async)
+│   ├── routing.py        # Routing pattern executor (async)
+│   └── utils.py          # AgentCache and shared executor utilities
 ├── artifacts/
 │   └── io.py             # Write output files with overwrite guards
 └── telemetry/
@@ -50,9 +55,13 @@ CLI run command
  → load_spec(file, variables) → validate_spec(JSON Schema) → Spec (Pydantic)
  → check_capability(spec) → CapabilityReport
    ├─ unsupported → generate_markdown_report() → exit EX_UNSUPPORTED (18)
-   └─ supported → run_single_agent(spec, vars)
-       → build_agent(spec.agents[id], tools) → Strands Agent
-       → await agent.invoke_async(task_prompt) → result
+   └─ supported → asyncio.run(executor(spec, vars)) → SINGLE event loop
+       → AgentCache instance created
+       → for each step/task/branch:
+           → cache.get_or_build_agent() → reuses cached agents
+               → create_model() → @lru_cache returns cached model clients
+               → tools built with async context managers
+       → await cache.close() → cleanup all HTTP clients
        → write_artifacts(spec.outputs, result) → files
        → exit EX_OK (0)
 ```
@@ -60,28 +69,28 @@ CLI run command
 ## Supported Workflow Features (MVP Scope)
 
 **MUST support**:
-- Exactly **one agent** in `agents:` map
-- Pattern types: `chain` (1 step only) OR `workflow` (1 task only)
+- **Multiple agents** in `agents:` map with caching and reuse
+- Pattern types: `chain` (multi-step), `workflow` (multi-task DAG), `routing` (dynamic agent selection), `parallel` (concurrent branches with optional reduce)
 - Tools: `python` (allowlist: `strands_tools.http_request`, `strands_tools.file_read`), `http_executors`
-- Runtime: `provider=bedrock`, `model_id`, `region`, budgets (logged), retries (exponential backoff)
+- Runtime: `provider={bedrock|ollama|openai}`, `model_id`, `region`, budgets (enforced), retries (exponential backoff), `max_parallel` (semaphore control)
 - Inputs: `--var` overrides with Jinja2 templating
-- Outputs: `artifacts` with `{{ last_response }}`
+- Outputs: `artifacts` with templating: `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`
 - Skills: inject `id/path` metadata into system prompt (no code exec)
 - Secrets: `source=env` only
+- **Performance**: Agent caching (AgentCache), model client pooling (@lru_cache), single event loop per workflow
 
 **MUST reject with EX_UNSUPPORTED (18)**:
-- Multiple agents
-- `pattern.type` in `{routing, parallel, orchestrator_workers, evaluator_optimizer, graph}` OR `chain.steps > 1` OR `workflow.tasks > 1`
+- `pattern.type` in `{orchestrator_workers, evaluator_optimizer, graph}`
 - Skills with executable assets
 - `security.guardrails` enforcement (parse but only log)
 - `context_policy` execution (parse but only log)
-- OTEL tracing activation (parse config but no-op for MVP)
+- OTEL tracing activation (parse config but no-op for now)
 
 ## Development Workflow (Critical Commands)
 
 ### PowerShell Automation (Primary on Windows)
 ```powershell
-.\scripts\dev.ps1 test          # Run all 177 tests
+.\.scripts\dev.ps1 test          # Run all 287 tests
 .\scripts\dev.ps1 test-cov      # Tests + coverage report → htmlcov/
 .\scripts\dev.ps1 lint          # Ruff check
 .\scripts\dev.ps1 format        # Ruff format
@@ -170,23 +179,103 @@ console.print(f"[red]Error:[/red] {message}")
 console.print(f"[dim]Debug info[/dim]")  # Use with --verbose
 ```
 
+### Async Executor Pattern (CRITICAL)
+All executors in `exec/` are **async functions** that run within a single `asyncio.run()` call from the CLI:
+
+```python
+# In executor (e.g., exec/chain.py, exec/workflow.py)
+async def run_chain(spec: Spec, variables: dict[str, Any]) -> RunResult:
+    """Execute chain pattern workflow."""
+    cache = AgentCache()
+    try:
+        for step in spec.pattern.config.steps:
+            # Get or build agent (reuses cached agents)
+            agent = await cache.get_or_build_agent(
+                spec, step.agent_id, agent_config, tool_overrides
+            )
+            
+            # Direct await (not asyncio.run)
+            result = await invoke_agent_with_retry(agent, prompt, ...)
+        
+        return RunResult(...)
+    finally:
+        await cache.close()  # Cleanup HTTP clients
+
+# In CLI (__main__.py)
+result = asyncio.run(run_chain(spec, variables))  # Single event loop
+```
+
+**Key patterns**:
+- ✅ Use `async def` for all executor functions
+- ✅ Create `AgentCache` at executor start, use throughout, close in finally
+- ✅ Use `await` for agent invocations (not `asyncio.run()`)
+- ✅ Model clients cached via `@lru_cache` on `create_model()` helper
+- ❌ Never call `asyncio.run()` inside an executor (only in CLI)
+- ❌ Never create agents with `build_agent()` directly (use `AgentCache.get_or_build_agent()`)
+
+### Model Client Pooling
+Model clients (Bedrock/Ollama/OpenAI) are pooled using `functools.lru_cache`:
+
+```python
+# In runtime/strands_adapter.py
+from functools import lru_cache
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    """Hashable runtime configuration for LRU cache."""
+    provider: str
+    model_id: str
+    region: str | None = None
+    host: str | None = None
+
+@lru_cache(maxsize=16)
+def _create_model_cached(config: RuntimeConfig) -> BedrockModel | OllamaModel | OpenAIModel:
+    """Create and cache model clients."""
+    if config.provider == "bedrock":
+        return BedrockModel(model_id=config.model_id, region=config.region)
+    elif config.provider == "ollama":
+        return OllamaModel(model_id=config.model_id, host=config.host)
+    # ...
+
+def create_model(runtime: Runtime) -> Model:
+    """Convert Runtime to RuntimeConfig and get cached model."""
+    config = RuntimeConfig(
+        provider=runtime.provider,
+        model_id=runtime.model_id,
+        region=runtime.region,
+        host=runtime.host
+    )
+    return _create_model_cached(config)
+```
+
+**Benefits**: 10-step chain with same runtime config → 1 model client creation (not 10)
+
 ### Testing Strategy
-- **Coverage requirement**: ≥85% (current: 88%); run `.\scripts\dev.ps1 test-cov`
+- **Coverage requirement**: ≥85% (current: 83%); run `.\scripts\dev.ps1 test-cov`
 - **Fixture organization**: All shared fixtures in `tests/conftest.py`
   - Valid specs: `minimal_ollama_spec`, `minimal_bedrock_spec`, `with_tools_spec`
   - Invalid: `missing_required_spec`, `invalid_provider_spec`, `malformed_spec`
-  - Unsupported: `multi_agent_spec`, `routing_pattern_spec`, `multi_step_chain_spec`
+  - Unsupported: `orchestrator_pattern_spec`, `graph_pattern_spec`
 - **Mocking pattern**: Use `mocker` fixture from pytest-mock; see `tests/test_runtime.py`
 - **Test naming**: `test_<what>_<when>_<expected>` (e.g., `test_load_spec_with_invalid_yaml_raises_load_error`)
+- **Async tests**: Use `@pytest.mark.asyncio` for async executor tests
 - **Example**:
 ```python
-def test_capability_check_rejects_multiple_agents(multi_agent_spec: Spec) -> None:
-    """Test that specs with >1 agent are flagged as unsupported."""
-    report = check_capability(multi_agent_spec)
+@pytest.mark.asyncio
+async def test_agent_cache_reuses_agents(mocker: MockerFixture) -> None:
+    """Test that AgentCache reuses agents with same config."""
+    mock_build = mocker.patch("strands_cli.runtime.strands_adapter.build_agent")
+    cache = AgentCache()
     
-    assert not report.supported
-    assert len(report.issues) > 0
-    assert any("agents" in issue.pointer for issue in report.issues)
+    # Build same agent twice
+    agent1 = await cache.get_or_build_agent(spec, "agent1", config)
+    agent2 = await cache.get_or_build_agent(spec, "agent1", config)
+    
+    assert agent1 is agent2
+    assert mock_build.call_count == 1  # Built only once
+    
+    await cache.close()
 ```
 
 ## Key Files & References
@@ -273,7 +362,9 @@ ALLOWED_PYTHON_CALLABLES = {
 - ❌ Don't use `print()` — use Rich `console.print()` for consistent formatting
 - ❌ Don't hardcode file paths — use `platformdirs` for cache/config; allow `--out` override
 - ❌ Don't catch all exceptions without re-raising — use specific error codes
-- ❌ Don't implement multi-agent logic yet — focus on single-agent MVP correctness
+- ❌ Don't call `asyncio.run()` inside executors — maintain single event loop from CLI
+- ❌ Don't create agents directly with `build_agent()` — use `AgentCache.get_or_build_agent()`
+- ❌ Don't create new model clients repeatedly — rely on `@lru_cache` pooling via `create_model()`
 
 ## Questions to Clarify
 

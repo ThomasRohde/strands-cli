@@ -6,6 +6,8 @@ import pytest
 
 from strands_cli.runtime.providers import (
     ProviderError,
+    RuntimeConfig,
+    _create_model_cached,
     create_bedrock_model,
     create_model,
     create_ollama_model,
@@ -328,13 +330,168 @@ class TestCreateModel:
         assert result == mock_model
 
     def test_raises_error_for_unsupported_provider(self):
-        """Should raise ProviderError for unknown provider."""
-        # Create a runtime with an invalid provider (bypassing enum validation)
-        runtime = Runtime(provider=ProviderType.BEDROCK, region="us-east-1")
-        runtime.provider = "unknown"  # type: ignore
+        """Should raise ProviderError for unknown provider in cached function."""
+        # Clear cache before test
+        _create_model_cached.cache_clear()
+
+        # Create a RuntimeConfig with invalid provider string (bypassing enum in create_model)
+        config = RuntimeConfig(
+            provider="invalid_provider",
+            model_id=None,
+            region=None,
+            host=None,
+            temperature=None,
+            top_p=None,
+            max_tokens=None,
+        )
 
         with pytest.raises(ProviderError, match="Unsupported provider"):
+            _create_model_cached(config)
+
+    def test_caches_model_clients_for_identical_configs(self, mocker):
+        """Should return cached model client for repeated identical runtime configs."""
+        # Clear cache before test
+        _create_model_cached.cache_clear()
+
+        # Mock the actual model creation functions
+        mock_ollama = mocker.patch("strands_cli.runtime.providers.create_ollama_model")
+        mock_model1 = Mock()
+        mock_model2 = Mock()
+        mock_ollama.side_effect = [mock_model1, mock_model2]
+
+        runtime = Runtime(
+            provider=ProviderType.OLLAMA,
+            host="http://localhost:11434",
+            model_id="llama3",
+        )
+
+        # First call should create new model
+        result1 = create_model(runtime)
+        assert result1 == mock_model1
+        assert _create_model_cached.cache_info().misses == 1
+        assert _create_model_cached.cache_info().hits == 0
+
+        # Second call with same config should return cached model
+        result2 = create_model(runtime)
+        assert result2 == mock_model1  # Same instance (cached)
+        assert _create_model_cached.cache_info().hits == 1
+        assert _create_model_cached.cache_info().misses == 1
+
+        # Verify create_ollama_model was called only once
+        assert mock_ollama.call_count == 1
+
+    def test_cache_differentiates_by_model_id(self, mocker):
+        """Should create separate cache entries for different model IDs."""
+        # Clear cache before test
+        _create_model_cached.cache_clear()
+
+        mock_ollama = mocker.patch("strands_cli.runtime.providers.create_ollama_model")
+        mock_model1 = Mock()
+        mock_model2 = Mock()
+        mock_ollama.side_effect = [mock_model1, mock_model2]
+
+        # Create two different runtimes with different model IDs
+        runtime1 = Runtime(
+            provider=ProviderType.OLLAMA,
+            host="http://localhost:11434",
+            model_id="llama3",
+        )
+
+        runtime2 = Runtime(
+            provider=ProviderType.OLLAMA,
+            host="http://localhost:11434",
+            model_id="gpt-oss",
+        )
+
+        # Both should trigger model creation (different model_id)
+        result1 = create_model(runtime1)
+        result2 = create_model(runtime2)
+
+        assert result1 == mock_model1
+        assert result2 == mock_model2
+        assert mock_ollama.call_count == 2
+        assert _create_model_cached.cache_info().misses == 2
+        assert _create_model_cached.cache_info().hits == 0
+
+    def test_cache_differentiates_by_provider(self, mocker):
+        """Should create separate cache entries for different providers."""
+        # Clear cache before test
+        _create_model_cached.cache_clear()
+
+        mock_ollama = mocker.patch("strands_cli.runtime.providers.create_ollama_model")
+        mock_bedrock = mocker.patch("strands_cli.runtime.providers.create_bedrock_model")
+        mock_model_ollama = Mock()
+        mock_model_bedrock = Mock()
+        mock_ollama.return_value = mock_model_ollama
+        mock_bedrock.return_value = mock_model_bedrock
+
+        runtime1 = Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434")
+        runtime2 = Runtime(provider=ProviderType.BEDROCK, region="us-east-1")
+
+        # Both should trigger model creation (different provider)
+        result1 = create_model(runtime1)
+        result2 = create_model(runtime2)
+
+        assert result1 == mock_model_ollama
+        assert result2 == mock_model_bedrock
+        assert _create_model_cached.cache_info().misses == 2
+        assert _create_model_cached.cache_info().hits == 0
+
+    def test_cache_respects_maxsize_limit(self, mocker):
+        """Should evict least recently used entries when cache exceeds maxsize."""
+        # Clear cache before test
+        _create_model_cached.cache_clear()
+
+        mock_ollama = mocker.patch("strands_cli.runtime.providers.create_ollama_model")
+        # Create enough unique mocks
+        mock_models = [Mock() for _ in range(20)]
+        mock_ollama.side_effect = mock_models
+
+        # Create more than maxsize (16) different configurations
+        for i in range(20):
+            runtime = Runtime(
+                provider=ProviderType.OLLAMA,
+                host="http://localhost:11434",
+                model_id=f"model-{i}",
+            )
             create_model(runtime)
+
+        # Cache size should not exceed maxsize
+        cache_info = _create_model_cached.cache_info()
+        assert cache_info.currsize <= cache_info.maxsize
+        assert cache_info.maxsize == 16
+
+    def test_logs_cache_stats_periodically(self, mocker):
+        """Should log cache statistics every 10 calls."""
+        # Clear cache before test
+        _create_model_cached.cache_clear()
+
+        mock_ollama = mocker.patch("strands_cli.runtime.providers.create_ollama_model")
+        mock_model = Mock()
+        mock_ollama.return_value = mock_model
+
+        # Mock logger to capture log calls
+        mock_logger = Mock()
+        mocker.patch("strands_cli.runtime.providers.structlog.get_logger", return_value=mock_logger)
+
+        runtime = Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434")
+
+        # Make 10 calls (all cache hits after first miss)
+        for _ in range(10):
+            create_model(runtime)
+
+        # Should have logged cache stats after the 10th call
+        # Check if info was called with cache stats
+        info_calls = [call for call in mock_logger.info.call_args_list if call[0][0] == "model_cache_stats"]
+        assert len(info_calls) >= 1
+
+        # Verify the logged stats
+        last_call = info_calls[-1]
+        call_kwargs = last_call[1]
+        assert call_kwargs["hits"] == 9  # 9 hits after first miss
+        assert call_kwargs["misses"] == 1
+        assert "hit_rate" in call_kwargs
+        assert call_kwargs["maxsize"] == 16
 
 
 # ============================================================================

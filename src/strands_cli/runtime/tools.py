@@ -152,6 +152,13 @@ class HttpExecutorAdapter:
         """
         self.client.close()
 
+    async def aclose(self) -> None:
+        """Async close for async context manager support.
+
+        Enables proper cleanup in async workflows and AgentCache.
+        """
+        self.client.close()
+
     def __enter__(self) -> "HttpExecutorAdapter":
         """Context manager entry."""
         return self
@@ -161,6 +168,16 @@ class HttpExecutorAdapter:
     ) -> None:
         """Context manager exit - ensures cleanup on context exit."""
         self.close()
+
+    async def __aenter__(self) -> "HttpExecutorAdapter":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
+    ) -> None:
+        """Async context manager exit - ensures cleanup on context exit."""
+        await self.aclose()
 
     def __del__(self) -> None:
         """Destructor to cleanup resources if not explicitly closed."""

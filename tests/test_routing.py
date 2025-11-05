@@ -160,13 +160,16 @@ def test_validate_route_exists_invalid():
 # ============================================================================
 
 
-@patch("strands_cli.exec.routing.build_agent")
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
-def test_run_routing_success(mock_run_chain, mock_build_agent, minimal_routing_spec, mock_agent):
+@pytest.mark.asyncio
+
+
+async def test_run_routing_success(mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent):
     """Test successful routing execution with valid route selection."""
     # Mock router agent response - invoke_async returns string directly
     mock_agent.invoke_async = AsyncMock(return_value='{"route": "faq"}')
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Mock chain execution result
     chain_result = Mock()
@@ -178,10 +181,10 @@ def test_run_routing_success(mock_run_chain, mock_build_agent, minimal_routing_s
     mock_run_chain.return_value = chain_result
 
     # Execute routing
-    result = run_routing(minimal_routing_spec, variables={"query": "test"})
+    result = await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     # Verify router was called
-    assert mock_build_agent.called
+    assert mock_get_agent.called
     assert mock_agent.invoke_async.called
 
     # Verify chain was called with correct spec
@@ -196,15 +199,18 @@ def test_run_routing_success(mock_run_chain, mock_build_agent, minimal_routing_s
     assert result.execution_context["router_agent"] == "router"
 
 
-@patch("strands_cli.exec.routing.build_agent")
-def test_run_routing_invalid_route(mock_build_agent, minimal_routing_spec, mock_agent):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_routing_invalid_route(mock_get_agent, minimal_routing_spec, mock_agent):
     """Test routing fails with clear error for invalid route name."""
     # Mock router returns invalid route - invoke_async returns string directly
     mock_agent.invoke_async = AsyncMock(return_value='{"route": "unknown_route"}')
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     with pytest.raises(RoutingExecutionError) as exc_info:
-        run_routing(minimal_routing_spec, variables={"query": "test"})
+        await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     error_msg = str(exc_info.value)
     assert "Invalid route 'unknown_route'" in error_msg
@@ -213,10 +219,13 @@ def test_run_routing_invalid_route(mock_build_agent, minimal_routing_spec, mock_
     assert "escalate" in error_msg
 
 
-@patch("strands_cli.exec.routing.build_agent")
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
-def test_run_routing_retry_on_malformed_json(
-    mock_run_chain, mock_build_agent, minimal_routing_spec, mock_agent
+@pytest.mark.asyncio
+
+
+async def test_run_routing_retry_on_malformed_json(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
     """Test routing retries on malformed JSON and succeeds on 2nd attempt."""
     # First attempt returns malformed JSON, second returns valid JSON - invoke_async returns strings directly
@@ -226,7 +235,7 @@ def test_run_routing_retry_on_malformed_json(
             '{"route": "research"}',
         ]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Mock chain execution
     chain_result = Mock()
@@ -238,7 +247,7 @@ def test_run_routing_retry_on_malformed_json(
     mock_run_chain.return_value = chain_result
 
     # Execute routing
-    result = run_routing(minimal_routing_spec, variables={"query": "test"})
+    result = await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     # Verify router was called twice
     assert mock_agent.invoke_async.call_count == 2
@@ -247,30 +256,36 @@ def test_run_routing_retry_on_malformed_json(
     assert result.execution_context["chosen_route"] == "research"
 
 
-@patch("strands_cli.exec.routing.build_agent")
-def test_run_routing_exhausts_retries(mock_build_agent, minimal_routing_spec, mock_agent):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_routing_exhausts_retries(mock_get_agent, minimal_routing_spec, mock_agent):
     """Test routing fails after exhausting retry attempts."""
     # All attempts return malformed JSON
     mock_agent.invoke_async.return_value = Mock(response="Not JSON at all")
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     with pytest.raises(RoutingExecutionError) as exc_info:
-        run_routing(minimal_routing_spec, variables={"query": "test"})
+        await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     assert "failed to produce valid JSON" in str(exc_info.value)
     # Default max_retries is 2, so 3 total attempts (initial + 2 retries)
     assert mock_agent.invoke_async.call_count == 3
 
 
-@patch("strands_cli.exec.routing.build_agent")
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
-def test_run_routing_multi_step_route(
-    mock_run_chain, mock_build_agent, minimal_routing_spec, mock_agent
+@pytest.mark.asyncio
+
+
+async def test_run_routing_multi_step_route(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
     """Test routing executes multi-step route correctly."""
     # Router selects 'research' route which has 2 steps - invoke_async returns string directly
     mock_agent.invoke_async = AsyncMock(return_value='{"route": "research"}')
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Mock chain execution
     chain_result = Mock()
@@ -281,7 +296,7 @@ def test_run_routing_multi_step_route(
     chain_result.execution_context = {}
     mock_run_chain.return_value = chain_result
 
-    result = run_routing(minimal_routing_spec, variables={"query": "test"})
+    result = await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     # Verify chain was called with 2-step route
     chain_spec = mock_run_chain.call_args[0][0]
@@ -292,15 +307,18 @@ def test_run_routing_multi_step_route(
     assert result.execution_context["chosen_route"] == "research"
 
 
-@patch("strands_cli.exec.routing.build_agent")
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
-def test_run_routing_template_context(
-    mock_run_chain, mock_build_agent, minimal_routing_spec, mock_agent
+@pytest.mark.asyncio
+
+
+async def test_run_routing_template_context(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
     """Test router.chosen_route is available in route step templates."""
     # Mock router response - invoke_async returns string directly
     mock_agent.invoke_async = AsyncMock(return_value='{"route": "faq"}')
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Mock chain execution
     chain_result = Mock()
@@ -312,7 +330,7 @@ def test_run_routing_template_context(
     mock_run_chain.return_value = chain_result
 
     # Execute routing
-    run_routing(minimal_routing_spec, variables={"query": "test"})
+    await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     # Verify run_chain was called with router context
     route_variables = mock_run_chain.call_args[0][1]
@@ -321,10 +339,13 @@ def test_run_routing_template_context(
     assert route_variables["query"] == "test"
 
 
-@patch("strands_cli.exec.routing.build_agent")
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
-def test_run_routing_custom_max_retries(
-    mock_run_chain, mock_build_agent, minimal_routing_spec, mock_agent
+@pytest.mark.asyncio
+
+
+async def test_run_routing_custom_max_retries(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
     """Test custom max_retries configuration is respected."""
     # Set custom max_retries
@@ -332,60 +353,72 @@ def test_run_routing_custom_max_retries(
 
     # All attempts return malformed JSON
     mock_agent.invoke_async.return_value = Mock(response="Not JSON")
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     with pytest.raises(RoutingExecutionError):
-        run_routing(minimal_routing_spec, variables={"query": "test"})
+        await run_routing(minimal_routing_spec, variables={"query": "test"})
 
     # Should only try 2 times (initial + 1 retry)
     assert mock_agent.invoke_async.call_count == 2
 
 
-def test_run_routing_no_router_config(minimal_routing_spec):
+@pytest.mark.asyncio
+
+
+async def test_run_routing_no_router_config(minimal_routing_spec):
     """Test routing fails gracefully when router config is missing."""
     minimal_routing_spec.pattern.config.router = None
 
     with pytest.raises(RoutingExecutionError) as exc_info:
-        run_routing(minimal_routing_spec)
+        await run_routing(minimal_routing_spec)
 
     assert "requires router configuration" in str(exc_info.value)
 
 
-def test_run_routing_no_routes(minimal_routing_spec):
+@pytest.mark.asyncio
+
+
+async def test_run_routing_no_routes(minimal_routing_spec):
     """Test routing fails gracefully when routes are missing."""
     minimal_routing_spec.pattern.config.routes = None
 
     with pytest.raises(RoutingExecutionError) as exc_info:
-        run_routing(minimal_routing_spec)
+        await run_routing(minimal_routing_spec)
 
     assert "requires at least one route" in str(exc_info.value)
 
 
-def test_run_routing_empty_route(minimal_routing_spec):
+@pytest.mark.asyncio
+
+
+async def test_run_routing_empty_route(minimal_routing_spec):
     """Test routing fails when selected route has no steps."""
     # Create route with no steps
     minimal_routing_spec.pattern.config.routes["empty"] = Route(then=[])
 
     # Router selects empty route
-    with patch("strands_cli.exec.routing.build_agent") as mock_build_agent:
+    with patch("strands_cli.exec.utils.AgentCache.get_or_build_agent") as mock_get_agent:
         mock_agent = MagicMock()
         mock_agent.invoke_async = AsyncMock(return_value='{"route": "empty"}')
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         with pytest.raises(RoutingExecutionError) as exc_info:
-            run_routing(minimal_routing_spec, variables={"query": "test"})
+            await run_routing(minimal_routing_spec, variables={"query": "test"})
 
         assert "has no steps to execute" in str(exc_info.value)
 
 
-@patch("strands_cli.exec.routing.build_agent")
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
-def test_run_routing_preserves_user_variables(
-    mock_run_chain, mock_build_agent, minimal_routing_spec, mock_agent
+@pytest.mark.asyncio
+
+
+async def test_run_routing_preserves_user_variables(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
     """Test user variables are passed through to route execution."""
     mock_agent.invoke_async = AsyncMock(return_value='{"route": "faq"}')
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     chain_result = Mock()
     chain_result.success = True
@@ -396,10 +429,13 @@ def test_run_routing_preserves_user_variables(
     mock_run_chain.return_value = chain_result
 
     # Execute with custom variables
-    run_routing(minimal_routing_spec, variables={"query": "test", "user_id": "123"})
+    await run_routing(minimal_routing_spec, variables={"query": "test", "user_id": "123"})
 
     # Verify variables passed to chain
     route_variables = mock_run_chain.call_args[0][1]
     assert route_variables["query"] == "test"
     assert route_variables["user_id"] == "123"
     assert route_variables["router"]["chosen_route"] == "faq"
+
+
+

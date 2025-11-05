@@ -85,7 +85,8 @@ class TestTemplateRendering:
 class TestAgentExecution:
     """Test agent execution with mocked Strands Agent."""
 
-    def test_successful_chain_execution(
+    @pytest.mark.asyncio
+    async def test_successful_chain_execution(
         self, sample_ollama_spec: Spec, mock_strands_agent: Mock, mocker
     ):
         """Test successful execution returns response."""
@@ -94,7 +95,7 @@ class TestAgentExecution:
 
         mock_strands_agent.invoke_async.return_value = "Test response from agent"
 
-        result = run_single_agent(sample_ollama_spec)
+        result = await run_single_agent(sample_ollama_spec)
 
         assert result.success is True
         assert result.last_response == "Test response from agent"
@@ -103,7 +104,8 @@ class TestAgentExecution:
         assert result.error is None
         mock_strands_agent.invoke_async.assert_called_once()
 
-    def test_successful_workflow_execution(
+    @pytest.mark.asyncio
+    async def test_successful_workflow_execution(
         self, sample_minimal_spec_dict: dict, mock_strands_agent: Mock, mocker
     ):
         """Test workflow pattern execution."""
@@ -127,29 +129,33 @@ class TestAgentExecution:
         spec = Spec.model_validate(spec_dict)
 
         mock_strands_agent.invoke_async.return_value = "Workflow response"
-        result = run_single_agent(spec)
+        result = await run_single_agent(spec)
 
         assert result.success is True
         assert result.last_response == "Workflow response"
         assert result.pattern_type == PatternType.WORKFLOW
 
-    def test_agent_receives_correct_system_prompt(
+    @pytest.mark.asyncio
+    async def test_agent_receives_correct_system_prompt(
         self, sample_ollama_spec: Spec, mock_strands_agent: Mock, mocker
     ):
         """Test that agent is built with correct system prompt."""
-        # Mock the build_agent function to capture arguments
-        mock_build_agent = mocker.patch("strands_cli.exec.single_agent.build_agent")
-        mock_build_agent.return_value = mock_strands_agent
+        # Mock AgentCache.get_or_build_agent to capture arguments
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent.return_value = mock_strands_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.single_agent.AgentCache", return_value=mock_cache)
 
-        run_single_agent(sample_ollama_spec)
+        await run_single_agent(sample_ollama_spec)
 
-        # Verify build_agent was called with correct spec and agent config
-        mock_build_agent.assert_called_once()
-        call_args = mock_build_agent.call_args
+        # Verify get_or_build_agent was called with correct spec and agent config
+        mock_cache.get_or_build_agent.assert_called_once()
+        call_args = mock_cache.get_or_build_agent.call_args
         assert call_args[0][0] == sample_ollama_spec  # spec
         assert call_args[0][1] == "test_agent"  # agent_id
 
-    def test_agent_receives_rendered_task_prompt(
+    @pytest.mark.asyncio
+    async def test_agent_receives_rendered_task_prompt(
         self, sample_minimal_spec_dict: dict, mock_strands_agent: Mock, mocker
     ):
         """Test that agent receives rendered task prompt with variables."""
@@ -167,12 +173,13 @@ class TestAgentExecution:
         spec = Spec.model_validate(spec_dict)
 
         mock_strands_agent.invoke_async.return_value = "Response"
-        run_single_agent(spec)
+        await run_single_agent(spec)
 
         # Check that run was called with rendered input
         mock_strands_agent.invoke_async.assert_called_once_with("Write about AI Safety")
 
-    def test_execution_result_captured_correctly(
+    @pytest.mark.asyncio
+    async def test_execution_result_captured_correctly(
         self, sample_ollama_spec: Spec, mock_strands_agent: Mock, mocker
     ):
         """Test that execution result is captured with correct metadata."""
@@ -181,7 +188,7 @@ class TestAgentExecution:
 
         mock_strands_agent.invoke_async.return_value = "Final result"
 
-        result = run_single_agent(sample_ollama_spec)
+        result = await run_single_agent(sample_ollama_spec)
 
         assert result.success is True
         assert result.last_response == "Final result"
@@ -190,7 +197,8 @@ class TestAgentExecution:
         assert result.completed_at is not None
         assert result.duration_seconds >= 0
 
-    def test_template_error_wrapped_in_execution_error(
+    @pytest.mark.asyncio
+    async def test_template_error_wrapped_in_execution_error(
         self, sample_minimal_spec_dict: dict, mock_strands_agent: Mock, mocker
     ):
         """Test that template rendering errors are wrapped."""
@@ -203,15 +211,20 @@ class TestAgentExecution:
         spec = Spec.model_validate(spec_dict)
 
         with pytest.raises(ExecutionError, match="Failed to render task input"):
-            run_single_agent(spec)
+            await run_single_agent(spec)
 
-    def test_agent_build_error_wrapped(self, sample_ollama_spec: Spec, mocker):
-        """Test that agent build errors are wrapped."""
-        mock_build_agent = mocker.patch("strands_cli.exec.single_agent.build_agent")
-        mock_build_agent.side_effect = Exception("Provider connection failed")
+    @pytest.mark.asyncio
+    async def test_agent_build_error_wrapped(self, sample_ollama_spec: Spec, mocker):
+        """Test that agent build errors are wrapped in RunResult."""
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent.side_effect = Exception("Provider connection failed")
+        mocker.patch("strands_cli.exec.single_agent.AgentCache", return_value=mock_cache)
 
-        with pytest.raises(ExecutionError, match="Failed to build agent"):
-            run_single_agent(sample_ollama_spec)
+        result = await run_single_agent(sample_ollama_spec)
+
+        # Phase 3: Exceptions are now captured in RunResult, not raised
+        assert result.success is False
+        assert "Provider connection failed" in result.error
 
 
 # ============================================================================
@@ -222,7 +235,8 @@ class TestAgentExecution:
 class TestRetryLogic:
     """Test retry behavior with exponential backoff."""
 
-    def test_retry_on_transient_connection_error(
+    @pytest.mark.asyncio
+    async def test_retry_on_transient_connection_error(
         self, sample_ollama_spec: Spec, mock_strands_agent: Mock, mocker
     ):
         """Test retry on connection timeout."""
@@ -235,13 +249,14 @@ class TestRetryLogic:
             "Success after retry",
         ]
 
-        result = run_single_agent(sample_ollama_spec)
+        result = await run_single_agent(sample_ollama_spec)
 
         assert result.success is True
         assert result.last_response == "Success after retry"
         assert mock_strands_agent.invoke_async.call_count == 2
 
-    def test_retry_on_timeout_error(
+    @pytest.mark.asyncio
+    async def test_retry_on_timeout_error(
         self, sample_ollama_spec: Spec, mock_strands_agent: Mock, mocker
     ):
         """Test retry on timeout."""
@@ -253,11 +268,12 @@ class TestRetryLogic:
             "Success",
         ]
 
-        result = run_single_agent(sample_ollama_spec)
+        result = await run_single_agent(sample_ollama_spec)
         assert result.success is True
         assert mock_strands_agent.invoke_async.call_count == 2
 
-    def test_max_retries_respected(
+    @pytest.mark.asyncio
+    async def test_max_retries_respected(
         self, sample_minimal_spec_dict: dict, mock_strands_agent: Mock, mocker
     ):
         """Test that max_retries is respected from failure_policy."""
@@ -275,14 +291,15 @@ class TestRetryLogic:
         # Always fail
         mock_strands_agent.invoke_async.side_effect = ConnectionError("Always fails")
 
-        result = run_single_agent(spec)
+        result = await run_single_agent(spec)
 
         # Should fail after 3 attempts (1 initial + 2 retries)
         assert result.success is False
         assert "Always fails" in result.error
         assert mock_strands_agent.invoke_async.call_count == 3
 
-    def test_exponential_backoff_configuration(
+    @pytest.mark.asyncio
+    async def test_exponential_backoff_configuration(
         self, sample_minimal_spec_dict: dict, mock_strands_agent: Mock, mocker
     ):
         """Test exponential backoff uses wait_min and wait_max."""
@@ -304,12 +321,13 @@ class TestRetryLogic:
             "Success",
         ]
 
-        result = run_single_agent(spec)
+        result = await run_single_agent(spec)
         assert result.success is True
         # Verify all three attempts were made (initial + 2 retries)
         assert mock_strands_agent.invoke_async.call_count == 3
 
-    def test_permanent_error_fails_immediately(
+    @pytest.mark.asyncio
+    async def test_permanent_error_fails_immediately(
         self, sample_ollama_spec: Spec, mock_strands_agent: Mock, mocker
     ):
         """Test that non-transient errors fail without retry."""
@@ -318,7 +336,7 @@ class TestRetryLogic:
         # ValueError is not in _TRANSIENT_ERRORS, should not retry
         mock_strands_agent.invoke_async.side_effect = ValueError("Invalid input")
 
-        result = run_single_agent(sample_ollama_spec)
+        result = await run_single_agent(sample_ollama_spec)
 
         assert result.success is False
         assert "Invalid input" in result.error

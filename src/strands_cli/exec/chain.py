@@ -26,20 +26,19 @@ Budget Enforcement:
     - Hard stop at 100% (if configured)
 """
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
 from strands_cli.exec.utils import (
+    AgentCache,
     check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
-from strands_cli.runtime import build_agent
 from strands_cli.types import PatternType, RunResult, Spec
 
 
@@ -92,11 +91,16 @@ def _build_step_context(
     return context
 
 
-def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute a multi-step chain workflow.
 
     Executes steps sequentially with context passing. Each step receives
     all prior step responses via {{ steps[n].response }} template variables.
+
+    Phase 4 Performance Optimizations:
+        - Agent caching: Reuses agents across steps with same (agent_id, tools)
+        - Single event loop: No per-step asyncio.run() overhead
+        - HTTP client cleanup: Proper resource management via AgentCache.close()
 
     Args:
         spec: Workflow spec with chain pattern
@@ -125,78 +129,84 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
 
     started_at = datetime.now(UTC).isoformat()
 
-    # Execute each step sequentially
-    for step_index, step in enumerate(spec.pattern.config.steps):
-        logger.info(
-            "chain_step_start",
-            step=step_index,
-            total_steps=len(spec.pattern.config.steps),
-            agent=step.agent,
-        )
-
-        # Build context with prior step responses
-        template_context = _build_step_context(spec, step_index, step_history, variables)
-
-        # Render step input (default to empty if not provided)
-        step_input_template = step.input or ""
-        try:
-            step_input = render_template(step_input_template, template_context)
-        except Exception as e:
-            raise ChainExecutionError(f"Failed to render step {step_index} input: {e}") from e
-
-        # Get the correct agent config for this step (Phase 2: support multi-agent chains)
-        step_agent_id = step.agent
-        if step_agent_id not in spec.agents:
-            raise ChainExecutionError(
-                f"Step {step_index} references unknown agent '{step_agent_id}'"
+    # Phase 4: Create AgentCache for agent reuse across steps
+    cache = AgentCache()
+    try:
+        # Execute each step sequentially
+        for step_index, step in enumerate(spec.pattern.config.steps):
+            logger.info(
+                "chain_step_start",
+                step=step_index,
+                total_steps=len(spec.pattern.config.steps),
+                agent=step.agent,
             )
-        step_agent_config = spec.agents[step_agent_id]
 
-        # Build agent for this step (with optional tool overrides)
-        try:
-            # Use step's tool_overrides if provided, else use agent's tools
-            tools_for_step = step.tool_overrides if step.tool_overrides else None
-            agent = build_agent(
-                spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
+            # Build context with prior step responses
+            template_context = _build_step_context(spec, step_index, step_history, variables)
+
+            # Render step input (default to empty if not provided)
+            step_input_template = step.input or ""
+            try:
+                step_input = render_template(step_input_template, template_context)
+            except Exception as e:
+                raise ChainExecutionError(f"Failed to render step {step_index} input: {e}") from e
+
+            # Get the correct agent config for this step (Phase 2: support multi-agent chains)
+            step_agent_id = step.agent
+            if step_agent_id not in spec.agents:
+                raise ChainExecutionError(
+                    f"Step {step_index} references unknown agent '{step_agent_id}'"
+                )
+            step_agent_config = spec.agents[step_agent_id]
+
+            # Phase 4: Use cached agent instead of rebuilding per step
+            try:
+                # Use step's tool_overrides if provided, else use agent's tools
+                tools_for_step = step.tool_overrides if step.tool_overrides else None
+                agent = await cache.get_or_build_agent(
+                    spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
+                )
+            except Exception as e:
+                raise ChainExecutionError(f"Failed to build agent for step {step_index}: {e}") from e
+
+            # Phase 4: Direct await instead of asyncio.run() per step
+            try:
+                step_response = await invoke_agent_with_retry(
+                    agent, step_input, max_attempts, wait_min, wait_max
+                )
+            except Exception as e:
+                error_msg = f"Step {step_index} failed: {e}"
+                logger.error("chain_step_failed", step=step_index, error=str(e))
+                raise ChainExecutionError(error_msg) from e
+
+            # Extract response text
+            response_text = step_response if isinstance(step_response, str) else str(step_response)
+
+            # Track token usage using shared estimator
+            estimated_tokens = estimate_tokens(step_input, response_text)
+            cumulative_tokens += estimated_tokens
+
+            # Check budget using shared function
+            check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_index}")
+
+            # Record step result
+            step_result = {
+                "index": step_index,
+                "agent": step.agent,
+                "response": response_text,
+                "tokens_estimated": estimated_tokens,
+            }
+            step_history.append(step_result)
+
+            logger.info(
+                "chain_step_complete",
+                step=step_index,
+                response_length=len(response_text),
+                cumulative_tokens=cumulative_tokens,
             )
-        except Exception as e:
-            raise ChainExecutionError(f"Failed to build agent for step {step_index}: {e}") from e
-
-        # Execute with retry logic
-        try:
-            step_response = asyncio.run(
-                invoke_agent_with_retry(agent, step_input, max_attempts, wait_min, wait_max)
-            )
-        except Exception as e:
-            error_msg = f"Step {step_index} failed: {e}"
-            logger.error("chain_step_failed", step=step_index, error=str(e))
-            raise ChainExecutionError(error_msg) from e
-
-        # Extract response text
-        response_text = step_response if isinstance(step_response, str) else str(step_response)
-
-        # Track token usage using shared estimator
-        estimated_tokens = estimate_tokens(step_input, response_text)
-        cumulative_tokens += estimated_tokens
-
-        # Check budget using shared function
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_index}")
-
-        # Record step result
-        step_result = {
-            "index": step_index,
-            "agent": step.agent,
-            "response": response_text,
-            "tokens_estimated": estimated_tokens,
-        }
-        step_history.append(step_result)
-
-        logger.info(
-            "chain_step_complete",
-            step=step_index,
-            response_length=len(response_text),
-            cumulative_tokens=cumulative_tokens,
-        )
+    finally:
+        # Phase 4: Clean up cached agents and HTTP clients
+        await cache.close()
 
     completed_at = datetime.now(UTC).isoformat()
     started_dt = datetime.fromisoformat(started_at)

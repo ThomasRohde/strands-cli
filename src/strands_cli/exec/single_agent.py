@@ -6,10 +6,15 @@ Supports both chain and workflow patterns (limited to 1 step/task).
 Execution Flow:
     1. Extract agent and pattern configuration
     2. Render task input with Jinja2 template (inject variables)
-    3. Build Strands Agent with tools and model
+    3. Get or build Strands Agent with tools and model (via AgentCache)
     4. Execute agent asynchronously with retry logic
     5. Capture response and timing information
     6. Return RunResult with success/error status
+
+Phase 3 Optimizations:
+    - Converted to async function to eliminate per-call event loop creation
+    - Integrated AgentCache to enable agent reuse (preparation for future multi-step)
+    - Proper cleanup of HTTP clients via AgentCache.close()
 
 Retry Strategy:
     - Exponential backoff for transient errors (timeout, connection)
@@ -17,15 +22,13 @@ Retry Strategy:
     - Default: 3 attempts, 1s-60s backoff
 """
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
-from strands_cli.exec.utils import get_retry_config, invoke_agent_with_retry
+from strands_cli.exec.utils import AgentCache, get_retry_config, invoke_agent_with_retry
 from strands_cli.loader import render_template
-from strands_cli.runtime import build_agent
 from strands_cli.telemetry import get_tracer
 from strands_cli.types import PatternType, RunResult, Spec
 
@@ -42,17 +45,23 @@ class ExecutionError(Exception):
     pass
 
 
-def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
-    """Execute a single-agent workflow.
+async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+    """Execute a single-agent workflow asynchronously.
 
     Complete execution workflow:
     1. Extract agent configuration and pattern details
     2. Render task input using Jinja2 with variables from spec.inputs.values
-    3. Build Strands Agent with model, tools, and system prompt
+    3. Get or build Strands Agent with model, tools, and system prompt (via AgentCache)
     4. Configure retry policy from spec.runtime.failure_policy
     5. Execute agent asynchronously with exponential backoff retry
     6. Capture timing (start, end, duration) and response
-    7. Return RunResult with success status and artifacts
+    7. Clean up HTTP clients and cached resources
+    8. Return RunResult with success status and artifacts
+
+    Phase 3 Changes:
+    - Converted to async function (no more asyncio.run() inside executor)
+    - Added AgentCache for agent reuse and proper cleanup
+    - HTTP clients properly closed in finally block
 
     Args:
         spec: Validated workflow spec (must pass capability check first)
@@ -116,24 +125,24 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
         except Exception as e:
             raise ExecutionError(f"Failed to render task input: {e}") from e
 
-        # Build the agent
-        try:
-            agent = build_agent(spec, agent_id, agent_config)
-        except Exception as e:
-            raise ExecutionError(f"Failed to build agent: {e}") from e
-
         # Get retry configuration
         max_attempts, wait_min, wait_max = get_retry_config(spec)
 
-        # Run the agent with retry logic
-        # asyncio.run() creates new event loop for this execution
+        # Create agent cache for this execution
+        # Phase 3: Single executor-scoped cache (cleanup in finally)
+        cache = AgentCache()
         try:
+            # Get or build the agent (cache enables future multi-step reuse)
+            agent = await cache.get_or_build_agent(spec, agent_id, agent_config)
+
+            # Run the agent with retry logic
+            # Phase 3: Direct await instead of asyncio.run() (no event loop churn)
             logger.debug(
                 "agent_execution_started", agent_id=agent_id, task_input_length=len(task_input)
             )
             with tracer.start_span("agent_invoke"):
-                response = asyncio.run(
-                    invoke_agent_with_retry(agent, task_input, max_attempts, wait_min, wait_max)
+                response = await invoke_agent_with_retry(
+                    agent, task_input, max_attempts, wait_min, wait_max
                 )
         except Exception as e:
             completed_at = datetime.now(UTC)
@@ -156,6 +165,9 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
                 completed_at=completed_at.isoformat(),
                 duration_seconds=duration,
             )
+        finally:
+            # Phase 3: Cleanup HTTP clients and cached resources
+            await cache.close()
 
         # Extract last response
         # Strands Agent.invoke_async() returns a string or Response object

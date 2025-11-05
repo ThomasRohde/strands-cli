@@ -102,10 +102,10 @@ outputs:
 class TestCLIRunCommand:
     """Test the 'run' command with multi-step workflows."""
 
-    @patch("strands_cli.exec.chain.build_agent")
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     def test_run_multi_step_chain(
         self,
-        mock_build_agent: MagicMock,
+        mock_get_agent: MagicMock,
         cli_runner: CliRunner,
         multi_step_chain_yaml: Path,
         tmp_path: Path,
@@ -114,7 +114,7 @@ class TestCLIRunCommand:
         # Mock agent responses
         mock_agent = MagicMock()
         mock_agent.invoke_async = AsyncMock(side_effect=["Response 1", "Response 2", "Response 3"])
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         output_dir = tmp_path / "output"
         result = cli_runner.invoke(
@@ -132,17 +132,17 @@ class TestCLIRunCommand:
 
         assert result.exit_code == 0
         assert "Workflow completed successfully" in result.stdout
-        assert mock_build_agent.call_count == 3
+        assert mock_get_agent.call_count == 3
 
         # Verify artifact was written
         artifact_file = output_dir / "cli-test-output.txt"
         assert artifact_file.exists()
         assert "Response 3" in artifact_file.read_text()
 
-    @patch("strands_cli.exec.workflow.build_agent")
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     def test_run_multi_task_workflow(
         self,
-        mock_build_agent: MagicMock,
+        mock_get_agent: MagicMock,
         cli_runner: CliRunner,
         multi_task_workflow_yaml: Path,
         tmp_path: Path,
@@ -153,7 +153,7 @@ class TestCLIRunCommand:
         mock_agent.invoke_async = AsyncMock(
             side_effect=["Response 1", "Response 2", "Response 3", "Response 4"]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         output_dir = tmp_path / "output"
         result = cli_runner.invoke(
@@ -171,7 +171,7 @@ class TestCLIRunCommand:
 
         assert result.exit_code == 0
         assert "Workflow completed successfully" in result.stdout
-        assert mock_build_agent.call_count == 4
+        assert mock_get_agent.call_count == 4
 
         # Verify artifact was written with task context
         artifact_file = output_dir / "workflow-output.txt"
@@ -180,9 +180,9 @@ class TestCLIRunCommand:
         assert "Task 1: Response 1" in content
         assert "Task 4: Response 4" in content
 
-    @patch("strands_cli.exec.chain.build_agent")
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     def test_run_chain_with_failure(
-        self, mock_build_agent: MagicMock, cli_runner: CliRunner, multi_step_chain_yaml: Path
+        self, mock_get_agent: MagicMock, cli_runner: CliRunner, multi_step_chain_yaml: Path
     ):
         """Test chain execution failure via CLI."""
         # Mock agent to fail on second step
@@ -190,7 +190,7 @@ class TestCLIRunCommand:
         mock_agent.invoke_async = AsyncMock(
             side_effect=["Response 1", RuntimeError("Step 2 failed")]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         result = cli_runner.invoke(
             app, ["run", str(multi_step_chain_yaml), "--var", "topic=testing"]
@@ -390,12 +390,12 @@ outputs:
         spec_file.write_text(spec_content, encoding="utf-8")
         return spec_file
 
-    @patch("strands_cli.exec.routing.build_agent")
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     @patch("strands_cli.exec.routing.run_chain")
     def test_run_routing_via_cli(
         self,
         mock_run_chain: MagicMock,
-        mock_build_agent: MagicMock,
+        mock_get_agent: MagicMock,
         cli_runner: CliRunner,
         routing_spec_yaml: Path,
         tmp_path: Path,
@@ -404,7 +404,7 @@ outputs:
         # Mock router agent to return "faq" route
         mock_router_agent = MagicMock()
         mock_router_agent.invoke_async = AsyncMock(return_value='{"route": "faq"}')
-        mock_build_agent.return_value = mock_router_agent
+        mock_get_agent.return_value = mock_router_agent
 
         # Mock chain execution
         chain_result = Mock()
@@ -443,7 +443,7 @@ outputs:
 
         assert result.exit_code == 0
         assert "Workflow completed successfully" in result.stdout
-        assert mock_build_agent.called
+        assert mock_get_agent.called
         assert mock_run_chain.called
 
         # Verify artifact was written

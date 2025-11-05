@@ -240,9 +240,10 @@ class TestRunWorkflow:
 
         return load_spec(str(spec_file))
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_run_workflow_success(
-        self, mock_build_agent: MagicMock, workflow_spec_parallel: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_workflow_success(
+        self, mock_get_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test successful workflow execution with parallel tasks."""
         mock_agent = MagicMock()
@@ -254,31 +255,33 @@ class TestRunWorkflow:
                 "Result 4",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_workflow(workflow_spec_parallel, variables=None)
+        result = await run_workflow(workflow_spec_parallel, variables=None)
 
         assert result.success is True
         assert result.last_response == "Result 4"  # Last task result
-        assert mock_build_agent.call_count == 4
+        assert mock_get_agent.call_count == 4
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_run_workflow_task_failure(
-        self, mock_build_agent: MagicMock, workflow_spec_parallel: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_workflow_task_failure(
+        self, mock_get_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test workflow stops on task failure."""
         from strands_cli.exec.workflow import WorkflowExecutionError
 
         mock_agent = MagicMock()
         mock_agent.invoke_async = AsyncMock(side_effect=RuntimeError("Task failed"))
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         with pytest.raises(WorkflowExecutionError, match="Task failed"):
-            run_workflow(workflow_spec_parallel, variables=None)
+            await run_workflow(workflow_spec_parallel, variables=None)
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_run_workflow_respects_max_parallel(
-        self, mock_build_agent: MagicMock, workflow_spec_parallel: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_workflow_respects_max_parallel(
+        self, mock_get_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test max_parallel constraint enforced."""
         # max_parallel=2 in fixture
@@ -291,16 +294,17 @@ class TestRunWorkflow:
                 "Result 4",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_workflow(workflow_spec_parallel, variables=None)
+        result = await run_workflow(workflow_spec_parallel, variables=None)
 
         assert result.success is True
         # Can't directly test semaphore but verify all tasks completed
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_run_workflow_with_task_context(
-        self, mock_build_agent: MagicMock, tmp_path: Path
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_workflow_with_task_context(
+        self, mock_get_agent: MagicMock, tmp_path: Path
     ) -> None:
         """Test task context includes previous task results."""
         from ruamel.yaml import YAML
@@ -330,7 +334,7 @@ class TestRunWorkflow:
         }
 
         spec_file = tmp_path / "workflow.yaml"
-        with open(spec_file, "w") as f:
+        with open(spec_file, "w") as f:  # noqa: ASYNC230
             yaml.dump(spec_data, f)
 
         spec = load_spec(str(spec_file))
@@ -342,15 +346,16 @@ class TestRunWorkflow:
                 "Second result",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_workflow(spec, variables=None)
+        result = await run_workflow(spec, variables=None)
 
         assert result.success is True
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_run_workflow_budget_tracking(
-        self, mock_build_agent: MagicMock, workflow_spec_parallel: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_workflow_budget_tracking(
+        self, mock_get_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test budget consumption tracking across tasks."""
         workflow_spec_parallel.runtime.budgets = {"max_tokens": 500}
@@ -364,15 +369,16 @@ class TestRunWorkflow:
                 "Result 4",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_workflow(workflow_spec_parallel, variables=None)
+        result = await run_workflow(workflow_spec_parallel, variables=None)
 
         assert result.success is True
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_run_workflow_budget_exceeded(
-        self, mock_build_agent: MagicMock, workflow_spec_parallel: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_workflow_budget_exceeded(
+        self, mock_get_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test workflow stops when budget exceeded."""
         from strands_cli.exec.utils import ExecutionUtilsError
@@ -383,18 +389,19 @@ class TestRunWorkflow:
         mock_agent.invoke_async = AsyncMock(
             return_value="Result with many tokens that exceeds budget"
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         with pytest.raises(ExecutionUtilsError, match="budget exceeded"):
-            run_workflow(workflow_spec_parallel, variables=None)
+            await run_workflow(workflow_spec_parallel, variables=None)
 
 
 class TestWorkflowTemplateRendering:
     """Test Jinja2 template rendering in workflow execution."""
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_workflow_renders_task_references(
-        self, mock_build_agent: MagicMock, tmp_path: Path
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_workflow_renders_task_references(
+        self, mock_get_agent: MagicMock, tmp_path: Path
     ) -> None:
         """Test that {{ tasks.<id>.response }} renders correctly."""
         from ruamel.yaml import YAML
@@ -424,7 +431,7 @@ class TestWorkflowTemplateRendering:
         }
 
         spec_file = tmp_path / "workflow.yaml"
-        with open(spec_file, "w") as f:
+        with open(spec_file, "w") as f:  # noqa: ASYNC230
             yaml.dump(spec_data, f)
 
         spec = load_spec(str(spec_file))
@@ -436,9 +443,9 @@ class TestWorkflowTemplateRendering:
                 "Analysis complete",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_workflow(spec, variables=None)
+        result = await run_workflow(spec, variables=None)
 
         assert result.success is True
 
@@ -446,8 +453,9 @@ class TestWorkflowTemplateRendering:
 class TestMultiAgentWorkflowRegression:
     """Regression tests for workflow.py multi-agent support."""
 
-    @patch("strands_cli.exec.workflow.build_agent")
-    def test_tasks_use_declared_agents(self, mock_build_agent: MagicMock, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_tasks_use_declared_agents(self, mock_get_agent: MagicMock, tmp_path: Path) -> None:
         """Test that multi-agent workflows use correct agent per task.
 
         Regression test for issue where run_workflow reused one agent config for all tasks.
@@ -483,7 +491,7 @@ class TestMultiAgentWorkflowRegression:
         }
 
         spec_file = tmp_path / "multi_agent.yaml"
-        with open(spec_file, "w") as f:
+        with open(spec_file, "w") as f:  # noqa: ASYNC230  # noqa: ASYNC230
             yaml.dump(spec_data, f)
 
         spec = load_spec(str(spec_file))
@@ -491,15 +499,15 @@ class TestMultiAgentWorkflowRegression:
         # Track which agents were built
         agent_ids_built = []
 
-        def track_build_agent(spec_arg, agent_id, agent_config):
+        def track_build_agent(spec_arg, agent_id, agent_config, **kwargs):
             agent_ids_built.append(agent_id)
             mock_agent = MagicMock()
             mock_agent.invoke_async = AsyncMock(return_value=f"Response from {agent_id}")
             return mock_agent
 
-        mock_build_agent.side_effect = track_build_agent
+        mock_get_agent.side_effect = track_build_agent
 
-        result = run_workflow(spec, variables=None)
+        result = await run_workflow(spec, variables=None)
 
         # Verify both agents were used
         assert result.success is True

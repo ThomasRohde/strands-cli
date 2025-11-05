@@ -13,9 +13,16 @@ Ollama:
     - Model IDs are local model names (e.g., gpt-oss, llama2)
 
 Both providers support model_id override from runtime or agent config.
+
+Performance Optimization:
+    - Model clients are cached using functools.lru_cache with maxsize=16
+    - This prevents redundant client creation in multi-step workflows
+    - Cache is keyed by (provider, model_id, region, host) tuple
 """
 
 import os
+from dataclasses import dataclass
+from functools import lru_cache
 
 import structlog
 from strands.models.bedrock import BedrockModel
@@ -29,6 +36,32 @@ class ProviderError(Exception):
     """Raised when provider configuration or initialization fails."""
 
     pass
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    """Hashable runtime configuration for LRU cache key.
+
+    Frozen dataclass containing only the fields needed to uniquely identify
+    a model client configuration. Used as the cache key for _create_model_cached.
+
+    Attributes:
+        provider: Provider type (bedrock, ollama, openai)
+        model_id: Specific model identifier (or None for defaults)
+        region: AWS region (Bedrock only)
+        host: Host URL (Ollama/OpenAI only)
+        temperature: Sampling temperature (OpenAI only)
+        top_p: Nucleus sampling parameter (OpenAI only)
+        max_tokens: Maximum tokens to generate (OpenAI only)
+    """
+
+    provider: str
+    model_id: str | None
+    region: str | None
+    host: str | None
+    temperature: float | None
+    top_p: float | None
+    max_tokens: int | None
 
 
 def create_bedrock_model(runtime: Runtime) -> BedrockModel:
@@ -178,18 +211,55 @@ def create_openai_model(runtime: Runtime) -> OpenAIModel:
     return model
 
 
-def create_model(runtime: Runtime) -> BedrockModel | OllamaModel | OpenAIModel:
-    """Create a model client based on the provider.
+@lru_cache(maxsize=16)
+def _create_model_cached(config: RuntimeConfig) -> BedrockModel | OllamaModel | OpenAIModel:
+    """Create a model client with LRU caching.
+
+    This cached version prevents redundant model client creation in multi-step
+    workflows. The cache is keyed by RuntimeConfig which contains all fields
+    that uniquely identify a model configuration.
+
+    Cache performance can be monitored via _create_model_cached.cache_info()
+    which returns CacheInfo(hits, misses, maxsize, currsize).
 
     Args:
-        runtime: Runtime configuration
+        config: Frozen RuntimeConfig containing provider, model_id, region, host, etc.
 
     Returns:
-        Strands model (BedrockModel, OllamaModel, or OpenAIModel)
+        Cached or newly created model client
 
     Raises:
         ProviderError: If provider is unsupported or configuration is invalid
     """
+    logger = structlog.get_logger(__name__)
+
+    # Reconstruct Runtime object from config for provider functions
+    # Note: We only include fields that affect model creation, not execution policies
+    try:
+        provider_enum = ProviderType(config.provider)
+    except ValueError as e:
+        raise ProviderError(
+            f"Unsupported provider: {config.provider}. Use 'bedrock', 'ollama', or 'openai'."
+        ) from e
+
+    runtime = Runtime(
+        provider=provider_enum,
+        model_id=config.model_id,
+        region=config.region,
+        host=config.host,
+        temperature=config.temperature,
+        top_p=config.top_p,
+        max_tokens=config.max_tokens,
+    )
+
+    logger.debug(
+        "creating_model_client",
+        provider=config.provider,
+        model_id=config.model_id,
+        region=config.region,
+        host=config.host,
+    )
+
     if runtime.provider == ProviderType.BEDROCK:
         return create_bedrock_model(runtime)
     elif runtime.provider == ProviderType.OLLAMA:
@@ -200,3 +270,54 @@ def create_model(runtime: Runtime) -> BedrockModel | OllamaModel | OpenAIModel:
         raise ProviderError(
             f"Unsupported provider: {runtime.provider}. Use 'bedrock', 'ollama', or 'openai'."
         )
+
+
+def create_model(runtime: Runtime) -> BedrockModel | OllamaModel | OpenAIModel:
+    """Create a model client based on the provider.
+
+    This function converts the Runtime object to a hashable RuntimeConfig
+    and delegates to the cached _create_model_cached function. This enables
+    model client reuse across multiple agent builds in multi-step workflows.
+
+    Cache statistics are logged periodically for observability.
+
+    Args:
+        runtime: Runtime configuration
+
+    Returns:
+        Strands model (BedrockModel, OllamaModel, or OpenAIModel)
+
+    Raises:
+        ProviderError: If provider is unsupported or configuration is invalid
+    """
+    logger = structlog.get_logger(__name__)
+
+    # Convert Runtime to hashable RuntimeConfig for caching
+    config = RuntimeConfig(
+        provider=runtime.provider.value,
+        model_id=runtime.model_id,
+        region=runtime.region,
+        host=runtime.host,
+        temperature=runtime.temperature,
+        top_p=runtime.top_p,
+        max_tokens=runtime.max_tokens,
+    )
+
+    # Call cached function
+    model = _create_model_cached(config)
+
+    # Log cache performance (every 10 calls to avoid spam)
+    cache_info = _create_model_cached.cache_info()
+    total_calls = cache_info.hits + cache_info.misses
+    if total_calls > 0 and total_calls % 10 == 0:
+        hit_rate = cache_info.hits / total_calls if total_calls > 0 else 0
+        logger.info(
+            "model_cache_stats",
+            hits=cache_info.hits,
+            misses=cache_info.misses,
+            hit_rate=f"{hit_rate:.1%}",
+            size=cache_info.currsize,
+            maxsize=cache_info.maxsize,
+        )
+
+    return model

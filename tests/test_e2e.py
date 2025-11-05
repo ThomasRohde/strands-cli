@@ -20,7 +20,8 @@ from strands_cli.schema import SchemaValidationError
 class TestOllamaE2E:
     """End-to-end tests for Ollama provider workflows."""
 
-    def test_ollama_happy_path_full_workflow(
+    @pytest.mark.asyncio
+    async def test_ollama_happy_path_full_workflow(
         self,
         minimal_ollama_spec: Path,
         temp_artifacts_dir: Path,
@@ -47,7 +48,7 @@ class TestOllamaE2E:
         assert len(capability_report.issues) == 0
 
         # Execute workflow
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert result.success
         assert result.last_response == "This is the AI response for Ollama test."
         assert result.duration_seconds > 0
@@ -65,7 +66,8 @@ class TestOllamaE2E:
         # Check that at least one artifact was written
         assert any(Path(art).exists() for art in artifacts_written)
 
-    def test_ollama_with_variables(
+    @pytest.mark.asyncio
+    async def test_ollama_with_variables(
         self,
         minimal_ollama_spec: Path,
         mock_ollama_client: Mock,
@@ -82,14 +84,15 @@ class TestOllamaE2E:
         spec = load_spec(str(minimal_ollama_spec), variables)
 
         # Execute
-        result = run_single_agent(spec, variables)
+        result = await run_single_agent(spec, variables)
         assert result.success
         assert result.last_response is not None
 
         # Verify agent was called (template should have expanded)
         mock_strands_agent.invoke_async.assert_called_once()
 
-    def test_ollama_with_budgets_and_retries(
+    @pytest.mark.asyncio
+    async def test_ollama_with_budgets_and_retries(
         self,
         with_budgets_spec: Path,
         mock_ollama_client: Mock,
@@ -111,14 +114,15 @@ class TestOllamaE2E:
         else:
             assert spec.runtime.failure_policy.get("retries") == 3
 
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert result.success
 
 
 class TestBedrockE2E:
     """End-to-end tests for AWS Bedrock provider workflows."""
 
-    def test_bedrock_happy_path_full_workflow(
+    @pytest.mark.asyncio
+    async def test_bedrock_happy_path_full_workflow(
         self,
         minimal_bedrock_spec: Path,
         temp_artifacts_dir: Path,
@@ -142,7 +146,7 @@ class TestBedrockE2E:
         assert capability_report.supported
 
         # Execute workflow
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert result.success
         assert result.last_response == "This is the AI response from Bedrock."
 
@@ -280,29 +284,31 @@ class TestSchemaValidationE2E:
 class TestRuntimeErrorsE2E:
     """End-to-end tests for runtime error handling."""
 
-    def test_provider_connection_failure(
+    @pytest.mark.asyncio
+    async def test_provider_connection_failure(
         self,
         minimal_ollama_spec: Path,
         mocker: Any,
     ) -> None:
         """Test graceful handling of provider connection failures."""
-        # Mock the create_model function to raise an error
-        mocker.patch(
-            "strands_cli.runtime.strands_adapter.create_model",
-            side_effect=RuntimeError("Failed to connect to Ollama server"),
-        )
+        # Mock AgentCache.get_or_build_agent to raise an error
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent.side_effect = RuntimeError("Failed to connect to Ollama server")
+        mocker.patch("strands_cli.exec.single_agent.AgentCache", return_value=mock_cache)
 
         spec = load_spec(str(minimal_ollama_spec))
 
-        # Execution should fail gracefully
-        with pytest.raises(Exception) as exc_info:
-            run_single_agent(spec, {})
+        # Phase 3: Exceptions are now captured in RunResult, not raised
+        result = await run_single_agent(spec, {})
 
+        assert result.success is False
+        assert result.error is not None
         # Should indicate connection/runtime error
-        error_msg = str(exc_info.value)
+        error_msg = str(result.error)
         assert "connect" in error_msg.lower() or "runtime" in error_msg.lower()
 
-    def test_agent_execution_failure(
+    @pytest.mark.asyncio
+    async def test_agent_execution_failure(
         self,
         minimal_ollama_spec: Path,
         mock_ollama_client: Mock,
@@ -319,7 +325,7 @@ class TestRuntimeErrorsE2E:
         spec = load_spec(str(minimal_ollama_spec))
 
         # Should capture the error in the result
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert not result.success
         assert result.error is not None
         assert "failed" in result.error.lower()
@@ -328,7 +334,8 @@ class TestRuntimeErrorsE2E:
 class TestToolsAndSkillsE2E:
     """End-to-end tests for workflows with tools and skills."""
 
-    def test_workflow_with_tools(
+    @pytest.mark.asyncio
+    async def test_workflow_with_tools(
         self,
         with_tools_spec: Path,
         mock_ollama_client: Mock,
@@ -349,10 +356,11 @@ class TestToolsAndSkillsE2E:
         capability_report = check_capability(spec)
         assert capability_report.supported
 
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert result.success
 
-    def test_workflow_with_skills(
+    @pytest.mark.asyncio
+    async def test_workflow_with_skills(
         self,
         with_skills_spec: Path,
         mock_ollama_client: Mock,
@@ -374,14 +382,15 @@ class TestToolsAndSkillsE2E:
         capability_report = check_capability(spec)
         assert capability_report.supported
 
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert result.success
 
 
 class TestSecretsE2E:
     """End-to-end tests for secrets handling."""
 
-    def test_workflow_with_env_secrets(
+    @pytest.mark.asyncio
+    async def test_workflow_with_env_secrets(
         self,
         with_secrets_spec: Path,
         mock_ollama_client: Mock,
@@ -408,5 +417,5 @@ class TestSecretsE2E:
         capability_report = check_capability(spec)
         assert capability_report.supported
 
-        result = run_single_agent(spec, {})
+        result = await run_single_agent(spec, {})
         assert result.success

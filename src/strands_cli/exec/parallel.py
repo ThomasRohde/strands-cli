@@ -37,13 +37,13 @@ from typing import Any
 import structlog
 
 from strands_cli.exec.utils import (
+    AgentCache,
     check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
-from strands_cli.runtime import build_agent
 from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
 
 try:
@@ -104,6 +104,7 @@ async def _execute_branch(
     spec: Spec,
     branch: ParallelBranch,
     user_variables: dict[str, Any],
+    cache: AgentCache,
     max_attempts: int,
     wait_min: int,
     wait_max: int,
@@ -114,6 +115,7 @@ async def _execute_branch(
         spec: Workflow spec
         branch: ParallelBranch configuration
         user_variables: User-provided variables (spec + CLI)
+        cache: Shared AgentCache for agent reuse
         max_attempts: Maximum retry attempts per step
         wait_min: Minimum wait time for exponential backoff (seconds)
         wait_max: Maximum wait time for exponential backoff (seconds)
@@ -153,14 +155,14 @@ async def _execute_branch(
         # Render input template
         step_input = render_template(step.input or "", step_context)
 
-        # Build agent for step
+        # Build agent for step (using cache to avoid rebuilds)
         if step.agent not in spec.agents:
             raise ParallelExecutionError(
                 f"Branch '{branch.id}' step {step_index} references unknown agent '{step.agent}'"
             )
 
         agent_config = spec.agents[step.agent]
-        agent = build_agent(
+        agent = await cache.get_or_build_agent(
             spec=spec,
             agent_id=step.agent,
             agent_config=agent_config,
@@ -221,6 +223,7 @@ async def _execute_reduce_step(
     reduce_config: Any,
     user_vars: dict[str, Any],
     branches_dict: dict[str, dict[str, Any]],
+    cache: AgentCache,
     max_attempts: int,
     wait_min: int,
     wait_max: int,
@@ -232,6 +235,7 @@ async def _execute_reduce_step(
         reduce_config: Reduce step configuration
         user_vars: User-provided variables
         branches_dict: Dictionary of branch results
+        cache: Shared AgentCache for agent reuse
         max_attempts: Maximum retry attempts
         wait_min: Minimum wait time for exponential backoff (seconds)
         wait_max: Maximum wait time for exponential backoff (seconds)
@@ -253,14 +257,14 @@ async def _execute_reduce_step(
     # Render reduce input
     reduce_input = render_template(reduce_config.input or "", reduce_context)
 
-    # Build reduce agent
+    # Build reduce agent (using cache to avoid rebuilds)
     if reduce_config.agent not in spec.agents:
         raise ParallelExecutionError(
             f"Reduce step references unknown agent '{reduce_config.agent}'"
         )
 
     reduce_agent_config = spec.agents[reduce_config.agent]
-    reduce_agent = build_agent(
+    reduce_agent = await cache.get_or_build_agent(
         spec=spec,
         agent_id=reduce_config.agent,
         agent_config=reduce_agent_config,
@@ -292,6 +296,7 @@ async def _execute_all_branches_async(
     spec: Spec,
     branches: list[ParallelBranch],
     user_vars: dict[str, Any],
+    cache: AgentCache,
     max_parallel: int | None,
     max_attempts: int,
     wait_min: int,
@@ -303,6 +308,7 @@ async def _execute_all_branches_async(
         spec: Workflow spec
         branches: List of branches to execute
         user_vars: User-provided variables
+        cache: Shared AgentCache for agent reuse
         max_parallel: Maximum concurrent branches (None for unlimited)
         max_attempts: Maximum retry attempts per step
         wait_min: Minimum wait time for exponential backoff (seconds)
@@ -321,11 +327,11 @@ async def _execute_all_branches_async(
         if semaphore:
             async with semaphore:
                 return await _execute_branch(
-                    spec, branch, user_vars, max_attempts, wait_min, wait_max
+                    spec, branch, user_vars, cache, max_attempts, wait_min, wait_max
                 )
         else:
             return await _execute_branch(
-                spec, branch, user_vars, max_attempts, wait_min, wait_max
+                spec, branch, user_vars, cache, max_attempts, wait_min, wait_max
             )
 
     # Execute all branches in parallel (fail-fast with return_exceptions=False)
@@ -336,11 +342,16 @@ async def _execute_all_branches_async(
     return results
 
 
-def run_parallel(
+async def run_parallel(
     spec: Spec,
     variables: dict[str, str] | None = None,
 ) -> RunResult:
     """Execute parallel pattern with concurrent branches.
+
+    Phase 6 Performance Optimization:
+    - Async execution with shared AgentCache across all branches and reduce step
+    - Single event loop eliminates per-branch loop churn
+    - Agents reused when branches use same agent configuration
 
     Args:
         spec: Validated workflow spec with parallel pattern
@@ -383,109 +394,114 @@ def run_parallel(
         max_tokens=max_tokens,
     )
 
-    # Execute all branches concurrently
+    # Create AgentCache for this execution
+    cache = AgentCache()
+
     try:
-        branch_results = asyncio.run(
-            _execute_all_branches_async(
+        # Execute all branches concurrently
+        try:
+            branch_results = await _execute_all_branches_async(
                 spec,
                 spec.pattern.config.branches,
                 user_vars,
+                cache,
                 max_parallel,
                 max_attempts,
                 wait_min,
                 wait_max,
             )
+        except Exception as e:
+            end_time = datetime.now(UTC)
+            duration = (end_time - start_time).total_seconds()
+
+            logger.error(
+                "Parallel execution failed",
+                error=str(e),
+                duration_seconds=duration,
+            )
+
+            return RunResult(
+                success=False,
+                error=str(e),
+                agent_id="parallel",
+                pattern_type=PatternType.PARALLEL,
+                started_at=start_time.isoformat(),
+                completed_at=end_time.isoformat(),
+                duration_seconds=duration,
+            )
+
+        # Build branches dictionary (alphabetically ordered by branch ID)
+        branches_dict: dict[str, dict[str, Any]] = {}
+        cumulative_tokens = 0
+
+        for branch, (response, tokens) in zip(spec.pattern.config.branches, branch_results, strict=True):
+            cumulative_tokens += tokens
+            branches_dict[branch.id] = {
+                "response": response,
+                "status": "success",
+                "tokens_estimated": tokens,
+            }
+
+        # Check budget after all branches complete
+        check_budget_threshold(cumulative_tokens, max_tokens, "all_branches")
+
+        logger.info(
+            "All branches completed",
+            num_branches=len(branches_dict),
+            cumulative_tokens=cumulative_tokens,
         )
-    except Exception as e:
-        end_time = datetime.now(UTC)
-        duration = (end_time - start_time).total_seconds()
 
-        logger.error(
-            "Parallel execution failed",
-            error=str(e),
-            duration_seconds=duration,
-        )
+        # Execute reduce step if present or aggregate branches
+        final_response: str
+        final_agent_id: str
 
-        return RunResult(
-            success=False,
-            error=str(e),
-            agent_id="parallel",
-            pattern_type=PatternType.PARALLEL,
-            started_at=start_time.isoformat(),
-            completed_at=end_time.isoformat(),
-            duration_seconds=duration,
-        )
-
-    # Build branches dictionary (alphabetically ordered by branch ID)
-    branches_dict: dict[str, dict[str, Any]] = {}
-    cumulative_tokens = 0
-
-    for branch, (response, tokens) in zip(spec.pattern.config.branches, branch_results, strict=True):
-        cumulative_tokens += tokens
-        branches_dict[branch.id] = {
-            "response": response,
-            "status": "success",
-            "tokens_estimated": tokens,
-        }
-
-    # Check budget after all branches complete
-    check_budget_threshold(cumulative_tokens, max_tokens, "all_branches")
-
-    logger.info(
-        "All branches completed",
-        num_branches=len(branches_dict),
-        cumulative_tokens=cumulative_tokens,
-    )
-
-    # Execute reduce step if present or aggregate branches
-    final_response: str
-    final_agent_id: str
-
-    if spec.pattern.config.reduce:
-        reduce_response, reduce_tokens = asyncio.run(
-            _execute_reduce_step(
+        if spec.pattern.config.reduce:
+            reduce_response, reduce_tokens = await _execute_reduce_step(
                 spec,
                 spec.pattern.config.reduce,
                 user_vars,
                 branches_dict,
+                cache,
                 max_attempts,
                 wait_min,
                 wait_max,
             )
+            final_response = reduce_response
+            final_agent_id = spec.pattern.config.reduce.agent
+            cumulative_tokens += reduce_tokens
+
+            # Check budget after reduce
+            check_budget_threshold(cumulative_tokens, max_tokens, "reduce")
+        else:
+            # No reduce step - aggregate branch responses alphabetically
+            logger.info("No reduce step - aggregating branch responses")
+
+            aggregated_parts = [
+                f"Branch {bid}:\n{bdata['response']}"
+                for bid, bdata in sorted(branches_dict.items())
+            ]
+            final_response = "\n\n---\n\n".join(aggregated_parts)
+            final_agent_id = "parallel"
+
+        end_time = datetime.now(UTC)
+        duration = (end_time - start_time).total_seconds()
+
+        logger.info(
+            "Parallel execution completed",
+            duration_seconds=duration,
+            cumulative_tokens=cumulative_tokens,
         )
-        final_response = reduce_response
-        final_agent_id = spec.pattern.config.reduce.agent
-        cumulative_tokens += reduce_tokens
 
-        # Check budget after reduce
-        check_budget_threshold(cumulative_tokens, max_tokens, "reduce")
-    else:
-        # No reduce step - aggregate branch responses alphabetically
-        logger.info("No reduce step - aggregating branch responses")
-
-        aggregated_parts = [
-            f"Branch {bid}:\n{bdata['response']}"
-            for bid, bdata in sorted(branches_dict.items())
-        ]
-        final_response = "\n\n---\n\n".join(aggregated_parts)
-        final_agent_id = "parallel"
-
-    end_time = datetime.now(UTC)
-    duration = (end_time - start_time).total_seconds()
-
-    logger.info(
-        "Parallel execution completed",
-        duration_seconds=duration,
-        cumulative_tokens=cumulative_tokens,
-    )
-
-    return RunResult(
-        success=True,
-        last_response=final_response,
-        agent_id=final_agent_id,
-        pattern_type=PatternType.PARALLEL,
-        started_at=start_time.isoformat(),
-        completed_at=end_time.isoformat(),
-        duration_seconds=duration,
-        execution_context={"branches": branches_dict},
-    )
+        return RunResult(
+            success=True,
+            last_response=final_response,
+            agent_id=final_agent_id,
+            pattern_type=PatternType.PARALLEL,
+            started_at=start_time.isoformat(),
+            completed_at=end_time.isoformat(),
+            duration_seconds=duration,
+            execution_context={"branches": branches_dict},
+        )
+    finally:
+        # Clean up cached resources
+        await cache.close()

@@ -188,18 +188,21 @@ def parallel_spec_with_budgets(tmp_path: Path) -> Spec:
 # ============================================================================
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_2_branches_success(mock_build_agent, parallel_spec_2_branches):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_2_branches_success(mock_get_agent, parallel_spec_2_branches):
     """Test successful parallel execution with 2 branches."""
     # Setup mock agent
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(
         side_effect=["Web research results", "Docs research results"]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_2_branches, variables={"topic": "AI"})
+    result = await run_parallel(parallel_spec_2_branches, variables={"topic": "AI"})
 
     # Assertions
     assert result.success is True
@@ -217,12 +220,15 @@ def test_run_parallel_2_branches_success(mock_build_agent, parallel_spec_2_branc
     assert result.execution_context["branches"]["docs"]["response"] == "Docs research results"
 
     # Verify both agents were built and invoked
-    assert mock_build_agent.call_count == 2
+    assert mock_get_agent.call_count == 2
     assert mock_agent.invoke_async.call_count == 2
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_with_reduce_success(mock_build_agent, parallel_spec_with_reduce):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_with_reduce_success(mock_get_agent, parallel_spec_with_reduce):
     """Test parallel execution with reduce step aggregation."""
     # Setup mock agent
     mock_agent = MagicMock()
@@ -234,10 +240,10 @@ def test_run_parallel_with_reduce_success(mock_build_agent, parallel_spec_with_r
             "Synthesized result from all sources",
         ]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_with_reduce, variables=None)
+    result = await run_parallel(parallel_spec_with_reduce, variables=None)
 
     # Assertions
     assert result.success is True
@@ -245,7 +251,7 @@ def test_run_parallel_with_reduce_success(mock_build_agent, parallel_spec_with_r
     assert result.agent_id == "synthesizer"
 
     # Verify all branches + reduce were executed
-    assert mock_build_agent.call_count == 4  # 3 branches + 1 reduce
+    assert mock_get_agent.call_count == 4  # 3 branches + 1 reduce
     assert mock_agent.invoke_async.call_count == 4
 
     # Verify execution context
@@ -256,8 +262,11 @@ def test_run_parallel_with_reduce_success(mock_build_agent, parallel_spec_with_r
     assert result.execution_context["branches"]["books"]["response"] == "Books findings"
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_multi_step_branches(mock_build_agent, parallel_spec_multi_step):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_multi_step_branches(mock_get_agent, parallel_spec_multi_step):
     """Test parallel execution with multi-step branches."""
     # Setup mock agent
     mock_agent = MagicMock()
@@ -269,10 +278,10 @@ def test_run_parallel_multi_step_branches(mock_build_agent, parallel_spec_multi_
             "Validation of B",
         ]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_multi_step, variables=None)
+    result = await run_parallel(parallel_spec_multi_step, variables=None)
 
     # Assertions
     assert result.success is True
@@ -284,12 +293,15 @@ def test_run_parallel_multi_step_branches(mock_build_agent, parallel_spec_multi_
     assert result.execution_context["branches"]["branch2"]["response"] == "Validation of B"
 
     # Verify 4 total step executions (2 steps per branch x 2 branches)
-    assert mock_build_agent.call_count == 4
+    assert mock_get_agent.call_count == 4
     assert mock_agent.invoke_async.call_count == 4
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_respects_max_parallel(mock_build_agent, parallel_spec_multi_step):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_respects_max_parallel(mock_get_agent, parallel_spec_multi_step):
     """Test that max_parallel limits concurrent branch execution."""
     # This is difficult to test without integration tests, but we can verify
     # the parameter is passed correctly
@@ -297,10 +309,10 @@ def test_run_parallel_respects_max_parallel(mock_build_agent, parallel_spec_mult
     mock_agent.invoke_async = AsyncMock(
         side_effect=["Result 1", "Result 2", "Result 3", "Result 4"]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute with max_parallel=2 (set in fixture)
-    result = run_parallel(parallel_spec_multi_step, variables=None)
+    result = await run_parallel(parallel_spec_multi_step, variables=None)
 
     # Verify successful execution
     assert result.success is True
@@ -309,15 +321,18 @@ def test_run_parallel_respects_max_parallel(mock_build_agent, parallel_spec_mult
     # which is hard to verify in unit tests but is covered by the implementation
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_template_rendering(mock_build_agent, parallel_spec_2_branches):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_template_rendering(mock_get_agent, parallel_spec_2_branches):
     """Test template variable rendering in branch steps."""
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(return_value="Result")
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute with template variable
-    result = run_parallel(parallel_spec_2_branches, variables={"topic": "machine learning"})
+    result = await run_parallel(parallel_spec_2_branches, variables={"topic": "machine learning"})
 
     # Verify success
     assert result.success is True
@@ -329,17 +344,20 @@ def test_run_parallel_template_rendering(mock_build_agent, parallel_spec_2_branc
     assert mock_agent.invoke_async.call_count == 2
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_alphabetical_aggregation(mock_build_agent, parallel_spec_2_branches):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_alphabetical_aggregation(mock_get_agent, parallel_spec_2_branches):
     """Test that branch results are aggregated alphabetically by branch ID."""
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(
         side_effect=["Web result", "Docs result"]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_2_branches, variables={"topic": "test"})
+    result = await run_parallel(parallel_spec_2_branches, variables={"topic": "test"})
 
     # Verify alphabetical ordering (docs before web)
     assert result.success is True
@@ -355,25 +373,31 @@ def test_run_parallel_alphabetical_aggregation(mock_build_agent, parallel_spec_2
 # ============================================================================
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_branch_failure_stops_all(mock_build_agent, parallel_spec_2_branches):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_branch_failure_stops_all(mock_get_agent, parallel_spec_2_branches):
     """Test that first branch failure stops all branches (fail-fast)."""
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(
         side_effect=RuntimeError("Branch execution failed")
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_2_branches, variables={"topic": "test"})
+    result = await run_parallel(parallel_spec_2_branches, variables={"topic": "test"})
 
     # Verify failure
     assert result.success is False
     assert "failed" in result.error.lower()
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_reduce_failure(mock_build_agent, parallel_spec_with_reduce):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_reduce_failure(mock_get_agent, parallel_spec_with_reduce):
     """Test that reduce step failure is reported correctly."""
     mock_agent = MagicMock()
     # Branches succeed, reduce fails
@@ -385,14 +409,17 @@ def test_run_parallel_reduce_failure(mock_build_agent, parallel_spec_with_reduce
             RuntimeError("Reduce failed"),
         ]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute - should catch exception and return failed result
     with pytest.raises(ParallelExecutionError, match="Reduce"):
-        run_parallel(parallel_spec_with_reduce, variables=None)
+        await run_parallel(parallel_spec_with_reduce, variables=None)
 
 
-def test_run_parallel_invalid_spec_too_few_branches(parallel_spec_2_branches):
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_invalid_spec_too_few_branches(parallel_spec_2_branches):
     """Test that < 2 branches raises error."""
     # Modify spec to have only 1 branch
     parallel_spec_2_branches.pattern.config.branches = [
@@ -401,50 +428,59 @@ def test_run_parallel_invalid_spec_too_few_branches(parallel_spec_2_branches):
 
     # Execute should raise error
     with pytest.raises(ParallelExecutionError, match="at least 2 branches"):
-        run_parallel(parallel_spec_2_branches, variables=None)
+        await run_parallel(parallel_spec_2_branches, variables=None)
 
 
-def test_run_parallel_invalid_spec_no_branches(parallel_spec_2_branches):
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_invalid_spec_no_branches(parallel_spec_2_branches):
     """Test that no branches raises error."""
     # Modify spec to have no branches
     parallel_spec_2_branches.pattern.config.branches = []
 
     # Execute should raise error
     with pytest.raises(ParallelExecutionError, match="at least 2 branches"):
-        run_parallel(parallel_spec_2_branches, variables=None)
+        await run_parallel(parallel_spec_2_branches, variables=None)
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_unknown_agent_in_branch(mock_build_agent, parallel_spec_2_branches):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_unknown_agent_in_branch(mock_get_agent, parallel_spec_2_branches):
     """Test that unknown agent in branch step is detected."""
     # Modify spec to reference non-existent agent
     parallel_spec_2_branches.pattern.config.branches[0].steps[0].agent = "nonexistent"
 
     mock_agent = MagicMock()
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute - will fail because 'nonexistent' not in spec.agents
     # Error is caught and returned as failed RunResult
-    result = run_parallel(parallel_spec_2_branches, variables={"topic": "test"})
+    result = await run_parallel(parallel_spec_2_branches, variables={"topic": "test"})
 
     # Verify failure
     assert result.success is False
     assert "unknown agent" in result.error.lower() or "nonexistent" in result.error.lower()
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_unknown_agent_in_reduce(mock_build_agent, parallel_spec_with_reduce):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_unknown_agent_in_reduce(mock_get_agent, parallel_spec_with_reduce):
     """Test that unknown agent in reduce step raises error."""
     # Modify reduce agent to non-existent
     parallel_spec_with_reduce.pattern.config.reduce.agent = "nonexistent"
 
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(side_effect=["R1", "R2", "R3"])
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute should raise error during reduce
     with pytest.raises(ParallelExecutionError, match="unknown agent"):
-        run_parallel(parallel_spec_with_reduce, variables=None)
+        await run_parallel(parallel_spec_with_reduce, variables=None)
 
 
 # ============================================================================
@@ -452,8 +488,11 @@ def test_run_parallel_unknown_agent_in_reduce(mock_build_agent, parallel_spec_wi
 # ============================================================================
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_budget_warning(mock_build_agent, parallel_spec_with_budgets, caplog):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_budget_warning(mock_get_agent, parallel_spec_with_budgets, caplog):
     """Test that budget warning is logged at 80% threshold."""
     mock_agent = MagicMock()
     # Return responses that will trigger 80% warning
@@ -462,10 +501,10 @@ def test_run_parallel_budget_warning(mock_build_agent, parallel_spec_with_budget
     mock_agent.invoke_async = AsyncMock(
         side_effect=[long_response, long_response]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_with_budgets, variables=None)
+    result = await run_parallel(parallel_spec_with_budgets, variables=None)
 
     # Should succeed but log warning
     assert result.success is True
@@ -475,8 +514,11 @@ def test_run_parallel_budget_warning(mock_build_agent, parallel_spec_with_budget
     # Actual warning behavior is tested in execution
 
 
-    @patch("strands_cli.exec.parallel.build_agent")
-    def test_run_parallel_budget_exceeded(mock_build_agent, parallel_spec_with_budgets):
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    @pytest.mark.asyncio
+
+
+    async def test_run_parallel_budget_exceeded(mock_get_agent, parallel_spec_with_budgets):
         """Test that budget exceeded raises error."""
         from strands_cli.exec.utils import ExecutionUtilsError
 
@@ -486,27 +528,30 @@ def test_run_parallel_budget_warning(mock_build_agent, parallel_spec_with_budget
         mock_agent.invoke_async = AsyncMock(
             side_effect=[very_long_response, very_long_response]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         # Execute should raise budget error
         with pytest.raises(ExecutionUtilsError, match="budget"):
-            run_parallel(parallel_spec_with_budgets, variables=None)
+            await run_parallel(parallel_spec_with_budgets, variables=None)
 # ============================================================================
 # Context Threading
 # ============================================================================
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_branch_context_isolated(mock_build_agent, parallel_spec_multi_step):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_branch_context_isolated(mock_get_agent, parallel_spec_multi_step):
     """Test that each branch only sees its own step history."""
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(
         side_effect=["Step1", "Step2", "Step3", "Step4"]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_multi_step, variables=None)
+    result = await run_parallel(parallel_spec_multi_step, variables=None)
 
     # Verify success
     assert result.success is True
@@ -517,17 +562,20 @@ def test_run_parallel_branch_context_isolated(mock_build_agent, parallel_spec_mu
     # Successful execution implies proper context isolation
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_reduce_sees_all_branches(mock_build_agent, parallel_spec_with_reduce):
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@pytest.mark.asyncio
+
+
+async def test_run_parallel_reduce_sees_all_branches(mock_get_agent, parallel_spec_with_reduce):
     """Test that reduce step has access to all branch results."""
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(
         side_effect=["Web", "Docs", "Books", "Combined"]
     )
-    mock_build_agent.return_value = mock_agent
+    mock_get_agent.return_value = mock_agent
 
     # Execute
-    result = run_parallel(parallel_spec_with_reduce, variables=None)
+    result = await run_parallel(parallel_spec_with_reduce, variables=None)
 
     # Verify reduce received all branch results
     assert result.success is True
@@ -536,3 +584,5 @@ def test_run_parallel_reduce_sees_all_branches(mock_build_agent, parallel_spec_w
     # The reduce input template includes {{ branches.web.response }}, etc.
     # Successful execution implies the template was rendered correctly
     # with access to all branch results
+
+

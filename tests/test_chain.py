@@ -128,8 +128,9 @@ class TestRunChain:
 
         return load_spec(str(spec_file))
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_success(self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec) -> None:
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_chain_success(self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec) -> None:
         """Test successful 3-step chain execution."""
         # Mock agent responses
         mock_agent = MagicMock()
@@ -140,17 +141,18 @@ class TestRunChain:
                 "Response 3",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_chain(chain_spec_3_steps, variables=None)
+        result = await run_chain(chain_spec_3_steps, variables=None)
 
         assert result.success is True
         assert result.last_response == "Response 3"
-        assert mock_build_agent.call_count == 3
+        assert mock_get_agent.call_count == 3
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_with_step_variables(
-        self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_chain_with_step_variables(
+        self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec
     ) -> None:
         """Test chain with step-level variable overrides."""
         # Modify spec to include step vars
@@ -166,29 +168,31 @@ class TestRunChain:
                 "Response 3",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_chain(chain_spec_3_steps, variables={"base_var": "base_value"})
+        result = await run_chain(chain_spec_3_steps, variables={"base_var": "base_value"})
 
         assert result.success is True
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_step_failure(
-        self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_chain_step_failure(
+        self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec
     ) -> None:
         """Test chain stops on step failure."""
         from strands_cli.exec.chain import ChainExecutionError
 
         mock_agent = MagicMock()
         mock_agent.invoke_async = AsyncMock(side_effect=RuntimeError("Agent error"))
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         with pytest.raises(ChainExecutionError, match="Agent error"):
-            run_chain(chain_spec_3_steps, variables=None)
+            await run_chain(chain_spec_3_steps, variables=None)
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_budget_tracking(
-        self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_chain_budget_tracking(
+        self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec
     ) -> None:
         """Test budget consumption tracking across steps."""
         # Add budget constraints
@@ -202,15 +206,16 @@ class TestRunChain:
                 "Response 3",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_chain(chain_spec_3_steps, variables=None)
+        result = await run_chain(chain_spec_3_steps, variables=None)
 
         assert result.success is True
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_budget_exceeded(
-        self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_chain_budget_exceeded(
+        self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec
     ) -> None:
         """Test chain stops when budget exceeded."""
         from strands_cli.exec.utils import ExecutionUtilsError
@@ -221,14 +226,15 @@ class TestRunChain:
         mock_agent.invoke_async = AsyncMock(
             return_value="Response with many tokens that exceeds budget"
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
         with pytest.raises(ExecutionUtilsError, match="budget exceeded"):
-            run_chain(chain_spec_3_steps, variables=None)
+            await run_chain(chain_spec_3_steps, variables=None)
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_run_chain_with_tool_overrides(
-        self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_run_chain_with_tool_overrides(
+        self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec
     ) -> None:
         """Test step-level tool overrides."""
         # Add tool overrides to step
@@ -244,22 +250,23 @@ class TestRunChain:
                 "Response 3",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_chain(chain_spec_3_steps, variables=None)
+        result = await run_chain(chain_spec_3_steps, variables=None)
 
         assert result.success is True
-        # Verify build_agent was called with tool_overrides for first step
-        first_call = mock_build_agent.call_args_list[0]
+        # Verify get_or_build_agent was called with tool_overrides for first step
+        first_call = mock_get_agent.call_args_list[0]
         assert first_call[1]["tool_overrides"] == ["strands_tools.http_request"]
 
 
 class TestChainTemplateRendering:
     """Test Jinja2 template rendering in chain execution."""
 
-    @patch("strands_cli.exec.chain.build_agent")
-    def test_chain_renders_previous_responses(
-        self, mock_build_agent: MagicMock, tmp_path: Path
+    @pytest.mark.asyncio
+    @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+    async def test_chain_renders_previous_responses(
+        self, mock_get_agent: MagicMock, tmp_path: Path
     ) -> None:
         """Test that {{ steps[N].response }} renders correctly."""
         from ruamel.yaml import YAML
@@ -284,7 +291,7 @@ class TestChainTemplateRendering:
         }
 
         spec_file = tmp_path / "chain.yaml"
-        with open(spec_file, "w") as f:
+        with open(spec_file, "w") as f:  # noqa: ASYNC230
             yaml.dump(spec_data, f)
 
         spec = load_spec(str(spec_file))
@@ -296,9 +303,9 @@ class TestChainTemplateRendering:
                 "Correct",
             ]
         )
-        mock_build_agent.return_value = mock_agent
+        mock_get_agent.return_value = mock_agent
 
-        result = run_chain(spec, variables=None)
+        result = await run_chain(spec, variables=None)
 
         assert result.success is True
         # Verify second invocation received rendered template with first response
@@ -308,8 +315,8 @@ class TestChainTemplateRendering:
 class TestSingleAgentRegression:
     """Regression tests for single_agent.py fixes."""
 
-    @patch("strands_cli.exec.single_agent.build_agent")
-    def test_single_step_uses_step_agent(self, mock_build_agent: MagicMock, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_single_step_uses_step_agent(self, tmp_path: Path, mocker: Any) -> None:
         """Test that single-step chain uses agent referenced in step, not first agent in map.
 
         Regression test for issue where run_single_agent always used first agent in spec.agents dict.
@@ -340,27 +347,32 @@ class TestSingleAgentRegression:
         }
 
         spec_file = tmp_path / "test.yaml"
-        with open(spec_file, "w") as f:
+        with open(spec_file, "w") as f:  # noqa: ASYNC230
             yaml.dump(spec_data, f)
 
         spec = load_spec(str(spec_file))
 
         mock_agent = MagicMock()
         mock_agent.invoke_async = AsyncMock(return_value="Response from B")
-        mock_build_agent.return_value = mock_agent
 
-        result = run_single_agent(spec, variables=None)
+        # Mock AgentCache to track which agent is built
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent.return_value = mock_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.single_agent.AgentCache", return_value=mock_cache)
 
-        # Verify build_agent was called with agent_b, not agent_a
-        assert mock_build_agent.call_count == 1
-        call_args = mock_build_agent.call_args
+        result = await run_single_agent(spec, variables=None)
+
+        # Verify get_or_build_agent was called with agent_b, not agent_a
+        assert mock_cache.get_or_build_agent.call_count == 1
+        call_args = mock_cache.get_or_build_agent.call_args
         assert call_args[0][1] == "agent_b"  # agent_id argument
         assert result.agent_id == "agent_b"
         assert result.success is True
 
-    @patch("strands_cli.exec.single_agent.build_agent")
-    def test_single_agent_respects_cli_vars(
-        self, mock_build_agent: MagicMock, tmp_path: Path
+    @pytest.mark.asyncio
+    async def test_single_agent_respects_cli_vars(
+        self, tmp_path: Path, mocker: Any
     ) -> None:
         """Test that --var CLI overrides are merged into template variables.
 
@@ -385,7 +397,7 @@ class TestSingleAgentRegression:
         }
 
         spec_file = tmp_path / "test.yaml"
-        with open(spec_file, "w") as f:
+        with open(spec_file, "w") as f:  # noqa: ASYNC230
             yaml.dump(spec_data, f)
 
         spec = load_spec(str(spec_file))
@@ -400,10 +412,15 @@ class TestSingleAgentRegression:
 
         mock_agent = MagicMock()
         mock_agent.invoke_async = capture_invoke
-        mock_build_agent.return_value = mock_agent
+
+        # Mock AgentCache
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent.return_value = mock_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.single_agent.AgentCache", return_value=mock_cache)
 
         # Run with CLI variable override
-        result = run_single_agent(spec, variables={"topic": "cli_override"})
+        result = await run_single_agent(spec, variables={"topic": "cli_override"})
 
         assert result.success is True
         # Verify the template was rendered with CLI variable, not default

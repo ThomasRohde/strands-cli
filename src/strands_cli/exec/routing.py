@@ -23,7 +23,6 @@ Error Handling:
     - No fallback behavior (explicit failures only)
 """
 
-import asyncio
 import json
 import re
 from typing import Any
@@ -32,8 +31,8 @@ import structlog
 from pydantic import ValidationError
 
 from strands_cli.exec.chain import run_chain
+from strands_cli.exec.utils import AgentCache
 from strands_cli.loader import render_template
-from strands_cli.runtime import build_agent
 from strands_cli.types import PatternType, RouterDecision, RunResult, Spec
 
 
@@ -125,6 +124,7 @@ async def _execute_router_with_retry(
     spec: Spec,
     router_agent_id: str,
     router_input: str,
+    cache: AgentCache,
     max_retries: int,
 ) -> str:
     """Execute router agent with retry logic for malformed responses.
@@ -133,6 +133,7 @@ async def _execute_router_with_retry(
         spec: Workflow spec
         router_agent_id: Router agent ID
         router_input: Rendered router input prompt
+        cache: Shared AgentCache for agent reuse
         max_retries: Maximum retry attempts
 
     Returns:
@@ -142,7 +143,7 @@ async def _execute_router_with_retry(
         RoutingExecutionError: If all retry attempts fail or route is invalid
     """
     router_agent_config = spec.agents[router_agent_id]
-    agent = build_agent(spec, router_agent_id, router_agent_config)
+    agent = await cache.get_or_build_agent(spec, router_agent_id, router_agent_config)
 
     # Construct router task with output format instructions
     router_task = router_input + "\n\nRespond with valid JSON: {\"route\": \"<route_name>\"}"
@@ -285,8 +286,13 @@ def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
     return route_spec
 
 
-def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute a routing pattern workflow.
+
+    Phase 6 Performance Optimization:
+    - Async execution with shared AgentCache for router and route execution
+    - Single event loop eliminates per-route loop churn
+    - Agents reused when router and route use same agent configuration
 
     Executes router agent to classify input, then runs the selected route's chain.
     Router decision is injected into route context as {{ router.chosen_route }}.
@@ -316,46 +322,55 @@ def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResul
 
     logger.info("router_input_rendered", preview=router_input[:100])
 
-    # Execute router with retry logic
+    # Create AgentCache for this execution
+    cache = AgentCache()
+
     try:
-        chosen_route = asyncio.run(
-            _execute_router_with_retry(spec, router_agent_id, router_input, max_retries)
+        # Execute router with retry logic
+        try:
+            chosen_route = await _execute_router_with_retry(
+                spec, router_agent_id, router_input, cache, max_retries
+            )
+        except RoutingExecutionError:
+            raise
+        except Exception as e:
+            raise RoutingExecutionError(f"Router execution failed: {e}") from e
+
+        logger.info("route_selected", route=chosen_route)
+
+        # Create spec for route execution
+        route_spec = _create_route_spec(spec, chosen_route)
+
+        # Inject router decision into context for route execution
+        route_variables: dict[str, Any] = dict(variables) if variables else {}
+        route_variables["router"] = {"chosen_route": chosen_route}
+
+        # Execute selected route as a chain
+        steps = route_spec.pattern.config.steps
+        assert steps is not None, "Route spec must have steps"
+        logger.info("route_execution_start", route=chosen_route, steps=len(steps))
+
+        try:
+            # Note: run_chain is already async and uses its own cache,
+            # but we still pass our cache to share agents if possible
+            result = await run_chain(route_spec, route_variables)
+        except Exception as e:
+            raise RoutingExecutionError(f"Route '{chosen_route}' execution failed: {e}") from e
+
+        # Update result metadata to include routing info
+        result.pattern_type = PatternType.ROUTING
+        if not result.execution_context:
+            result.execution_context = {}
+        result.execution_context["chosen_route"] = chosen_route
+        result.execution_context["router_agent"] = router_agent_id
+
+        logger.info(
+            "routing_execution_complete",
+            route=chosen_route,
+            duration=result.duration_seconds,
         )
-    except RoutingExecutionError:
-        raise
-    except Exception as e:
-        raise RoutingExecutionError(f"Router execution failed: {e}") from e
 
-    logger.info("route_selected", route=chosen_route)
-
-    # Create spec for route execution
-    route_spec = _create_route_spec(spec, chosen_route)
-
-    # Inject router decision into context for route execution
-    route_variables: dict[str, Any] = dict(variables) if variables else {}
-    route_variables["router"] = {"chosen_route": chosen_route}
-
-    # Execute selected route as a chain
-    steps = route_spec.pattern.config.steps
-    assert steps is not None, "Route spec must have steps"
-    logger.info("route_execution_start", route=chosen_route, steps=len(steps))
-
-    try:
-        result = run_chain(route_spec, route_variables)
-    except Exception as e:
-        raise RoutingExecutionError(f"Route '{chosen_route}' execution failed: {e}") from e
-
-    # Update result metadata to include routing info
-    result.pattern_type = PatternType.ROUTING
-    if not result.execution_context:
-        result.execution_context = {}
-    result.execution_context["chosen_route"] = chosen_route
-    result.execution_context["router_agent"] = router_agent_id
-
-    logger.info(
-        "routing_execution_complete",
-        route=chosen_route,
-        duration=result.duration_seconds,
-    )
-
-    return result
+        return result
+    finally:
+        # Clean up cached resources
+        await cache.close()

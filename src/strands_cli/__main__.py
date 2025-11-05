@@ -2,11 +2,17 @@
 
 This module provides the Typer-based command-line interface for executing
 agentic workflows on AWS Bedrock and Ollama. It handles workflow loading,
-schema validation, capability checking, and single-agent execution with
+schema validation, capability checking, and workflow execution with
 observability scaffolding.
 
+Phase 3-6 Performance Updates:
+    - All executors now async (single-agent, chain, workflow, parallel, routing)
+    - Single event loop per workflow execution (eliminates per-step loop churn)
+    - AgentCache shared across all steps/tasks/branches for agent reuse
+    - HTTP clients properly cleaned up after execution
+
 Commands:
-    run: Execute a single-agent workflow from YAML/JSON spec
+    run: Execute a workflow from YAML/JSON spec
     validate: Validate a spec against JSON Schema
     plan: Show execution plan for a workflow
     explain: Show unsupported features and migration hints
@@ -19,6 +25,7 @@ Key Design:
     - Generate actionable remediation reports for unsupported specs
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -156,6 +163,9 @@ def _handle_unsupported_spec(
 def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResult:
     """Route to appropriate executor based on pattern type.
 
+    Phase 3: Single-agent executor is now async; wraps with asyncio.run()
+    to maintain single event loop per workflow execution.
+
     Args:
         spec: Validated workflow spec
         variables: Variable overrides from --var flags
@@ -168,24 +178,30 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
     """
     if spec.pattern.type == PatternType.CHAIN:
         if spec.pattern.config.steps and len(spec.pattern.config.steps) == 1:
-            # Single-step chain - use legacy executor for backward compatibility
-            return run_single_agent(spec, variables)
+            # Single-step chain - use async single-agent executor
+            # Phase 3: Wrap with asyncio.run() for single event loop
+            return asyncio.run(run_single_agent(spec, variables))
         else:
-            # Multi-step chain - use new chain executor
-            return run_chain(spec, variables)
+            # Multi-step chain - use async chain executor
+            # Phase 4: Wrap with asyncio.run() for single event loop
+            return asyncio.run(run_chain(spec, variables))
     elif spec.pattern.type == PatternType.WORKFLOW:
         if spec.pattern.config.tasks and len(spec.pattern.config.tasks) == 1:
-            # Single-task workflow - use legacy executor for backward compatibility
-            return run_single_agent(spec, variables)
+            # Single-task workflow - use async single-agent executor
+            # Phase 3: Wrap with asyncio.run() for single event loop
+            return asyncio.run(run_single_agent(spec, variables))
         else:
-            # Multi-task workflow - use new workflow executor
-            return run_workflow(spec, variables)
+            # Multi-task workflow - use async workflow executor
+            # Phase 5: Wrap with asyncio.run() for single event loop
+            return asyncio.run(run_workflow(spec, variables))
     elif spec.pattern.type == PatternType.ROUTING:
-        # Routing pattern - use routing executor
-        return run_routing(spec, variables)
+        # Routing pattern - use async routing executor
+        # Phase 6: Wrap with asyncio.run() for single event loop
+        return asyncio.run(run_routing(spec, variables))
     elif spec.pattern.type == PatternType.PARALLEL:
-        # Parallel pattern - use parallel executor
-        return run_parallel(spec, variables)
+        # Parallel pattern - use async parallel executor
+        # Phase 6: Wrap with asyncio.run() for single event loop
+        return asyncio.run(run_parallel(spec, variables))
     else:
         # Other patterns (orchestrator, etc.) - not yet supported
         console.print(
