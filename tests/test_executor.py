@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from strands_cli.artifacts.io import ArtifactError, write_artifacts
+from strands_cli.artifacts.io import ArtifactError, sanitize_filename, write_artifacts
 from strands_cli.exec.single_agent import ExecutionError, run_single_agent
 from strands_cli.loader.template import TemplateError, render_template
 from strands_cli.types import PatternType, Spec
@@ -490,3 +490,99 @@ class TestArtifactErrorHandling:
         with contextlib.suppress(ArtifactError):
             # Expected to potentially fail on some platforms
             write_artifacts(artifacts, "Content", output_dir=temp_artifacts_dir)
+
+
+# ============================================================================
+# Path Sanitization Tests (Security - Phase 3)
+# ============================================================================
+
+
+class TestPathSanitization:
+    """Test filename sanitization for security (prevents path traversal)."""
+
+    def test_sanitize_removes_path_separators(self):
+        """Test that path separators are removed."""
+        assert sanitize_filename("../etc/passwd") == "etc_passwd"
+        assert sanitize_filename(r"..\windows\system32") == "windows_system32"
+        assert sanitize_filename("/absolute/path") == "absolute_path"
+        assert sanitize_filename("relative/path") == "relative_path"
+
+    def test_sanitize_removes_special_characters(self):
+        """Test that special characters are replaced with underscores."""
+        assert sanitize_filename("spec@#$%name") == "spec_name"
+        assert sanitize_filename("file:with<>invalid|chars") == "file_with_invalid_chars"
+        assert sanitize_filename("my-spec-name") == "my-spec-name"  # Hyphens preserved
+        assert sanitize_filename("my_spec_name") == "my_spec_name"  # Underscores preserved
+        assert sanitize_filename("my.spec.name") == "my.spec.name"  # Dots preserved
+
+    def test_sanitize_trims_leading_trailing_chars(self):
+        """Test that leading/trailing dots and underscores are removed."""
+        assert sanitize_filename(".hidden") == "hidden"
+        assert sanitize_filename("_leading") == "leading"
+        assert sanitize_filename("trailing_") == "trailing"
+        assert sanitize_filename("...dots...") == "dots"
+
+    def test_sanitize_collapses_underscores(self):
+        """Test that consecutive underscores are collapsed."""
+        assert sanitize_filename("multi___underscore") == "multi_underscore"
+        assert sanitize_filename("a____b____c") == "a_b_c"
+
+    def test_sanitize_truncates_long_names(self):
+        """Test that long filenames are truncated to max_length."""
+        long_name = "a" * 200
+        sanitized = sanitize_filename(long_name)
+        assert len(sanitized) <= 100
+        assert sanitized == "a" * 100
+
+        # Test custom max_length
+        sanitized_short = sanitize_filename(long_name, max_length=50)
+        assert len(sanitized_short) <= 50
+        assert sanitized_short == "a" * 50
+
+    def test_sanitize_handles_empty_input(self):
+        """Test that empty or all-invalid input returns 'unnamed'."""
+        assert sanitize_filename("") == "unnamed"
+        assert sanitize_filename("...") == "unnamed"
+        assert sanitize_filename("___") == "unnamed"
+        assert sanitize_filename("@#$%") == "unnamed"
+
+    def test_sanitize_preserves_valid_names(self):
+        """Test that valid names are preserved."""
+        assert sanitize_filename("my-spec-name") == "my-spec-name"
+        assert sanitize_filename("spec_v1.2.3") == "spec_v1.2.3"
+        assert sanitize_filename("workflow-2024") == "workflow-2024"
+
+    def test_sanitize_realistic_attack_vectors(self):
+        """Test realistic path traversal attack vectors."""
+        # Directory traversal attempts
+        assert sanitize_filename("../../etc/passwd") == "etc_passwd"
+        assert sanitize_filename(r"..\..\windows\hosts") == "windows_hosts"
+
+        # Null byte injection
+        assert "\x00" not in sanitize_filename("file\x00.txt")
+
+        # Command injection attempts (hyphens are valid, so -rf is preserved)
+        assert sanitize_filename("file; rm -rf /") == "file_rm_-rf"
+        assert sanitize_filename("$(malicious)") == "malicious"
+
+        # URL-encoded attempts (% is replaced with _, dots preserved)
+        assert sanitize_filename("..%2F..%2Fetc%2Fpasswd") == "2F.._2Fetc_2Fpasswd"
+
+    def test_sanitize_integration_with_report_writing(self, temp_artifacts_dir: Path):
+        """Test that sanitized filenames work in actual file operations."""
+        # Simulate malicious spec name
+        malicious_name = "../../../etc/passwd"
+        safe_name = sanitize_filename(malicious_name)
+
+        # Write a report with sanitized name
+        report_path = temp_artifacts_dir / f"{safe_name}-unsupported.md"
+        report_path.write_text("# Report\n\nTest content", encoding="utf-8")
+
+        # Verify file was created in correct location
+        assert report_path.exists()
+        assert report_path.parent == temp_artifacts_dir
+        assert report_path.name == "etc_passwd-unsupported.md"
+
+        # Ensure it didn't escape the artifacts directory
+        assert str(temp_artifacts_dir) in str(report_path.resolve())
+

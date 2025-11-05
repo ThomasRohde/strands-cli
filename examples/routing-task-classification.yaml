@@ -90,5 +90,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/task-{{ router.chosen_route }}-output.md"
+    - path: "./task-{{ router.chosen_route }}-output.md"
       from: "{{ last_response }}"

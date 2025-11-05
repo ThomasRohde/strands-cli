@@ -22,13 +22,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
+from strands_cli.exec.utils import get_retry_config, invoke_agent_with_retry
 from strands_cli.loader import render_template
 from strands_cli.runtime import build_agent
 from strands_cli.telemetry import get_tracer
@@ -45,58 +40,6 @@ class ExecutionError(Exception):
     """Raised when workflow execution fails."""
 
     pass
-
-
-# Transient errors that should trigger retries
-_TRANSIENT_ERRORS = (
-    TimeoutError,
-    ConnectionError,
-    # Add provider-specific transient errors as needed
-)
-
-
-def _get_retry_config(spec: Spec) -> tuple[int, int, int]:
-    """Get retry configuration from spec.
-
-    Extracts retry policy from spec.runtime.failure_policy or uses defaults.
-    Supports exponential backoff configuration.
-
-    Args:
-        spec: Workflow spec with optional failure_policy
-
-    Returns:
-        Tuple of (max_attempts, wait_min, wait_max) in seconds
-
-    Raises:
-        ExecutionError: If retry configuration is invalid
-    """
-    # Default retry config
-    max_attempts = 3
-    wait_min = 1
-    wait_max = 60
-
-    if spec.runtime.failure_policy:
-        policy = spec.runtime.failure_policy
-        retries = policy.get("retries", max_attempts - 1)
-
-        # Validation: retries must be non-negative
-        if retries < 0:
-            raise ExecutionError(f"Invalid retry config: retries must be >= 0, got {retries}")
-
-        max_attempts = retries + 1  # +1 for initial attempt
-        backoff = policy.get("backoff", "exponential")
-
-        if backoff == "exponential":
-            wait_min = policy.get("wait_min", wait_min)
-            wait_max = policy.get("wait_max", wait_max)
-
-            # Validation: wait_min must be <= wait_max
-            if wait_min > wait_max:
-                raise ExecutionError(
-                    f"Invalid retry config: wait_min ({wait_min}s) must be <= wait_max ({wait_max}s)"
-                )
-
-    return max_attempts, wait_min, wait_max
 
 
 def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
@@ -180,33 +123,18 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
             raise ExecutionError(f"Failed to build agent: {e}") from e
 
         # Get retry configuration
-        max_attempts, wait_min, wait_max = _get_retry_config(spec)
+        max_attempts, wait_min, wait_max = get_retry_config(spec)
 
-        # Execute with retries
-        # Uses tenacity for exponential backoff on transient errors (timeout, connection)
-        @retry(
-            retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-            stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(multiplier=wait_min, max=wait_max),
-            reraise=True,
-        )
-        async def _execute_agent() -> AgentResult:
-            """Execute agent with retry logic."""
-            from strands_cli.utils import capture_and_display_stdout
-
-            with tracer.start_span("agent_invoke"):
-                # Invoke the agent asynchronously
-                with capture_and_display_stdout():
-                    response = await agent.invoke_async(task_input)
-                return response
-
-        # Run the agent
+        # Run the agent with retry logic
         # asyncio.run() creates new event loop for this execution
         try:
             logger.debug(
                 "agent_execution_started", agent_id=agent_id, task_input_length=len(task_input)
             )
-            response = asyncio.run(_execute_agent())
+            with tracer.start_span("agent_invoke"):
+                response = asyncio.run(
+                    invoke_agent_with_retry(agent, task_input, max_attempts, wait_min, wait_max)
+                )
         except Exception as e:
             completed_at = datetime.now(UTC)
             duration = (completed_at - started_at).total_seconds()

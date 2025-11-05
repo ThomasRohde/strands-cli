@@ -375,7 +375,7 @@ class TestRunWorkflow:
         self, mock_build_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test workflow stops when budget exceeded."""
-        from strands_cli.exec.workflow import WorkflowExecutionError
+        from strands_cli.exec.utils import ExecutionUtilsError
 
         workflow_spec_parallel.runtime.budgets = {"max_tokens": 5}
 
@@ -385,7 +385,7 @@ class TestRunWorkflow:
         )
         mock_build_agent.return_value = mock_agent
 
-        with pytest.raises(WorkflowExecutionError, match="budget exceeded"):
+        with pytest.raises(ExecutionUtilsError, match="budget exceeded"):
             run_workflow(workflow_spec_parallel, variables=None)
 
 

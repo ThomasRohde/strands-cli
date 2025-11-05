@@ -475,22 +475,22 @@ def test_run_parallel_budget_warning(mock_build_agent, parallel_spec_with_budget
     # Actual warning behavior is tested in execution
 
 
-@patch("strands_cli.exec.parallel.build_agent")
-def test_run_parallel_budget_exceeded(mock_build_agent, parallel_spec_with_budgets):
-    """Test that budget exceeded raises error."""
-    mock_agent = MagicMock()
-    # Return very long responses to exceed 100 token budget
-    very_long_response = " ".join(["word"] * 100)  # ~100 tokens per response
-    mock_agent.invoke_async = AsyncMock(
-        side_effect=[very_long_response, very_long_response]
-    )
-    mock_build_agent.return_value = mock_agent
+    @patch("strands_cli.exec.parallel.build_agent")
+    def test_run_parallel_budget_exceeded(mock_build_agent, parallel_spec_with_budgets):
+        """Test that budget exceeded raises error."""
+        from strands_cli.exec.utils import ExecutionUtilsError
 
-    # Execute should raise budget error
-    with pytest.raises(ParallelExecutionError, match="budget"):
-        run_parallel(parallel_spec_with_budgets, variables=None)
+        mock_agent = MagicMock()
+        # Return very long responses to exceed 100 token budget
+        very_long_response = " ".join(["word"] * 100)  # ~100 tokens per response
+        mock_agent.invoke_async = AsyncMock(
+            side_effect=[very_long_response, very_long_response]
+        )
+        mock_build_agent.return_value = mock_agent
 
-
+        # Execute should raise budget error
+        with pytest.raises(ExecutionUtilsError, match="budget"):
+            run_parallel(parallel_spec_with_budgets, variables=None)
 # ============================================================================
 # Context Threading
 # ============================================================================

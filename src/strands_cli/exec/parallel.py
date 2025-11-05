@@ -35,13 +35,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
+from strands_cli.exec.utils import (
+    check_budget_threshold,
+    estimate_tokens,
+    get_retry_config,
+    invoke_agent_with_retry,
+)
 from strands_cli.loader import render_template
 from strands_cli.runtime import build_agent
 from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
@@ -59,49 +59,7 @@ class ParallelExecutionError(Exception):
     pass
 
 
-# Transient errors that should trigger retries
-_TRANSIENT_ERRORS = (
-    TimeoutError,
-    ConnectionError,
-)
-
-
 logger = structlog.get_logger(__name__)
-
-
-def _get_retry_config(spec: Spec) -> tuple[int, int, int]:
-    """Get retry configuration from spec.
-
-    Args:
-        spec: Workflow spec with optional failure_policy
-
-    Returns:
-        Tuple of (max_attempts, wait_min, wait_max) in seconds
-    """
-    max_attempts = 3
-    wait_min = 1
-    wait_max = 60
-
-    if spec.runtime.failure_policy:
-        policy = spec.runtime.failure_policy
-        retries = policy.get("retries", max_attempts - 1)
-
-        if retries < 0:
-            raise ParallelExecutionError(f"Invalid retry config: retries must be >= 0, got {retries}")
-
-        max_attempts = retries + 1
-        backoff = policy.get("backoff", "exponential")
-
-        if backoff == "exponential":
-            wait_min = policy.get("wait_min", wait_min)
-            wait_max = policy.get("wait_max", wait_max)
-
-            if wait_min > wait_max:
-                raise ParallelExecutionError(
-                    f"Invalid retry config: wait_min ({wait_min}s) must be <= wait_max ({wait_max}s)"
-                )
-
-    return max_attempts, wait_min, wait_max
 
 
 def _build_branch_step_context(
@@ -140,44 +98,6 @@ def _build_branch_step_context(
         context.update(step_vars)
 
     return context
-
-
-def _check_budget_warning(
-    cumulative_tokens: int,
-    max_tokens: int | None,
-    branch_id: str,
-) -> None:
-    """Check token budget and log warnings.
-
-    Args:
-        cumulative_tokens: Total tokens used across all branches so far
-        max_tokens: Maximum tokens allowed (from budgets.max_tokens)
-        branch_id: Current branch ID for logging
-    """
-    if max_tokens is None:
-        return
-
-    usage_pct = (cumulative_tokens / max_tokens) * 100
-
-    if usage_pct >= 100:
-        logger.error(
-            "Token budget exceeded",
-            cumulative_tokens=cumulative_tokens,
-            max_tokens=max_tokens,
-            usage_pct=usage_pct,
-            branch_id=branch_id,
-        )
-        raise ParallelExecutionError(
-            f"Token budget exceeded: {cumulative_tokens}/{max_tokens} tokens (100%)"
-        )
-    elif usage_pct >= 80:
-        logger.warning(
-            "Token budget warning",
-            cumulative_tokens=cumulative_tokens,
-            max_tokens=max_tokens,
-            usage_pct=usage_pct,
-            branch_id=branch_id,
-        )
 
 
 async def _execute_branch(
@@ -248,17 +168,8 @@ async def _execute_branch(
         )
 
         # Execute with retry logic
-        @retry(
-            retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-            stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(multiplier=1, min=wait_min, max=wait_max),
-            reraise=True,
-        )
-        async def _invoke_with_retry(agent_instance: Any, input_text: str) -> Any:
-            return await agent_instance.invoke_async(input_text)
-
         try:
-            response = await _invoke_with_retry(agent, step_input)
+            response = await invoke_agent_with_retry(agent, step_input, max_attempts, wait_min, wait_max)
             response_text = response if isinstance(response, str) else str(response)
         except Exception as e:
             logger.error(
@@ -272,8 +183,8 @@ async def _execute_branch(
                 f"Branch '{branch.id}' step {step_index} (agent '{step.agent}') failed: {e}"
             ) from e
 
-        # Estimate tokens (simple word count heuristic)
-        estimated_tokens = len(step_input.split()) + len(response_text.split())
+        # Estimate tokens using shared estimator
+        estimated_tokens = estimate_tokens(step_input, response_text)
         cumulative_tokens += estimated_tokens
 
         # Record step result
@@ -357,21 +268,12 @@ async def _execute_reduce_step(
     )
 
     # Execute reduce with retry
-    @retry(
-        retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-        stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(multiplier=1, min=wait_min, max=wait_max),
-        reraise=True,
-    )
-    async def _invoke_reduce(agent_instance: Any, input_text: str) -> Any:
-        return await agent_instance.invoke_async(input_text)
-
     try:
-        reduce_response = await _invoke_reduce(reduce_agent, reduce_input)
+        reduce_response = await invoke_agent_with_retry(reduce_agent, reduce_input, max_attempts, wait_min, wait_max)
         final_response = reduce_response if isinstance(reduce_response, str) else str(reduce_response)
 
-        # Track reduce tokens
-        reduce_tokens = len(reduce_input.split()) + len(final_response.split())
+        # Track reduce tokens using shared estimator
+        reduce_tokens = estimate_tokens(reduce_input, final_response)
 
         logger.info(
             "Reduce step completed",
@@ -457,7 +359,7 @@ def run_parallel(
         raise ParallelExecutionError("Parallel pattern requires at least 2 branches")
 
     # Get retry configuration
-    max_attempts, wait_min, wait_max = _get_retry_config(spec)
+    max_attempts, wait_min, wait_max = get_retry_config(spec)
 
     # Build user variables (spec.inputs.values + CLI --var)
     user_vars: dict[str, Any] = {}
@@ -527,8 +429,7 @@ def run_parallel(
         }
 
     # Check budget after all branches complete
-    if max_tokens:
-        _check_budget_warning(cumulative_tokens, max_tokens, "all_branches")
+    check_budget_threshold(cumulative_tokens, max_tokens, "all_branches")
 
     logger.info(
         "All branches completed",
@@ -557,8 +458,7 @@ def run_parallel(
         cumulative_tokens += reduce_tokens
 
         # Check budget after reduce
-        if max_tokens:
-            _check_budget_warning(cumulative_tokens, max_tokens, "reduce")
+        check_budget_threshold(cumulative_tokens, max_tokens, "reduce")
     else:
         # No reduce step - aggregate branch responses alphabetically
         logger.info("No reduce step - aggregating branch responses")

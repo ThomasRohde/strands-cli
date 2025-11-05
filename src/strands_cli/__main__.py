@@ -30,7 +30,11 @@ from rich.table import Table
 
 from strands_cli import __version__
 from strands_cli.artifacts import ArtifactError, write_artifacts
-from strands_cli.capability import check_capability, generate_markdown_report
+from strands_cli.capability import (
+    CapabilityReport,
+    check_capability,
+    generate_markdown_report,
+)
 from strands_cli.exec.chain import ChainExecutionError, run_chain
 
 # Import executors
@@ -50,7 +54,7 @@ from strands_cli.exit_codes import (
 from strands_cli.loader import LoadError, load_spec, parse_variables
 from strands_cli.schema import SchemaValidationError
 from strands_cli.telemetry import configure_telemetry
-from strands_cli.types import PatternType
+from strands_cli.types import PatternType, RunResult, Spec
 
 # Combine execution errors for exception handling
 ExecutionError = (
@@ -67,6 +71,209 @@ app = typer.Typer(
     pretty_exceptions_enable=False,
 )
 console = Console()
+
+
+# Helper functions for run command (extracted to reduce cyclomatic complexity)
+
+
+def _load_and_validate_spec(
+    spec_file: str,
+    variables: dict[str, str] | None,
+    verbose: bool,
+) -> tuple[Spec, Path]:
+    """Load and validate spec with error handling.
+
+    Args:
+        spec_file: Path to workflow specification file
+        variables: Variable overrides from --var flags
+        verbose: Enable verbose output
+
+    Returns:
+        Tuple of (validated Spec object, Path to spec file)
+
+    Raises:
+        SystemExit: With EX_SCHEMA on validation error
+    """
+    if verbose:
+        console.print(f"[dim]Loading spec: {spec_file}[/dim]")
+        if variables:
+            console.print(f"[dim]Variables: {variables}[/dim]")
+
+    try:
+        spec = load_spec(spec_file, variables)
+        spec_path = Path(spec_file)
+        return spec, spec_path
+    except (LoadError, SchemaValidationError) as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(EX_SCHEMA)
+
+
+def _handle_unsupported_spec(
+    spec: Spec,
+    spec_path: Path,
+    capability_report: CapabilityReport,
+    out: str,
+) -> None:
+    """Generate and display unsupported features report, then exit.
+
+    Args:
+        spec: Loaded workflow spec
+        spec_path: Path to spec file
+        capability_report: Capability check results
+        out: Output directory for reports
+
+    Raises:
+        SystemExit: With EX_UNSUPPORTED (18)
+    """
+    from strands_cli.artifacts import sanitize_filename
+
+    # Generate report
+    spec_content = spec_path.read_text(encoding="utf-8")
+    report_md = generate_markdown_report(str(spec_path), spec_content, capability_report)
+
+    # Sanitize spec name for filesystem (prevents path traversal)
+    safe_name = sanitize_filename(spec.name)
+    report_path = Path(out) / f"{safe_name}-unsupported.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(report_md, encoding="utf-8")
+
+    console.print("\n[yellow]Unsupported features detected.[/yellow]")
+    console.print(f"Report written to: [cyan]{report_path}[/cyan]\n")
+
+    # Show summary
+    for issue in capability_report.issues[:3]:
+        console.print(f"  • {issue.reason}")
+        console.print(f"    [dim]→ {issue.remediation}[/dim]\n")
+
+    if len(capability_report.issues) > 3:
+        console.print(
+            f"  [dim]... and {len(capability_report.issues) - 3} more issue(s)[/dim]\n"
+        )
+
+    sys.exit(EX_UNSUPPORTED)
+
+
+def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResult:
+    """Route to appropriate executor based on pattern type.
+
+    Args:
+        spec: Validated workflow spec
+        variables: Variable overrides from --var flags
+
+    Returns:
+        RunResult from the appropriate executor
+
+    Raises:
+        SystemExit: With EX_UNSUPPORTED for unknown patterns
+    """
+    if spec.pattern.type == PatternType.CHAIN:
+        if spec.pattern.config.steps and len(spec.pattern.config.steps) == 1:
+            # Single-step chain - use legacy executor for backward compatibility
+            return run_single_agent(spec, variables)
+        else:
+            # Multi-step chain - use new chain executor
+            return run_chain(spec, variables)
+    elif spec.pattern.type == PatternType.WORKFLOW:
+        if spec.pattern.config.tasks and len(spec.pattern.config.tasks) == 1:
+            # Single-task workflow - use legacy executor for backward compatibility
+            return run_single_agent(spec, variables)
+        else:
+            # Multi-task workflow - use new workflow executor
+            return run_workflow(spec, variables)
+    elif spec.pattern.type == PatternType.ROUTING:
+        # Routing pattern - use routing executor
+        return run_routing(spec, variables)
+    elif spec.pattern.type == PatternType.PARALLEL:
+        # Parallel pattern - use parallel executor
+        return run_parallel(spec, variables)
+    else:
+        # Other patterns (orchestrator, etc.) - not yet supported
+        console.print(
+            f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet"
+        )
+        sys.exit(EX_UNSUPPORTED)
+
+
+def _dispatch_executor(
+    spec: Spec,
+    variables: dict[str, str] | None,
+    verbose: bool,
+) -> RunResult:
+    """Route to appropriate executor based on pattern type.
+
+    Args:
+        spec: Validated workflow spec
+        variables: Variable overrides from --var flags
+        verbose: Enable verbose output
+
+    Returns:
+        RunResult from the appropriate executor
+
+    Raises:
+        SystemExit: With EX_RUNTIME on execution error or EX_UNSUPPORTED for unknown patterns
+    """
+    console.print(f"[bold green]Running workflow:[/bold green] {spec.name}")
+    if verbose:
+        console.print(f"[dim]Provider: {spec.runtime.provider}[/dim]")
+        console.print(f"[dim]Model: {spec.runtime.model_id or 'default'}[/dim]")
+        console.print(f"[dim]Pattern: {spec.pattern.type}[/dim]")
+
+    try:
+        return _route_to_executor(spec, variables)
+    except ExecutionError as e:
+        console.print(f"\n[red]Execution failed:[/red] {e}")
+        if verbose:
+            console.print_exception()
+        sys.exit(EX_RUNTIME)
+    except (
+        ChainExecutionError,
+        WorkflowExecutionError,
+        RoutingExecutionError,
+        ParallelExecutionError,
+    ) as e:
+        console.print(f"\n[red]Execution failed:[/red] {e}")
+        if verbose:
+            console.print_exception()
+        sys.exit(EX_RUNTIME)
+
+
+def _write_and_report_artifacts(
+    spec: Spec,
+    result: RunResult,
+    out: str,
+    force: bool,
+    variables: dict[str, str] | None,
+) -> list[str]:
+    """Write artifacts and handle errors.
+
+    Args:
+        spec: Workflow spec
+        result: Execution result with last_response
+        out: Output directory
+        force: Overwrite existing files
+        variables: Template variables from --var flags
+
+    Returns:
+        List of written artifact paths
+
+    Raises:
+        SystemExit: With EX_IO on write failure
+    """
+    if not spec.outputs or not spec.outputs.artifacts:
+        return []
+
+    try:
+        return write_artifacts(
+            spec.outputs.artifacts,
+            result.last_response or "",
+            out,
+            force,
+            variables=variables,
+            execution_context=result.execution_context,
+        )
+    except ArtifactError as e:
+        console.print(f"\n[red]Failed to write artifacts:[/red] {e}")
+        sys.exit(EX_IO)
 
 
 @app.command()
@@ -119,122 +326,29 @@ def run(
         # Parse variables
         variables = parse_variables(var) if var else {}
 
-        if verbose:
-            console.print(f"[dim]Loading spec: {spec_file}[/dim]")
-            if variables:
-                console.print(f"[dim]Variables: {variables}[/dim]")
-
         # Load and validate spec
-        try:
-            spec = load_spec(spec_file, variables)
-        except (LoadError, SchemaValidationError) as e:
-            console.print(f"[red]Error:[/red] {e}")
-            sys.exit(EX_SCHEMA)
+        spec, spec_path = _load_and_validate_spec(spec_file, variables, verbose)
 
-        # Check capability compatibility for single-agent execution
-        # This validates that the spec uses only supported features (1 agent, chain/workflow pattern, etc.)
+        # Check capability compatibility
         capability_report = check_capability(spec)
 
         if not capability_report.supported:
-            # Generate unsupported features report
-            spec_content = Path(spec_file).read_text(encoding="utf-8")
-            report_md = generate_markdown_report(spec_file, spec_content, capability_report)
+            _handle_unsupported_spec(spec, spec_path, capability_report, out)
 
-            # Write report to artifacts
-            report_path = Path(out) / f"{spec.name}-unsupported.md"
-            report_path.parent.mkdir(parents=True, exist_ok=True)
-            report_path.write_text(report_md, encoding="utf-8")
-
-            console.print("\n[yellow]Unsupported features detected.[/yellow]")
-            console.print(f"Report written to: [cyan]{report_path}[/cyan]\n")
-
-            # Show summary
-            for issue in capability_report.issues[:3]:
-                console.print(f"  • {issue.reason}")
-                console.print(f"    [dim]→ {issue.remediation}[/dim]\n")
-
-            if len(capability_report.issues) > 3:
-                console.print(
-                    f"  [dim]... and {len(capability_report.issues) - 3} more issue(s)[/dim]\n"
-                )
-
-            sys.exit(EX_UNSUPPORTED)
-
-        # Configure telemetry (currently scaffolding only - config is parsed but no spans are emitted)
+        # Configure telemetry (currently scaffolding only)
         if spec.telemetry:
             configure_telemetry(spec.telemetry.model_dump() if spec.telemetry else None)
 
-        # Execute the workflow
-        console.print(f"[bold green]Running workflow:[/bold green] {spec.name}")
-        if verbose:
-            console.print(f"[dim]Provider: {spec.runtime.provider}[/dim]")
-            console.print(f"[dim]Model: {spec.runtime.model_id or 'default'}[/dim]")
-            console.print(f"[dim]Pattern: {spec.pattern.type}[/dim]")
-
-        try:
-            # Route to appropriate executor based on pattern type
-            if spec.pattern.type == PatternType.CHAIN:
-                if spec.pattern.config.steps and len(spec.pattern.config.steps) == 1:
-                    # Single-step chain - use legacy executor for backward compatibility
-                    result = run_single_agent(spec, variables)
-                else:
-                    # Multi-step chain - use new chain executor
-                    result = run_chain(spec, variables)
-            elif spec.pattern.type == PatternType.WORKFLOW:
-                if spec.pattern.config.tasks and len(spec.pattern.config.tasks) == 1:
-                    # Single-task workflow - use legacy executor for backward compatibility
-                    result = run_single_agent(spec, variables)
-                else:
-                    # Multi-task workflow - use new workflow executor
-                    result = run_workflow(spec, variables)
-            elif spec.pattern.type == PatternType.ROUTING:
-                # Routing pattern - use routing executor
-                result = run_routing(spec, variables)
-            elif spec.pattern.type == PatternType.PARALLEL:
-                # Parallel pattern - use parallel executor
-                result = run_parallel(spec, variables)
-            else:
-                # Other patterns (orchestrator, etc.) - not yet supported
-                console.print(
-                    f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet"
-                )
-                sys.exit(EX_UNSUPPORTED)
-
-        except ExecutionError as e:
-            console.print(f"\n[red]Execution failed:[/red] {e}")
-            if verbose:
-                console.print_exception()
-            sys.exit(EX_RUNTIME)
-        except (
-            ChainExecutionError,
-            WorkflowExecutionError,
-            RoutingExecutionError,
-            ParallelExecutionError,
-        ) as e:
-            console.print(f"\n[red]Execution failed:[/red] {e}")
-            if verbose:
-                console.print_exception()
-            sys.exit(EX_RUNTIME)
+        # Execute workflow
+        result = _dispatch_executor(spec, variables, verbose)
 
         if not result.success:
             console.print(f"\n[red]Workflow failed:[/red] {result.error}")
             sys.exit(EX_RUNTIME)
 
         # Write artifacts
-        if spec.outputs and spec.outputs.artifacts:
-            try:
-                written_files = write_artifacts(
-                    spec.outputs.artifacts,
-                    result.last_response or "",
-                    out,
-                    force,
-                    variables=variables,
-                    execution_context=result.execution_context,
-                )
-                result.artifacts_written = written_files
-            except ArtifactError as e:
-                console.print(f"\n[red]Failed to write artifacts:[/red] {e}")
-                sys.exit(EX_IO)
+        written_files = _write_and_report_artifacts(spec, result, out, force, variables)
+        result.artifacts_written = written_files
 
         # Show success summary
         console.print("\n[bold green]✓ Workflow completed successfully[/bold green]")
@@ -301,6 +415,78 @@ def validate(
         sys.exit(EX_UNKNOWN)
 
 
+def _display_plan_json(spec: Spec, capability_report: CapabilityReport) -> None:
+    """Display plan in JSON format.
+
+    Args:
+        spec: Workflow spec
+        capability_report: Capability check results
+    """
+    import json
+
+    plan_data = {
+        "name": spec.name,
+        "version": spec.version,
+        "supported": capability_report.supported,
+        "runtime": {
+            "provider": spec.runtime.provider,
+            "model_id": spec.runtime.model_id,
+            "region": spec.runtime.region,
+            "host": spec.runtime.host,
+        },
+        "agents": list(spec.agents.keys()),
+        "pattern": spec.pattern.type,
+        "issues": len(capability_report.issues),
+    }
+    console.print(json.dumps(plan_data, indent=2))
+
+
+def _display_plan_markdown(spec: Spec, capability_report: CapabilityReport) -> None:
+    """Display plan in Markdown format with tables.
+
+    Args:
+        spec: Workflow spec
+        capability_report: Capability check results
+    """
+    console.print(Panel(f"[bold]{spec.name}[/bold]", title="Workflow Plan"))
+
+    # Runtime table
+    runtime_table = Table(title="Runtime Configuration")
+    runtime_table.add_column("Setting", style="cyan")
+    runtime_table.add_column("Value", style="green")
+    runtime_table.add_row("Provider", spec.runtime.provider)
+    runtime_table.add_row("Model", spec.runtime.model_id or "default")
+    if spec.runtime.region:
+        runtime_table.add_row("Region", spec.runtime.region)
+    if spec.runtime.host:
+        runtime_table.add_row("Host", spec.runtime.host)
+    console.print(runtime_table)
+
+    # Agents table
+    agents_table = Table(title="Agents")
+    agents_table.add_column("ID", style="cyan")
+    agents_table.add_column("Tools", style="yellow")
+    for agent_id, agent in spec.agents.items():
+        tools_str = str(len(agent.tools)) if agent.tools else "0"
+        agents_table.add_row(agent_id, tools_str)
+    console.print(agents_table)
+
+    # Pattern info
+    console.print(f"\n[bold]Pattern:[/bold] {spec.pattern.type}")
+
+    # Capability status
+    if capability_report.supported:
+        console.print("\n[green]✓ MVP Compatible[/green]")
+    else:
+        console.print(
+            f"\n[yellow]⚠ Unsupported Features:[/yellow] {len(capability_report.issues)}"
+        )
+        for issue in capability_report.issues[:3]:
+            console.print(f"  • {issue.reason}")
+        if len(capability_report.issues) > 3:
+            console.print(f"  [dim]... and {len(capability_report.issues) - 3} more[/dim]")
+
+
 @app.command()
 def plan(
     spec_file: Annotated[str, typer.Argument(help="Path to workflow YAML/JSON file")],
@@ -335,63 +521,11 @@ def plan(
         # Check capability
         capability_report = check_capability(spec)
 
+        # Display plan in requested format
         if format == "json":
-            import json
-
-            plan_data = {
-                "name": spec.name,
-                "version": spec.version,
-                "supported": capability_report.supported,
-                "runtime": {
-                    "provider": spec.runtime.provider,
-                    "model_id": spec.runtime.model_id,
-                    "region": spec.runtime.region,
-                    "host": spec.runtime.host,
-                },
-                "agents": list(spec.agents.keys()),
-                "pattern": spec.pattern.type,
-                "issues": len(capability_report.issues),
-            }
-            console.print(json.dumps(plan_data, indent=2))
+            _display_plan_json(spec, capability_report)
         else:
-            # Markdown format
-            console.print(Panel(f"[bold]{spec.name}[/bold]", title="Workflow Plan"))
-
-            # Runtime table
-            runtime_table = Table(title="Runtime Configuration")
-            runtime_table.add_column("Setting", style="cyan")
-            runtime_table.add_column("Value", style="green")
-            runtime_table.add_row("Provider", spec.runtime.provider)
-            runtime_table.add_row("Model", spec.runtime.model_id or "default")
-            if spec.runtime.region:
-                runtime_table.add_row("Region", spec.runtime.region)
-            if spec.runtime.host:
-                runtime_table.add_row("Host", spec.runtime.host)
-            console.print(runtime_table)
-
-            # Agents table
-            agents_table = Table(title="Agents")
-            agents_table.add_column("ID", style="cyan")
-            agents_table.add_column("Tools", style="yellow")
-            for agent_id, agent in spec.agents.items():
-                tools_str = str(len(agent.tools)) if agent.tools else "0"
-                agents_table.add_row(agent_id, tools_str)
-            console.print(agents_table)
-
-            # Pattern info
-            console.print(f"\n[bold]Pattern:[/bold] {spec.pattern.type}")
-
-            # Capability status
-            if capability_report.supported:
-                console.print("\n[green]✓ MVP Compatible[/green]")
-            else:
-                console.print(
-                    f"\n[yellow]⚠ Unsupported Features:[/yellow] {len(capability_report.issues)}"
-                )
-                for issue in capability_report.issues[:3]:
-                    console.print(f"  • {issue.reason}")
-                if len(capability_report.issues) > 3:
-                    console.print(f"  [dim]... and {len(capability_report.issues) - 3} more[/dim]")
+            _display_plan_markdown(spec, capability_report)
 
         sys.exit(EX_OK)
 

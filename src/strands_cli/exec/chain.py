@@ -31,13 +31,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
+from strands_cli.exec.utils import (
+    check_budget_threshold,
+    estimate_tokens,
+    get_retry_config,
+    invoke_agent_with_retry,
+)
 from strands_cli.loader import render_template
 from strands_cli.runtime import build_agent
 from strands_cli.types import PatternType, RunResult, Spec
@@ -49,49 +49,7 @@ class ChainExecutionError(Exception):
     pass
 
 
-# Transient errors that should trigger retries
-_TRANSIENT_ERRORS = (
-    TimeoutError,
-    ConnectionError,
-)
-
-
 logger = structlog.get_logger(__name__)
-
-
-def _get_retry_config(spec: Spec) -> tuple[int, int, int]:
-    """Get retry configuration from spec.
-
-    Args:
-        spec: Workflow spec with optional failure_policy
-
-    Returns:
-        Tuple of (max_attempts, wait_min, wait_max) in seconds
-    """
-    max_attempts = 3
-    wait_min = 1
-    wait_max = 60
-
-    if spec.runtime.failure_policy:
-        policy = spec.runtime.failure_policy
-        retries = policy.get("retries", max_attempts - 1)
-
-        if retries < 0:
-            raise ChainExecutionError(f"Invalid retry config: retries must be >= 0, got {retries}")
-
-        max_attempts = retries + 1
-        backoff = policy.get("backoff", "exponential")
-
-        if backoff == "exponential":
-            wait_min = policy.get("wait_min", wait_min)
-            wait_max = policy.get("wait_max", wait_max)
-
-            if wait_min > wait_max:
-                raise ChainExecutionError(
-                    f"Invalid retry config: wait_min ({wait_min}s) must be <= wait_max ({wait_max}s)"
-                )
-
-    return max_attempts, wait_min, wait_max
 
 
 def _build_step_context(
@@ -134,44 +92,6 @@ def _build_step_context(
     return context
 
 
-def _check_budget_warning(
-    cumulative_tokens: int,
-    max_tokens: int | None,
-    step_index: int,
-) -> None:
-    """Check token budget and log warnings.
-
-    Args:
-        cumulative_tokens: Total tokens used so far
-        max_tokens: Maximum tokens allowed (from budgets.max_tokens)
-        step_index: Current step index for logging
-    """
-    if max_tokens is None:
-        return
-
-    usage_percent = (cumulative_tokens / max_tokens) * 100
-
-    if usage_percent >= 100:
-        logger.error(
-            "token_budget_exceeded",
-            step=step_index,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_percent=usage_percent,
-        )
-        raise ChainExecutionError(
-            f"Token budget exceeded: {cumulative_tokens}/{max_tokens} tokens (100%)"
-        )
-    elif usage_percent >= 80:
-        logger.warning(
-            "token_budget_warning",
-            step=step_index,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_percent=f"{usage_percent:.1f}",
-        )
-
-
 def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute a multi-step chain workflow.
 
@@ -194,7 +114,7 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
         raise ChainExecutionError("Chain pattern has no steps")
 
     # Get retry config
-    max_attempts, wait_min, wait_max = _get_retry_config(spec)
+    max_attempts, wait_min, wait_max = get_retry_config(spec)
 
     # Track execution state
     step_history: list[dict[str, Any]] = []
@@ -243,26 +163,10 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
             raise ChainExecutionError(f"Failed to build agent for step {step_index}: {e}") from e
 
         # Execute with retry logic
-        async def _execute_step(agent_instance: Any, input_text: str) -> Any:
-            from strands_cli.utils import capture_and_display_stdout
-
-            with capture_and_display_stdout():
-                return await agent_instance.invoke_async(input_text)
-
-        retry_decorator = retry(
-            stop=stop_after_attempt(max_attempts),
-            wait=wait_exponential(min=wait_min, max=wait_max),
-            retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-            reraise=True,
-        )
-        _execute_step_with_retry = retry_decorator(_execute_step)
-
         try:
-            step_response = asyncio.run(_execute_step_with_retry(agent, step_input))
-        except _TRANSIENT_ERRORS as e:
-            error_msg = f"Step {step_index} failed after {max_attempts} attempts: {e}"
-            logger.error("chain_step_failed", step=step_index, error=str(e))
-            raise ChainExecutionError(error_msg) from e
+            step_response = asyncio.run(
+                invoke_agent_with_retry(agent, step_input, max_attempts, wait_min, wait_max)
+            )
         except Exception as e:
             error_msg = f"Step {step_index} failed: {e}"
             logger.error("chain_step_failed", step=step_index, error=str(e))
@@ -271,14 +175,12 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
         # Extract response text
         response_text = step_response if isinstance(step_response, str) else str(step_response)
 
-        # Track token usage (estimate based on response length)
-        # TODO: Get actual token counts from provider when available
-        estimated_tokens = len(step_input.split()) + len(response_text.split())
+        # Track token usage using shared estimator
+        estimated_tokens = estimate_tokens(step_input, response_text)
         cumulative_tokens += estimated_tokens
 
-        # Check budget and warn if needed
-        if max_tokens:
-            _check_budget_warning(cumulative_tokens, max_tokens, step_index)
+        # Check budget using shared function
+        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_index}")
 
         # Record step result
         step_result = {

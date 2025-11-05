@@ -19,18 +19,31 @@ class _TeeStream:
     def __init__(self, original_stream: object, buffer: io.StringIO):
         self.original_stream = original_stream
         self.buffer = buffer
+        self._buffer_closed = False
 
     def write(self, text: str) -> int:
-        # Write to buffer for capture
-        self.buffer.write(text)
-        # Also write to original stream for immediate streaming display
+        # Write to buffer for capture (defensive - check if buffer is still open)
+        if not self._buffer_closed and not self.buffer.closed:
+            try:
+                self.buffer.write(text)
+            except ValueError:
+                # Buffer was closed - mark it and continue
+                self._buffer_closed = True
+
+        # Always write to original stream for immediate streaming display
         if hasattr(self.original_stream, 'write'):
             self.original_stream.write(text)
         return len(text)
 
     def flush(self) -> None:
-        self.buffer.flush()
-        # Also flush the original stream
+        # Flush buffer if still open
+        if not self._buffer_closed and not self.buffer.closed:
+            try:
+                self.buffer.flush()
+            except ValueError:
+                self._buffer_closed = True
+
+        # Always flush the original stream
         if hasattr(self.original_stream, 'flush'):
             self.original_stream.flush()
 

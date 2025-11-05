@@ -12,6 +12,8 @@ The adapter pattern isolates Strands SDK specifics from workflow spec logic,
 making it easier to support alternative agent frameworks in the future.
 """
 
+from typing import Any
+
 from strands.agent import Agent
 
 from strands_cli.runtime.providers import create_model
@@ -82,6 +84,60 @@ def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) ->
     return "\n\n".join(sections)
 
 
+def _load_python_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
+    """Load Python callable tools based on spec and filter.
+
+    Args:
+        spec: Workflow spec containing tool definitions
+        tools_to_use: Optional list of tool IDs to filter by
+
+    Returns:
+        List of loaded Python callable objects
+
+    Raises:
+        AdapterError: If tool loading fails
+    """
+    tools: list[Any] = []
+    if spec.tools and spec.tools.python:
+        for py_tool in spec.tools.python:
+            if tools_to_use is None or py_tool.callable in tools_to_use:
+                try:
+                    callable_obj = load_python_callable(py_tool.callable)
+                    tools.append(callable_obj)
+                except Exception as e:
+                    raise AdapterError(
+                        f"Failed to load Python tool '{py_tool.callable}': {e}"
+                    ) from e
+    return tools
+
+
+def _load_http_executors(spec: Spec, tools_to_use: list[str] | None) -> list[HttpExecutorAdapter]:
+    """Load HTTP executor tools based on spec and filter.
+
+    Args:
+        spec: Workflow spec containing HTTP executor definitions
+        tools_to_use: Optional list of tool IDs to filter by
+
+    Returns:
+        List of HTTP executor adapter objects
+
+    Raises:
+        AdapterError: If executor creation fails
+    """
+    tools = []
+    if spec.tools and spec.tools.http_executors:
+        for http_exec in spec.tools.http_executors:
+            if tools_to_use is None or http_exec.id in tools_to_use:
+                try:
+                    adapter = HttpExecutorAdapter(http_exec)
+                    tools.append(adapter)
+                except Exception as e:
+                    raise AdapterError(
+                        f"Failed to create HTTP executor '{http_exec.id}': {e}"
+                    ) from e
+    return tools
+
+
 def build_agent(
     spec: Spec,
     agent_id: str,
@@ -134,34 +190,10 @@ def build_agent(
     # Determine which tools to use
     tools_to_use = tool_overrides if tool_overrides is not None else agent_config.tools
 
-    # Create tools list
-    tools = []
-
-    # Add Python callables
-    if spec.tools and spec.tools.python:
-        for py_tool in spec.tools.python:
-            # Only add if in tools_to_use (or if no tool filtering)
-            if tools_to_use is None or py_tool.callable in tools_to_use:
-                try:
-                    callable_obj = load_python_callable(py_tool.callable)
-                    tools.append(callable_obj)
-                except Exception as e:
-                    raise AdapterError(
-                        f"Failed to load Python tool '{py_tool.callable}': {e}"
-                    ) from e
-
-    # Add HTTP executors
-    if spec.tools and spec.tools.http_executors:
-        for http_exec in spec.tools.http_executors:
-            # Only add if in tools_to_use (or if no tool filtering)
-            if tools_to_use is None or http_exec.id in tools_to_use:
-                try:
-                    adapter = HttpExecutorAdapter(http_exec)
-                    tools.append(adapter)
-                except Exception as e:
-                    raise AdapterError(
-                        f"Failed to create HTTP executor '{http_exec.id}': {e}"
-                    ) from e
+    # Load all tools
+    tools: list[Any] = []
+    tools.extend(_load_python_tools(spec, tools_to_use))
+    tools.extend(_load_http_executors(spec, tools_to_use))
 
     # Create the agent
     try:
@@ -169,7 +201,7 @@ def build_agent(
             name=agent_id,
             model=model,
             system_prompt=system_prompt,
-            tools=tools if tools else None,  # type: ignore[arg-type]
+            tools=tools if tools else None,
         )
     except Exception as e:
         raise AdapterError(f"Failed to create Strands Agent: {e}") from e

@@ -16,11 +16,12 @@ Supported Formats:
 
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 from ruamel.yaml import YAML
 
-from strands_cli.schema import validate_spec
+from strands_cli.schema.validator import validate_spec
 from strands_cli.types import Spec
 
 # Security: Maximum spec file size to prevent memory exhaustion
@@ -32,6 +33,76 @@ class LoadError(Exception):
     """Raised when a spec file cannot be loaded or parsed."""
 
     pass
+
+
+def _validate_file_path(file_path: Path) -> None:
+    """Validate file exists and is not too large.
+
+    Args:
+        file_path: Path to validate
+
+    Raises:
+        LoadError: If file doesn't exist or is too large
+    """
+    if not file_path.exists():
+        raise LoadError(f"Spec file not found: {file_path}")
+
+    file_size = file_path.stat().st_size
+    if file_size > MAX_SPEC_SIZE_BYTES:
+        size_mb = file_size / (1024 * 1024)
+        max_mb = MAX_SPEC_SIZE_BYTES / (1024 * 1024)
+        raise LoadError(f"Spec file too large: {size_mb:.1f}MB exceeds maximum of {max_mb:.0f}MB")
+
+
+def _parse_file_content(file_path: Path, content: str) -> dict[str, Any]:
+    """Parse file content based on extension.
+
+    Args:
+        file_path: Path to file (used for extension detection)
+        content: File content to parse
+
+    Returns:
+        Parsed data as dictionary
+
+    Raises:
+        LoadError: If parsing fails or format unsupported
+    """
+    suffix = file_path.suffix.lower()
+    try:
+        if suffix in {".yaml", ".yml"}:
+            yaml = YAML(typ="safe", pure=True)
+            spec_data = yaml.load(content)
+        elif suffix == ".json":
+            spec_data = json.loads(content)
+        else:
+            raise LoadError(f"Unsupported file extension: {suffix}. Use .yaml, .yml, or .json")
+    except Exception as e:
+        raise LoadError(f"Failed to parse {file_path}: {e}") from e
+
+    if not isinstance(spec_data, dict):
+        raise LoadError(f"Spec must be a dictionary/object, got {type(spec_data)}")
+
+    return spec_data
+
+
+def _merge_variables(spec_data: dict[str, Any], variables: dict[str, str]) -> None:
+    """Merge CLI variables into spec_data.inputs.values.
+
+    Args:
+        spec_data: Spec dictionary to modify in-place
+        variables: Variables to merge
+    """
+    if "inputs" not in spec_data:
+        spec_data["inputs"] = {}
+    if not isinstance(spec_data["inputs"], dict):
+        spec_data["inputs"] = {}
+
+    if "values" not in spec_data["inputs"]:
+        spec_data["inputs"]["values"] = {}
+    if not isinstance(spec_data["inputs"]["values"], dict):
+        spec_data["inputs"]["values"] = {}
+
+    spec_data["inputs"]["values"].update(variables)
 
 
 def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) -> Spec:
@@ -57,15 +128,7 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
     """
     file_path = Path(file_path)
 
-    if not file_path.exists():
-        raise LoadError(f"Spec file not found: {file_path}")
-
-    # Security check: Ensure file size is reasonable
-    file_size = file_path.stat().st_size
-    if file_size > MAX_SPEC_SIZE_BYTES:
-        size_mb = file_size / (1024 * 1024)
-        max_mb = MAX_SPEC_SIZE_BYTES / (1024 * 1024)
-        raise LoadError(f"Spec file too large: {size_mb:.1f}MB exceeds maximum of {max_mb:.0f}MB")
+    _validate_file_path(file_path)
 
     # Read file content
     try:
@@ -73,49 +136,19 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
     except Exception as e:
         raise LoadError(f"Failed to read {file_path}: {e}") from e
 
-    # Parse based on extension
-    suffix = file_path.suffix.lower()
-    try:
-        if suffix in {".yaml", ".yml"}:
-            yaml = YAML(typ="safe", pure=True)
-            spec_data = yaml.load(content)
-        elif suffix == ".json":
-            spec_data = json.loads(content)
-        else:
-            raise LoadError(f"Unsupported file extension: {suffix}. Use .yaml, .yml, or .json")
-    except Exception as e:
-        raise LoadError(f"Failed to parse {file_path}: {e}") from e
-
-    if not isinstance(spec_data, dict):
-        raise LoadError(f"Spec must be a dictionary/object, got {type(spec_data)}")
+    spec_data = _parse_file_content(file_path, content)
 
     # Merge CLI variables into inputs.values
-    # This allows runtime overrides without modifying the spec file
     if variables:
-        if "inputs" not in spec_data:
-            spec_data["inputs"] = {}
-        if not isinstance(spec_data["inputs"], dict):
-            spec_data["inputs"] = {}
-
-        # Merge variables into inputs.values
-        if "values" not in spec_data["inputs"]:
-            spec_data["inputs"]["values"] = {}
-        if not isinstance(spec_data["inputs"]["values"], dict):
-            spec_data["inputs"]["values"] = {}
-
-        spec_data["inputs"]["values"].update(variables)
+        _merge_variables(spec_data, variables)
 
     # Validate against JSON Schema
     validate_spec(spec_data)
 
     # Convert to typed Pydantic model
-    # This provides a second validation layer and ensures type safety
-    # throughout the codebase (should rarely fail if schema validation passed)
     try:
         return Spec.model_validate(spec_data)
     except PydanticValidationError as e:
-        # This shouldn't happen if schema validation passed,
-        # but catch it for safety
         raise LoadError(f"Failed to create typed Spec: {e}") from e
 
 

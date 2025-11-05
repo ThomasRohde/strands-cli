@@ -157,6 +157,7 @@ minversion = "8.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
 xfail_strict = true
+asyncio_default_fixture_loop_scope = "function"
 
 # ---- Coverage ----
 [tool.coverage.run]

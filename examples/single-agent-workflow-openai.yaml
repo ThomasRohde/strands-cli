@@ -48,5 +48,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/response-openai.md
+    - path: ./response-openai.md
       from: "{{ last_response }}"

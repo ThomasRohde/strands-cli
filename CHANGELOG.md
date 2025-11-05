@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **pytest-asyncio configuration** - Added `asyncio_default_fixture_loop_scope = "function"` to `pyproject.toml` to fix deprecation warning
+- **Mypy strict type safety** - Fixed 3 type errors in workflow and routing execution:
+  - `workflow.py:356` - Added type assertion for tasks before topological sort
+  - `routing.py:270` - Added type assertion for routes before indexing
+  - `routing.py:337` - Added type assertion for steps before len()
+- **Import ordering** - Fixed import block formatting in `yaml_loader.py`
+
 ## [0.4.0] - 2025-11-05
 
 ### Added - Parallel Execution Pattern

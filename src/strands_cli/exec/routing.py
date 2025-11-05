@@ -211,6 +211,80 @@ async def _execute_router_with_retry(
     raise RoutingExecutionError("Unexpected error in router execution")
 
 
+def _validate_routing_config(spec: Spec) -> tuple[Any, str, int]:
+    """Validate routing configuration and extract router info.
+
+    Args:
+        spec: Workflow spec with routing pattern
+
+    Returns:
+        Tuple of (router_config, router_agent_id, max_retries)
+
+    Raises:
+        RoutingExecutionError: If routing config is invalid
+    """
+    if not spec.pattern.config.router:
+        raise RoutingExecutionError("Routing pattern requires router configuration")
+
+    if not spec.pattern.config.routes:
+        raise RoutingExecutionError("Routing pattern requires at least one route")
+
+    router_config = spec.pattern.config.router
+    router_agent_id = router_config.agent
+    max_retries = router_config.max_retries
+
+    return router_config, router_agent_id, max_retries
+
+
+def _build_router_context(spec: Spec, variables: dict[str, str] | None) -> dict[str, Any]:
+    """Build template context for router input.
+
+    Args:
+        spec: Workflow spec
+        variables: Optional CLI --var overrides
+
+    Returns:
+        Template context dictionary
+    """
+    context = {}
+    if spec.inputs and spec.inputs.get("values"):
+        context.update(spec.inputs["values"])
+    if variables:
+        context.update(variables)
+    return context
+
+
+def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
+    """Create a temporary spec for executing selected route as chain.
+
+    Args:
+        spec: Original routing spec
+        chosen_route: Selected route name
+
+    Returns:
+        Modified spec with route steps as chain pattern
+
+    Raises:
+        RoutingExecutionError: If route has no steps
+    """
+    routes = spec.pattern.config.routes
+    assert routes is not None, "Routing pattern must have routes"
+    route = routes[chosen_route]
+
+    if not route.then:
+        raise RoutingExecutionError(f"Route '{chosen_route}' has no steps to execute")
+
+    # Create temporary spec for chain execution with selected route's steps
+    route_spec = spec.model_copy(deep=True)
+    route_spec.pattern.type = PatternType.CHAIN
+    route_spec.pattern.config.steps = route.then
+    route_spec.pattern.config.tasks = None  # Clear workflow tasks if any
+    route_spec.pattern.config.router = None  # Clear router config
+    route_spec.pattern.config.routes = None  # Clear routes
+
+    return route_spec
+
+
 def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute a routing pattern workflow.
 
@@ -229,24 +303,11 @@ def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResul
     """
     logger.info("routing_execution_start", spec_name=spec.name)
 
-    if not spec.pattern.config.router:
-        raise RoutingExecutionError("Routing pattern requires router configuration")
+    # Validate routing configuration
+    router_config, router_agent_id, max_retries = _validate_routing_config(spec)
 
-    if not spec.pattern.config.routes:
-        raise RoutingExecutionError("Routing pattern requires at least one route")
-
-    router_config = spec.pattern.config.router
-    router_agent_id = router_config.agent
-    max_retries = router_config.max_retries
-
-    # Build template context for router input
-    context = {}
-    if spec.inputs and spec.inputs.get("values"):
-        context.update(spec.inputs["values"])
-    if variables:
-        context.update(variables)
-
-    # Render router input
+    # Build router context and render input
+    context = _build_router_context(spec, variables)
     router_input_template = router_config.input or ""
     try:
         router_input = render_template(router_input_template, context)
@@ -267,28 +328,17 @@ def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResul
 
     logger.info("route_selected", route=chosen_route)
 
-    # Get selected route configuration
-    route = spec.pattern.config.routes[chosen_route]
-
-    if not route.then:
-        raise RoutingExecutionError(f"Route '{chosen_route}' has no steps to execute")
-
-    # Create temporary spec for chain execution with selected route's steps
-    # We'll modify pattern config to use the route's steps
-    route_spec = spec.model_copy(deep=True)
-    route_spec.pattern.type = PatternType.CHAIN
-    route_spec.pattern.config.steps = route.then
-    route_spec.pattern.config.tasks = None  # Clear workflow tasks if any
-    route_spec.pattern.config.router = None  # Clear router config
-    route_spec.pattern.config.routes = None  # Clear routes
+    # Create spec for route execution
+    route_spec = _create_route_spec(spec, chosen_route)
 
     # Inject router decision into context for route execution
-    # Note: Need Any type here because we inject a nested dict for router context
     route_variables: dict[str, Any] = dict(variables) if variables else {}
     route_variables["router"] = {"chosen_route": chosen_route}
 
     # Execute selected route as a chain
-    logger.info("route_execution_start", route=chosen_route, steps=len(route.then))
+    steps = route_spec.pattern.config.steps
+    assert steps is not None, "Route spec must have steps"
+    logger.info("route_execution_start", route=chosen_route, steps=len(steps))
 
     try:
         result = run_chain(route_spec, route_variables)

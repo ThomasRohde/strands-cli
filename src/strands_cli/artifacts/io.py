@@ -9,12 +9,14 @@ Features:
     - Overwrite protection (--force flag required)
     - Error handling for I/O failures
     - UTF-8 encoding
+    - Path sanitization to prevent traversal attacks
 
 Artifact Templates:
     Current: {{ last_response }} - final agent output
     Future: {{ TRACE }}, {{ PROVENANCE }}, etc.
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,40 @@ class ArtifactError(Exception):
     """Raised when artifact writing fails."""
 
     pass
+
+
+def sanitize_filename(filename: str, max_length: int = 100) -> str:
+    """Sanitize a filename to prevent path traversal and filesystem issues.
+
+    Removes path separators, special characters, and limits length.
+    Ensures the resulting filename is safe for all platforms.
+
+    Args:
+        filename: Raw filename (may contain unsafe characters)
+        max_length: Maximum length of output (default: 100)
+
+    Returns:
+        Sanitized filename safe for filesystem use
+
+    Examples:
+        >>> sanitize_filename("../etc/passwd")
+        'etc_passwd'
+        >>> sanitize_filename("my-spec-name")
+        'my-spec-name'
+        >>> sanitize_filename("spec@#$%name")
+        'spec_name'
+    """
+    # Replace path separators and special chars with underscores
+    safe = re.sub(r'[^\w\-_.]', '_', filename)
+    # Remove leading/trailing dots and underscores
+    safe = safe.strip('._')
+    # Collapse consecutive underscores
+    safe = re.sub(r'_+', '_', safe)
+    # Truncate to max_length
+    if len(safe) > max_length:
+        safe = safe[:max_length].rstrip('._')
+    # Ensure non-empty result
+    return safe if safe else 'unnamed'
 
 
 def write_artifacts(

@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from strands_cli.exec.chain import _build_step_context, _check_budget_warning, run_chain
+from strands_cli.exec.chain import _build_step_context, run_chain
+from strands_cli.exec.utils import check_budget_threshold
 from strands_cli.types import Spec
 
 
@@ -58,7 +59,7 @@ class TestCheckBudgetWarning:
         max_tokens = 1000
 
         # Should not raise
-        _check_budget_warning(cumulative_tokens, max_tokens, step_number)
+        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
 
     def test_warning_at_80_percent(self) -> None:
         """Warning emitted at 80% consumption."""
@@ -67,7 +68,7 @@ class TestCheckBudgetWarning:
         max_tokens = 1000
 
         # Should not raise, but will log warning to structlog
-        _check_budget_warning(cumulative_tokens, max_tokens, step_number)
+        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
 
     def test_stops_at_100_percent(self) -> None:
         """Should raise error at 100% consumption."""
@@ -76,7 +77,7 @@ class TestCheckBudgetWarning:
         max_tokens = 1000
 
         with pytest.raises(Exception, match="Token budget exceeded"):
-            _check_budget_warning(cumulative_tokens, max_tokens, step_number)
+            check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
 
     def test_no_warning_when_no_budgets(self) -> None:
         """No warning when budgets not configured."""
@@ -85,7 +86,7 @@ class TestCheckBudgetWarning:
         max_tokens = None
 
         # Should not raise or warn
-        _check_budget_warning(cumulative_tokens, max_tokens, step_number)
+        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
 
 
 class TestRunChain:
@@ -212,7 +213,7 @@ class TestRunChain:
         self, mock_build_agent: MagicMock, chain_spec_3_steps: Spec
     ) -> None:
         """Test chain stops when budget exceeded."""
-        from strands_cli.exec.chain import ChainExecutionError
+        from strands_cli.exec.utils import ExecutionUtilsError
 
         chain_spec_3_steps.runtime.budgets = {"max_tokens": 5}
 
@@ -222,7 +223,7 @@ class TestRunChain:
         )
         mock_build_agent.return_value = mock_agent
 
-        with pytest.raises(ChainExecutionError, match="budget exceeded"):
+        with pytest.raises(ExecutionUtilsError, match="budget exceeded"):
             run_chain(chain_spec_3_steps, variables=None)
 
     @patch("strands_cli.exec.chain.build_agent")

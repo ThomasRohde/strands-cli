@@ -31,13 +31,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
+from strands_cli.exec.utils import (
+    check_budget_threshold,
+    estimate_tokens,
+    get_retry_config,
+    invoke_agent_with_retry,
+)
 from strands_cli.loader import render_template
 from strands_cli.runtime import build_agent
 from strands_cli.types import PatternType, RunResult, Spec
@@ -53,13 +53,6 @@ class WorkflowExecutionError(Exception):
     """Raised when workflow execution fails."""
 
     pass
-
-
-# Transient errors that should trigger retries
-_TRANSIENT_ERRORS = (
-    TimeoutError,
-    ConnectionError,
-)
 
 
 logger = structlog.get_logger(__name__)
@@ -126,43 +119,6 @@ def _topological_sort(tasks: list[Any]) -> list[list[str]]:
     return layers
 
 
-def _get_retry_config(spec: Spec) -> tuple[int, int, int]:
-    """Get retry configuration from spec.
-
-    Args:
-        spec: Workflow spec with optional failure_policy
-
-    Returns:
-        Tuple of (max_attempts, wait_min, wait_max) in seconds
-    """
-    max_attempts = 3
-    wait_min = 1
-    wait_max = 60
-
-    if spec.runtime.failure_policy:
-        policy = spec.runtime.failure_policy
-        retries = policy.get("retries", max_attempts - 1)
-
-        if retries < 0:
-            raise WorkflowExecutionError(
-                f"Invalid retry config: retries must be >= 0, got {retries}"
-            )
-
-        max_attempts = retries + 1
-        backoff = policy.get("backoff", "exponential")
-
-        if backoff == "exponential":
-            wait_min = policy.get("wait_min", wait_min)
-            wait_max = policy.get("wait_max", wait_max)
-
-            if wait_min > wait_max:
-                raise WorkflowExecutionError(
-                    f"Invalid retry config: wait_min ({wait_min}s) must be <= wait_max ({wait_max}s)"
-                )
-
-    return max_attempts, wait_min, wait_max
-
-
 def _build_task_context(
     spec: Spec,
     task_results: dict[str, dict[str, Any]],
@@ -192,44 +148,6 @@ def _build_task_context(
     context["tasks"] = task_results
 
     return context
-
-
-def _check_budget_warning(
-    cumulative_tokens: int,
-    max_tokens: int | None,
-    task_id: str,
-) -> None:
-    """Check token budget and log warnings.
-
-    Args:
-        cumulative_tokens: Total tokens used so far
-        max_tokens: Maximum tokens allowed (from budgets.max_tokens)
-        task_id: Current task ID for logging
-    """
-    if max_tokens is None:
-        return
-
-    usage_percent = (cumulative_tokens / max_tokens) * 100
-
-    if usage_percent >= 100:
-        logger.error(
-            "token_budget_exceeded",
-            task=task_id,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_percent=usage_percent,
-        )
-        raise WorkflowExecutionError(
-            f"Token budget exceeded: {cumulative_tokens}/{max_tokens} tokens (100%)"
-        )
-    elif usage_percent >= 80:
-        logger.warning(
-            "token_budget_warning",
-            task=task_id,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_percent=f"{usage_percent:.1f}",
-        )
 
 
 async def _execute_task(
@@ -279,27 +197,8 @@ async def _execute_task(
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e
 
     # Execute with retry logic
-    async def _execute_with_retry(agent_instance: Any, input_text: str) -> AgentResult:
-        """Execute agent with retry logic."""
-        from strands_cli.utils import capture_and_display_stdout
-
-        with capture_and_display_stdout():
-            return await agent_instance.invoke_async(input_text)
-
-    retry_decorator = retry(
-        stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(min=wait_min, max=wait_max),
-        retry=retry_if_exception_type(_TRANSIENT_ERRORS),
-        reraise=True,
-    )
-    _execute_fn = retry_decorator(_execute_with_retry)
-
     try:
-        task_response = await _execute_fn(agent, task_input)
-    except _TRANSIENT_ERRORS as e:
-        error_msg = f"Task '{task.id}' failed after {max_attempts} attempts: {e}"
-        logger.error("workflow_task_failed", task=task.id, error=str(e))
-        raise WorkflowExecutionError(error_msg) from e
+        task_response = await invoke_agent_with_retry(agent, task_input, max_attempts, wait_min, wait_max)
     except Exception as e:
         error_msg = f"Task '{task.id}' failed: {e}"
         logger.error("workflow_task_failed", task=task.id, error=str(e))
@@ -308,10 +207,124 @@ async def _execute_task(
     # Extract response text
     response_text = task_response if isinstance(task_response, str) else str(task_response)
 
-    # Estimate tokens
-    estimated_tokens = len(task_input.split()) + len(response_text.split())
+    # Estimate tokens using shared estimator
+    estimated_tokens = estimate_tokens(task_input, response_text)
 
     return response_text, estimated_tokens
+
+
+def _validate_workflow_config(spec: Spec) -> dict[str, Any]:
+    """Validate workflow configuration and build task map.
+
+    Args:
+        spec: Workflow spec with workflow pattern
+
+    Returns:
+        Dictionary mapping task IDs to task objects
+
+    Raises:
+        WorkflowExecutionError: If workflow has no tasks
+    """
+    if not spec.pattern.config.tasks:
+        raise WorkflowExecutionError("Workflow pattern has no tasks")
+
+    return {task.id: task for task in spec.pattern.config.tasks}
+
+
+def _initialize_workflow_state(spec: Spec) -> tuple[int, int | None]:
+    """Initialize workflow execution state.
+
+    Args:
+        spec: Workflow spec
+
+    Returns:
+        Tuple of (cumulative_tokens, max_tokens)
+    """
+    cumulative_tokens = 0
+    max_tokens = None
+    if spec.runtime.budgets:
+        max_tokens = spec.runtime.budgets.get("max_tokens")
+
+    return cumulative_tokens, max_tokens
+
+
+async def _execute_workflow_layer(
+    spec: Spec,
+    layer_task_ids: list[str],
+    task_map: dict[str, Any],
+    task_results: dict[str, dict[str, Any]],
+    variables: dict[str, str] | None,
+    max_attempts: int,
+    wait_min: int,
+    wait_max: int,
+) -> list[tuple[str, int]]:
+    """Execute all tasks in a workflow layer (potentially in parallel).
+
+    Args:
+        spec: Workflow spec
+        layer_task_ids: Task IDs to execute in this layer
+        task_map: Map of task ID to task object
+        task_results: Existing task results
+        variables: User variables
+        max_attempts: Max retry attempts
+        wait_min: Min retry wait
+        wait_max: Max retry wait
+
+    Returns:
+        List of (response_text, estimated_tokens) for each task
+
+    Raises:
+        WorkflowExecutionError: If any task fails
+    """
+    # Build context with completed tasks
+    task_context = _build_task_context(spec, task_results, variables)
+
+    # Build tasks to execute with context captured
+    tasks_to_execute = []
+    for task_id in layer_task_ids:
+        tasks_to_execute.append((task_id, task_map[task_id], dict(task_context)))
+
+    # Get max_parallel limit from runtime configuration
+    max_parallel = spec.runtime.max_parallel
+
+    async def _execute_layer(
+        tasks_with_context: list[tuple[str, Any, dict[str, Any]]],
+    ) -> list[tuple[str, int]]:
+        # Create semaphore for max_parallel if configured
+        semaphore = asyncio.Semaphore(max_parallel) if max_parallel else None
+
+        async def _execute_with_semaphore(
+            task_id: str, task_obj: Any, context: dict[str, Any]
+        ) -> tuple[str, int]:
+            if semaphore:
+                async with semaphore:
+                    return await _execute_task(
+                        spec,
+                        task_obj,
+                        context,
+                        max_attempts,
+                        wait_min,
+                        wait_max,
+                    )
+            else:
+                return await _execute_task(
+                    spec,
+                    task_obj,
+                    context,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                )
+
+        # Execute all tasks in layer (parallel where possible)
+        results = await asyncio.gather(
+            *[_execute_with_semaphore(tid, tobj, ctx) for tid, tobj, ctx in tasks_with_context],
+            return_exceptions=False,  # Fail-fast on first error
+        )
+        return results
+
+    # Run layer execution
+    return await _execute_layer(tasks_to_execute)
 
 
 def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
@@ -332,18 +345,17 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
     """
     logger.info("workflow_execution_start", spec_name=spec.name)
 
-    if not spec.pattern.config.tasks:
-        raise WorkflowExecutionError("Workflow pattern has no tasks")
+    # Validate and prepare workflow
+    task_map = _validate_workflow_config(spec)
 
     # Get retry config
-    max_attempts, wait_min, wait_max = _get_retry_config(spec)
-
-    # Build task map
-    task_map = {task.id: task for task in spec.pattern.config.tasks}
+    max_attempts, wait_min, wait_max = get_retry_config(spec)
 
     # Perform topological sort
     try:
-        execution_layers = _topological_sort(spec.pattern.config.tasks)
+        tasks = spec.pattern.config.tasks
+        assert tasks is not None, "Workflow pattern must have tasks"
+        execution_layers = _topological_sort(tasks)
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to build execution plan: {e}") from e
 
@@ -354,16 +366,9 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
         layer_sizes=[len(layer) for layer in execution_layers],
     )
 
-    # Track execution state
-    task_results: dict[str, dict[str, Any]] = {}  # task_id -> {response, status, tokens}
-    cumulative_tokens = 0
-    max_tokens = None
-    if spec.runtime.budgets:
-        max_tokens = spec.runtime.budgets.get("max_tokens")
-
-    # Get max_parallel limit from runtime configuration
-    max_parallel = spec.runtime.max_parallel
-
+    # Initialize execution state
+    cumulative_tokens, max_tokens = _initialize_workflow_state(spec)
+    task_results: dict[str, dict[str, Any]] = {}
     started_at = datetime.now(UTC).isoformat()
 
     # Execute each layer
@@ -374,54 +379,20 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
             tasks=layer_task_ids,
         )
 
-        # Build context with completed tasks
-        task_context = _build_task_context(spec, task_results, variables)
-
-        # Execute tasks in this layer (potentially in parallel)
-        # Build tasks to execute with context captured
-        tasks_to_execute = []
-        for task_id in layer_task_ids:
-            tasks_to_execute.append((task_id, task_map[task_id], dict(task_context)))
-
-        async def _execute_layer(
-            tasks_with_context: list[tuple[str, Any, dict[str, Any]]],
-        ) -> list[tuple[str, int]]:
-            # Create semaphore for max_parallel if configured
-            semaphore = asyncio.Semaphore(max_parallel) if max_parallel else None
-
-            async def _execute_with_semaphore(
-                task_id: str, task_obj: Any, context: dict[str, Any]
-            ) -> tuple[str, int]:
-                if semaphore:
-                    async with semaphore:
-                        return await _execute_task(
-                            spec,
-                            task_obj,
-                            context,
-                            max_attempts,
-                            wait_min,
-                            wait_max,
-                        )
-                else:
-                    return await _execute_task(
-                        spec,
-                        task_obj,
-                        context,
-                        max_attempts,
-                        wait_min,
-                        wait_max,
-                    )
-
-            # Execute all tasks in layer (parallel where possible)
-            results = await asyncio.gather(
-                *[_execute_with_semaphore(tid, tobj, ctx) for tid, tobj, ctx in tasks_with_context],
-                return_exceptions=False,  # Fail-fast on first error
-            )
-            return results
-
-        # Run layer execution
+        # Execute all tasks in this layer
         try:
-            layer_results = asyncio.run(_execute_layer(tasks_to_execute))
+            layer_results = asyncio.run(
+                _execute_workflow_layer(
+                    spec,
+                    layer_task_ids,
+                    task_map,
+                    task_results,
+                    variables,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                )
+            )
         except Exception as e:
             raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e
 
@@ -433,7 +404,7 @@ def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResu
 
             # Check budget
             if max_tokens:
-                _check_budget_warning(cumulative_tokens, max_tokens, task_id)
+                check_budget_threshold(cumulative_tokens, max_tokens, task_id)
 
             # Store result with agent ID for tracking
             task_results[task_id] = {

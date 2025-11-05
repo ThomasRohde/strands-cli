@@ -41,5 +41,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/risk-analysis-bedrock.md
+    - path: ./risk-analysis-bedrock.md
       from: "{{ last_response }}"
