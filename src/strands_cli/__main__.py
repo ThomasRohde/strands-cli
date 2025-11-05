@@ -34,6 +34,7 @@ from strands_cli.capability import check_capability, generate_markdown_report
 from strands_cli.exec.chain import ChainExecutionError, run_chain
 
 # Import executors
+from strands_cli.exec.parallel import ParallelExecutionError, run_parallel
 from strands_cli.exec.routing import RoutingExecutionError, run_routing
 from strands_cli.exec.single_agent import ExecutionError as SingleAgentExecutionError
 from strands_cli.exec.single_agent import run_single_agent
@@ -189,8 +190,11 @@ def run(
             elif spec.pattern.type == PatternType.ROUTING:
                 # Routing pattern - use routing executor
                 result = run_routing(spec, variables)
+            elif spec.pattern.type == PatternType.PARALLEL:
+                # Parallel pattern - use parallel executor
+                result = run_parallel(spec, variables)
             else:
-                # Other patterns (parallel, etc.) - not yet supported
+                # Other patterns (orchestrator, etc.) - not yet supported
                 console.print(
                     f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet"
                 )
@@ -198,6 +202,18 @@ def run(
 
         except ExecutionError as e:
             console.print(f"\n[red]Execution failed:[/red] {e}")
+            if verbose:
+                console.print_exception()
+            sys.exit(EX_RUNTIME)
+        except (
+            ChainExecutionError,
+            WorkflowExecutionError,
+            RoutingExecutionError,
+            ParallelExecutionError,
+        ) as e:
+            console.print(f"\n[red]Execution failed:[/red] {e}")
+            if verbose:
+                console.print_exception()
             sys.exit(EX_RUNTIME)
 
         if not result.success:
@@ -514,7 +530,7 @@ def doctor() -> None:
         f"{pysys.version_info.major}.{pysys.version_info.minor}.{pysys.version_info.micro}"
     )
 
-    if pysys.version_info >= (3, 12):
+    if pysys.version_info >= (3, 12):  # noqa: UP036
         console.print(f"  [green]✓[/green] Python {python_version} (>= 3.12 required)")
         checks_passed += 1
     else:

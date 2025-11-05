@@ -4,9 +4,9 @@ Analyzes validated workflow specs to determine if they can be executed
 with current capabilities. Gracefully rejects unsupported features with
 structured error reports rather than silently ignoring them.
 
-Supported Features (Phase 2):
-    - Multiple agents (for routing pattern)
-    - Pattern: chain (multi-step), workflow (multi-task with DAG), OR routing
+Supported Features (Phase 3):
+    - Multiple agents (for routing and parallel patterns)
+    - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, OR parallel
     - Providers: bedrock, ollama, openai
     - Python tools: strands_tools.http_request, strands_tools.file_read
     - HTTP executors: full support
@@ -14,7 +14,7 @@ Supported Features (Phase 2):
     - Skills: metadata injection (no code execution)
 
 Unsupported (with remediation):
-    - Patterns: parallel, orchestrator_workers, evaluator_optimizer, graph
+    - Patterns: orchestrator_workers, evaluator_optimizer, graph
     - MCP tools
     - Non-env secret sources
     - Non-allowlisted Python callables
@@ -172,13 +172,18 @@ def check_capability(spec: Spec) -> CapabilityReport:
                 )
             )
 
-    # Check 5: Pattern type must be chain, workflow, or routing
-    if spec.pattern.type not in {PatternType.CHAIN, PatternType.WORKFLOW, PatternType.ROUTING}:
+    # Check 5: Pattern type must be chain, workflow, routing, or parallel
+    if spec.pattern.type not in {
+        PatternType.CHAIN,
+        PatternType.WORKFLOW,
+        PatternType.ROUTING,
+        PatternType.PARALLEL,
+    }:
         issues.append(
             CapabilityIssue(
                 pointer="/pattern/type",
                 reason=f"Pattern type '{spec.pattern.type}' not supported yet",
-                remediation="Use 'chain', 'workflow', or 'routing'",
+                remediation="Use 'chain', 'workflow', 'routing', or 'parallel'",
             )
         )
 
@@ -281,6 +286,61 @@ def check_capability(spec: Spec) -> CapabilityReport:
                                     remediation=f"Define agent '{step.agent}' in agents section",
                                 )
                             )
+
+    # Check 7c: Parallel pattern validations
+    if spec.pattern.type == PatternType.PARALLEL:
+        if not spec.pattern.config.branches or len(spec.pattern.config.branches) < 2:
+            issues.append(
+                CapabilityIssue(
+                    pointer="/pattern/config/branches",
+                    reason="Parallel pattern requires at least 2 branches",
+                    remediation="Add at least 2 branches to pattern.config.branches",
+                )
+            )
+        else:
+            # Validate unique branch IDs
+            branch_ids: set[str] = set()
+            for i, branch in enumerate(spec.pattern.config.branches):
+                if branch.id in branch_ids:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer=f"/pattern/config/branches/{i}/id",
+                            reason=f"Duplicate branch ID '{branch.id}'",
+                            remediation="Branch IDs must be unique",
+                        )
+                    )
+                branch_ids.add(branch.id)
+
+                # Validate branch has at least one step
+                if not branch.steps or len(branch.steps) == 0:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer=f"/pattern/config/branches/{i}/steps",
+                            reason=f"Branch '{branch.id}' has no steps",
+                            remediation="Add at least one step to the branch",
+                        )
+                    )
+                else:
+                    # Validate all step agents exist
+                    for j, step in enumerate(branch.steps):
+                        if step.agent not in spec.agents:
+                            issues.append(
+                                CapabilityIssue(
+                                    pointer=f"/pattern/config/branches/{i}/steps/{j}/agent",
+                                    reason=f"Branch '{branch.id}' step {j} references unknown agent '{step.agent}'",
+                                    remediation=f"Define agent '{step.agent}' in agents section",
+                                )
+                            )
+
+        # Validate reduce step agent if present
+        if spec.pattern.config.reduce and spec.pattern.config.reduce.agent not in spec.agents:
+            issues.append(
+                CapabilityIssue(
+                    pointer="/pattern/config/reduce/agent",
+                    reason=f"Reduce step references unknown agent '{spec.pattern.config.reduce.agent}'",
+                    remediation=f"Define agent '{spec.pattern.config.reduce.agent}' in agents section",
+                )
+            )
 
     # Check 7a: Validate tool_overrides in chain steps reference defined tools
     if spec.pattern.type == PatternType.CHAIN and spec.pattern.config.steps:

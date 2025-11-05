@@ -1,0 +1,45 @@
+version: 0
+name: parallel-simple-2-branches
+description: Simple parallel execution with 2 concurrent research branches
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 5000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant. Provide concise, factual information 
+      about the requested topic.
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: technical_analysis
+        steps:
+          - agent: researcher
+            input: "Analyze the technical aspects of {{ topic }}"
+      
+      - id: business_impact
+        steps:
+          - agent: researcher
+            input: "Analyze the business impact of {{ topic }}"
+
+inputs:
+  values:
+    topic: "artificial intelligence in healthcare"
+
+outputs:
+  artifacts:
+    - path: ./parallel-simple-result.md
+      from: |
+        # Parallel Research Results: {{ topic }}
+        
+        ## Technical Analysis
+        {{ branches.technical_analysis.response }}
+        
+        ## Business Impact
+        {{ branches.business_impact.response }}

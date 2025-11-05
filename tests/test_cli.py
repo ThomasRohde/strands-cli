@@ -119,9 +119,9 @@ class TestPlanCommand:
         assert '"runtime"' in result.stdout
         assert '"provider"' in result.stdout
 
-    def test_plan_unsupported_spec_shows_issues(self, parallel_pattern_spec: Path) -> None:
+    def test_plan_unsupported_spec_shows_issues(self, mcp_tools_spec: Path) -> None:
         """Test plan command shows unsupported features."""
-        result = runner.invoke(app, ["plan", str(parallel_pattern_spec)])
+        result = runner.invoke(app, ["plan", str(mcp_tools_spec)])
 
         assert result.exit_code == EX_OK
         assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
@@ -144,9 +144,9 @@ class TestExplainCommand:
         assert result.exit_code == EX_OK
         assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
 
-    def test_explain_unsupported_spec_shows_remediation(self, parallel_pattern_spec: Path) -> None:
+    def test_explain_unsupported_spec_shows_remediation(self, mcp_tools_spec: Path) -> None:
         """Test explain command shows remediation for unsupported features."""
-        result = runner.invoke(app, ["explain", str(parallel_pattern_spec)])
+        result = runner.invoke(app, ["explain", str(mcp_tools_spec)])
 
         assert result.exit_code == EX_OK
         assert "Unsupported Features" in result.stdout
@@ -295,7 +295,7 @@ class TestRunCommand:
 
     def test_run_unsupported_spec_returns_unsupported(
         self,
-        parallel_pattern_spec: Path,
+        mcp_tools_spec: Path,
         temp_artifacts_dir: Path,
     ) -> None:
         """Test run command with unsupported spec returns EX_UNSUPPORTED."""
@@ -303,7 +303,7 @@ class TestRunCommand:
             app,
             [
                 "run",
-                str(parallel_pattern_spec),
+                str(mcp_tools_spec),
                 "--out",
                 str(temp_artifacts_dir),
             ],

@@ -1,0 +1,60 @@
+version: 0
+name: parallel-with-reduce
+description: Parallel execution with reduce step for aggregation
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 8000
+
+agents:
+  researcher:
+    prompt: |
+      You are a domain expert. Provide detailed, well-researched information 
+      about the requested topic.
+  
+  synthesizer:
+    prompt: |
+      You are a synthesis expert. Given multiple research perspectives, 
+      create a cohesive, integrated analysis that highlights key insights, 
+      commonalities, and unique contributions from each source.
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: academic_perspective
+        steps:
+          - agent: researcher
+            input: "Research {{ topic }} from an academic/scientific perspective"
+      
+      - id: industry_perspective
+        steps:
+          - agent: researcher
+            input: "Research {{ topic }} from an industry/practical perspective"
+      
+      - id: regulatory_perspective
+        steps:
+          - agent: researcher
+            input: "Research {{ topic }} from a regulatory/compliance perspective"
+    
+    reduce:
+      agent: synthesizer
+      input: |
+        Synthesize these three research perspectives on {{ topic }}:
+        
+        Academic: {{ branches.academic_perspective.response }}
+        
+        Industry: {{ branches.industry_perspective.response }}
+        
+        Regulatory: {{ branches.regulatory_perspective.response }}
+
+inputs:
+  values:
+    topic: "blockchain technology in financial services"
+
+outputs:
+  artifacts:
+    - path: ./parallel-synthesis.md
+      from: "{{ last_response }}"

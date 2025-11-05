@@ -229,6 +229,18 @@ class RoutingConfig(BaseModel):
     routes: dict[str, Route]  # route_name -> Route definition
 
 
+class ParallelBranch(BaseModel):
+    """Single branch in a parallel pattern.
+
+    Attributes:
+        id: Unique branch identifier
+        steps: Chain of steps to execute in this branch
+    """
+
+    id: str  # Unique branch identifier (required)
+    steps: list[ChainStep]  # Steps to execute sequentially (min 1)
+
+
 class PatternConfig(BaseModel):
     """Pattern-specific configuration."""
 
@@ -236,7 +248,8 @@ class PatternConfig(BaseModel):
     tasks: list[WorkflowTask] | None = None  # For workflow
     router: RouterConfig | None = None  # For routing
     routes: dict[str, Route] | None = None  # For routing
-    # Future: parallel config, graph DAG, etc.
+    branches: list[ParallelBranch] | None = None  # For parallel
+    reduce: ChainStep | None = None  # For parallel reduce step
 
 
 class Pattern(BaseModel):

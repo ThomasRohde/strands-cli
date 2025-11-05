@@ -110,9 +110,9 @@ def malformed_spec(invalid_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
-def parallel_pattern_spec(unsupported_fixtures_dir: Path) -> Path:
-    """Path to parallel pattern spec (unsupported - Phase 3)."""
-    return unsupported_fixtures_dir / "parallel-pattern.yaml"
+def parallel_pattern_spec(valid_fixtures_dir: Path) -> Path:
+    """Path to parallel pattern spec (now supported - Phase 3)."""
+    return valid_fixtures_dir / "parallel-pattern.yaml"
 
 
 @pytest.fixture

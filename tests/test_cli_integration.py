@@ -294,31 +294,32 @@ class TestCLIExplainCommand:
 
     def test_explain_unsupported_features(self, cli_runner: CliRunner, tmp_path: Path):
         """Test explain command for unsupported features."""
-        # Use a spec with parallel pattern (valid schema, unsupported - Phase 3)
+        # Use a spec with MCP tools (valid schema, unsupported)
         unsupported_spec = tmp_path / "unsupported.yaml"
         unsupported_spec.write_text(
             """
 version: 0
-name: unsupported-parallel
+name: unsupported-mcp-tools
 runtime:
   provider: ollama
   model_id: gpt
   host: http://localhost:11434
+tools:
+  mcp:
+    - id: filesystem
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 agents:
   worker:
     prompt: "Worker agent"
+    tools:
+      - filesystem
 pattern:
-  type: parallel
+  type: chain
   config:
-    branches:
-      - id: branch1
-        steps:
-          - agent: worker
-            input: "Task 1"
-      - id: branch2
-        steps:
-          - agent: worker
-            input: "Task 2"
+    steps:
+      - agent: worker
+        input: "Use MCP tools"
 outputs:
   artifacts:
     - path: "./out.txt"
@@ -332,7 +333,7 @@ outputs:
         assert result.exit_code == 0  # explain shows issues but doesn't fail
         # Check that output mentions unsupported features
         assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
-        assert "parallel" in result.stdout.lower()
+        assert "mcp" in result.stdout.lower()
 
     def test_explain_supported_spec(self, cli_runner: CliRunner, multi_step_chain_yaml: Path):
         """Test explain command for supported spec."""

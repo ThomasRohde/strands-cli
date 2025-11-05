@@ -2,16 +2,17 @@
 
 Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
 
-**Current Version**: v0.3.0 | 268 tests passing | 88% coverage
+**Current Version**: v0.4.0 | 287 tests passing | 83% coverage
 
 ## Features
 
-### Core Capabilities (v0.3.0)
-- ✅ **Multi-agent workflows** - Support for multiple agents in chain, workflow, and routing patterns
+### Core Capabilities (v0.4.0)
+- ✅ **Parallel execution pattern** - Concurrent branch execution with optional reduce step for aggregation
+- ✅ **Multi-agent workflows** - Support for multiple agents in chain, workflow, routing, and parallel patterns
 - ✅ **Routing pattern** - Dynamic agent selection based on input classification with JSON-based routing
 - ✅ **Multi-step chain workflows** - Sequential execution with context threading across steps
 - ✅ **Multi-task DAG workflows** - Parallel execution with dependency resolution
-- ✅ **Template-based context** - Access prior step/task outputs via `{{ steps[n].response }}` and `{{ tasks.<id>.response }}`
+- ✅ **Template-based context** - Access prior step/task/branch outputs via `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`
 - ✅ **AWS Bedrock, Ollama, and OpenAI** provider support with comprehensive authentication
 - ✅ **Schema validation** using JSON Schema Draft 2020-12 with JSONPointer error reporting
 - ✅ **Capability checking** with graceful degradation (exit code 18)
@@ -21,13 +22,13 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ✅ **Artifact output** with overwrite protection (`--force` to override)
 - ✅ **Skills metadata** injection (no code execution)
 - ✅ **Environment secrets** (`source: env`)
-- ✅ **Budget enforcement** - Token and time limits
-- ✅ **Exponential backoff** retry logic per step/task
+- ✅ **Budget enforcement** - Token and time limits with cumulative tracking
+- ✅ **Concurrency control** - Semaphore-based limits via `runtime.max_parallel`
+- ✅ **Exponential backoff** retry logic per step/task/branch
 - ✅ **Rich CLI interface** with progress indicators
 - ✅ **OpenTelemetry scaffolding** (no-op in current version, ready for future)
 
 ### Future Roadmap
-- 🚧 Parallel pattern with branch execution
 - 🚧 Orchestrator-workers pattern
 - 🚧 Evaluator-optimizer pattern
 - 🚧 Graph pattern with conditional logic
@@ -360,21 +361,30 @@ Environment variables (prefix: `STRANDS_`):
 - `STRANDS_VERBOSE`: Enable verbose logging
 - `STRANDS_CONFIG_DIR`: Config directory (uses `platformdirs` by default)
 
-## Supported Workflow Features (MVP)
+## Supported Workflow Features
 
 | Feature | Support | Notes |
 |---------|---------|-------|
-| **Agents** | Exactly 1 | Multi-agent → exit 18 |
-| **Patterns** | `chain` (1 step) OR `workflow` (1 task) | Multi-step/task → exit 18 |
-| **Providers** | `bedrock`, `ollama`, `openai` | |
+| **Agents** | Multiple agents | Single or multi-agent workflows |
+| **Patterns** | `chain`, `workflow`, `routing`, `parallel` | Multi-step/task/branch supported |
+| **Providers** | `bedrock`, `ollama`, `openai` | Full authentication support |
 | **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read` |
 | **HTTP Executors** | ✅ Full support | Timeout, retries, headers |
 | **Secrets** | `source: env` only | Secrets Manager/SSM → future |
 | **Skills** | Metadata injection | Code execution → future |
-| **Budgets** | Logged (no enforcement) | Enforcement → future |
+| **Budgets** | ✅ Enforced | Cumulative token tracking with warnings/hard limits |
+| **Concurrency** | ✅ Semaphore control | Via `runtime.max_parallel` |
 | **Retries** | ✅ Exponential backoff | Configurable via `failure_policy` |
-| **Artifacts** | `{{ last_response }}` template | |
-| **OTEL** | Parsed (no-op) | Tracing activation → future |
+| **Artifacts** | Template support | `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}` |
+| **OTEL** | Parsed (scaffolding) | Full tracing activation → future |
+
+### Unsupported Patterns (exit code 18)
+- Orchestrator-workers pattern
+- Evaluator-optimizer pattern  
+- Graph pattern with conditional logic
+- MCP tools (`tools.mcp`)
+- Guardrails enforcement
+- Context policy execution
 
 For unsupported features, the CLI exits with code 18 and generates a detailed remediation report.
 

@@ -1,0 +1,83 @@
+version: 0
+name: parallel-multi-step-branches
+description: Parallel execution with multi-step branches for complex workflows
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 10000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research specialist. Gather comprehensive information 
+      on the requested topic.
+  
+  analyzer:
+    prompt: |
+      You are a data analyst. Extract key insights and patterns from 
+      the provided research.
+  
+  validator:
+    prompt: |
+      You are a fact-checker. Verify the accuracy and consistency of 
+      the provided analysis.
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: market_analysis
+        steps:
+          - agent: researcher
+            input: "Research current market trends for {{ topic }}"
+          
+          - agent: analyzer
+            input: "Analyze this market research: {{ last_response }}"
+          
+          - agent: validator
+            input: "Validate this market analysis: {{ last_response }}"
+      
+      - id: competitor_analysis
+        steps:
+          - agent: researcher
+            input: "Research key competitors in {{ topic }}"
+          
+          - agent: analyzer
+            input: "Analyze competitor landscape: {{ last_response }}"
+          
+          - agent: validator
+            input: "Validate competitor analysis: {{ last_response }}"
+      
+      - id: technology_analysis
+        steps:
+          - agent: researcher
+            input: "Research technology stack and capabilities for {{ topic }}"
+          
+          - agent: analyzer
+            input: "Analyze technical capabilities: {{ last_response }}"
+          
+          - agent: validator
+            input: "Validate technology analysis: {{ last_response }}"
+
+inputs:
+  values:
+    topic: "cloud-native application platforms"
+
+outputs:
+  artifacts:
+    - path: ./parallel-multi-step-market.md
+      from: |
+        # Market Analysis
+        {{ branches.market_analysis.response }}
+    
+    - path: ./parallel-multi-step-competitor.md
+      from: |
+        # Competitor Analysis
+        {{ branches.competitor_analysis.response }}
+    
+    - path: ./parallel-multi-step-technology.md
+      from: |
+        # Technology Analysis
+        {{ branches.technology_analysis.response }}

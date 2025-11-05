@@ -163,24 +163,18 @@ class TestBedrockE2E:
 class TestUnsupportedFeaturesE2E:
     """End-to-end tests for unsupported feature detection and reporting."""
 
-    def test_parallel_pattern_rejected(
+    def test_parallel_pattern_supported(
         self,
         parallel_pattern_spec: Path,
     ) -> None:
-        """Test parallel pattern spec fails capability check with proper report."""
+        """Test parallel pattern spec passes capability check in Phase 3."""
         # Load spec (should pass schema validation)
         spec = load_spec(str(parallel_pattern_spec))
 
-        # Check capability (should fail - parallel pattern unsupported in Phase 2)
+        # Check capability (should pass - parallel pattern supported in Phase 3)
         capability_report = check_capability(spec)
-        assert not capability_report.supported
-        assert len(capability_report.issues) > 0
-
-        # Verify issue details
-        issue = capability_report.issues[0]
-        assert "parallel" in issue.reason.lower()
-        assert issue.pointer is not None
-        assert issue.remediation is not None
+        assert capability_report.supported
+        assert len(capability_report.issues) == 0
 
     def test_multi_step_chain_supported(
         self,

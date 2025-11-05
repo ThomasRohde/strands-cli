@@ -161,11 +161,17 @@ def create_openai_model(runtime: Runtime) -> OpenAIModel:
 
     # Create Strands OpenAI model
     try:
-        model = OpenAIModel(
-            client_args=client_args,
-            model_id=model_id,
-            params=params if params else None,
-        )
+        if params:
+            model = OpenAIModel(
+                client_args=client_args,
+                model_id=model_id,
+                params=params,
+            )
+        else:
+            model = OpenAIModel(
+                client_args=client_args,
+                model_id=model_id,
+            )
     except Exception as e:
         raise ProviderError(f"Failed to create OpenAIModel: {e}") from e
 

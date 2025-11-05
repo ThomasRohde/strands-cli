@@ -79,14 +79,13 @@ class TestCapabilityChecker:
         assert report.supported is True
         assert len(report.issues) == 0
 
-    def test_parallel_pattern_unsupported(self, parallel_pattern_spec: Path) -> None:
-        """Test that parallel pattern is unsupported (Phase 3)."""
+    def test_parallel_pattern_supported(self, parallel_pattern_spec: Path) -> None:
+        """Test that parallel pattern is now supported (Phase 3)."""
         spec = load_spec(parallel_pattern_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
-        assert len(report.issues) > 0
-        assert any("parallel" in issue.reason.lower() for issue in report.issues)
+        assert report.supported is True
+        assert len(report.issues) == 0
 
     def test_mcp_tools_unsupported(self, mcp_tools_spec: Path) -> None:
         """Test that MCP tools are rejected."""
@@ -391,13 +390,13 @@ outputs:
         spec = load_spec(parallel_pattern_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
-        assert report.normalized is None
+        assert report.supported is True
+        assert report.normalized is not None
 
-    def test_jsonpointer_accuracy(self, parallel_pattern_spec: Path) -> None:
+    def test_jsonpointer_accuracy(self, mcp_tools_spec: Path) -> None:
         """Test that JSONPointer paths are accurate."""
-        # Use parallel pattern spec since it's unsupported (Phase 3)
-        spec = load_spec(parallel_pattern_spec)
+        # Use MCP tools spec since it's unsupported
+        spec = load_spec(mcp_tools_spec)
         report = check_capability(spec)
 
         # All issues should have valid JSONPointer format
@@ -405,9 +404,9 @@ outputs:
             assert issue.pointer.startswith("/")
             assert "pointer" in issue.model_dump()
 
-    def test_remediation_provided(self, parallel_pattern_spec: Path) -> None:
+    def test_remediation_provided(self, mcp_tools_spec: Path) -> None:
         """Test that all issues include remediation guidance."""
-        spec = load_spec(parallel_pattern_spec)
+        spec = load_spec(mcp_tools_spec)
         report = check_capability(spec)
 
         for issue in report.issues:

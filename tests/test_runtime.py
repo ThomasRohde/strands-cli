@@ -180,11 +180,10 @@ class TestOpenAIModelCreation:
 
         result = create_openai_model(runtime)
 
-        # Verify OpenAIModel created with correct params
+        # Verify OpenAIModel created with correct params (no params passed when empty)
         mock_openai_model_cls.assert_called_once_with(
             client_args={"api_key": "sk-test-key-12345"},
             model_id="gpt-4o-mini",
-            params=None,
         )
 
         assert result == mock_model
@@ -267,9 +266,9 @@ class TestOpenAIModelCreation:
 
         create_openai_model(runtime)
 
-        # Verify params is None
+        # Verify params is not passed when empty
         call_kwargs = mock_openai_model_cls.call_args[1]
-        assert call_kwargs["params"] is None
+        assert "params" not in call_kwargs
 
     def test_raises_error_on_openai_model_failure(self, mocker, monkeypatch):
         """Should raise ProviderError when OpenAIModel init fails."""

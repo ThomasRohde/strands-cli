@@ -7,15 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-11-05
+
+### Added - Parallel Execution Pattern
+
+#### Parallel Pattern
+- **Concurrent branch execution** - Execute multiple workflow branches in parallel
+  - Asyncio-based concurrent execution with `asyncio.gather`
+  - Fail-fast semantics: any branch failure cancels all branches
+  - Alphabetical ordering of branch results for deterministic reduce context
+  - Multi-step support within each branch with context threading
+  - Access branch outputs via `{{ branches.<id>.response }}`
+
+#### Concurrency Control
+- **Semaphore-based limiting** - Respect `runtime.max_parallel` for resource control
+  - Semaphore prevents exceeding max concurrent branches
+  - Defaults to 10 concurrent branches if not specified
+  - Branch execution retries with exponential backoff
+
+#### Reduce Step
+- **Output aggregation** - Optional reduce step synthesizes all branch outputs
+  - Reduce agent receives alphabetically sorted branch results
+  - Template access: `{{ branches.branch_a.response }}`, `{{ branches.branch_b.response }}`
+  - Cumulative token budget tracking includes reduce step
+  - Reduce step has same retry logic as branch steps
+
+#### Budget Tracking
+- **Cumulative token counting** - Track tokens across all branches and reduce
+  - Warn at 80% of `budgets.max_tokens`
+  - Fail at 100% with `ParallelExecutionError`
+  - Per-step token tracking within each branch
+  - Total tokens reported in `RunResult`
+
+#### Examples
+- **parallel-simple-2-branches.yaml** - Basic concurrent research with 2 branches
+- **parallel-with-reduce.yaml** - Multi-perspective research with synthesis
+- **parallel-multi-step-branches.yaml** - Complex workflows with 3-step branches
+
+### Changed
+- **Capability checker** - Parallel pattern now supported (was unsupported in v0.3.0)
+  - Validates ≥2 branches required
+  - Validates unique branch IDs
+  - Validates all branch agents exist in `agents` map
+  - Validates reduce agent exists if reduce step present
+- **CLI dispatch** - Added parallel pattern routing in `run` command
+- **Test fixtures** - Moved `parallel-pattern.yaml` from unsupported to valid fixtures
+
 ### Fixed
 - **Artifact template variables** - User variables from `--var` flags now available in artifact paths and content
   - Artifact paths support templates: `./artifacts/{{topic}}-report.md`
   - Artifact content can access `{{topic}}` and other `--var` variables
-  - Execution context (`steps`, `tasks`) available in artifact templates
+  - Execution context (`steps`, `tasks`, `branches`) available in artifact templates
   - Added `execution_context` parameter to `write_artifacts()`
   - Updated `RunResult` to include `execution_context` field
 
-## [0.2.0] - 2025-11-04
+### Testing
+- **287 tests passing** - Added 16 parallel-specific tests
+- **83% coverage** - Parallel module at 85%, overall coverage dropped 5% due to 152 new lines
+- **All mypy checks passing** - Strict type safety maintained
+
+## [0.3.0] - 2025-11-05
+
+### Added - Routing & Multi-Agent Support
 
 ### Added - Multi-Step Workflows
 
