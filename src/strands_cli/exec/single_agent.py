@@ -183,11 +183,11 @@ def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> Run
         )
         async def _execute_agent() -> AgentResult:
             """Execute agent with retry logic."""
-            from strands_cli.utils import suppress_stdout
+            from strands_cli.utils import capture_and_display_stdout
 
             with tracer.start_span("agent_invoke"):
                 # Invoke the agent asynchronously
-                with suppress_stdout():
+                with capture_and_display_stdout():
                     response = await agent.invoke_async(task_input)
                 return response
 

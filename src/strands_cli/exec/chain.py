@@ -244,9 +244,9 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
 
         # Execute with retry logic
         async def _execute_step(agent_instance: Any, input_text: str) -> Any:
-            from strands_cli.utils import suppress_stdout
+            from strands_cli.utils import capture_and_display_stdout
 
-            with suppress_stdout():
+            with capture_and_display_stdout():
                 return await agent_instance.invoke_async(input_text)
 
         retry_decorator = retry(

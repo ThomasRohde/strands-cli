@@ -157,9 +157,9 @@ async def _execute_router_with_retry(
 
         try:
             # Execute router agent
-            from strands_cli.utils import suppress_stdout
+            from strands_cli.utils import capture_and_display_stdout
 
-            with suppress_stdout():
+            with capture_and_display_stdout():
                 result = await agent.invoke_async(router_task)
             response = result if isinstance(result, str) else str(result)
 

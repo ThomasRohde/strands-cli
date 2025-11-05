@@ -4,25 +4,50 @@ Provides common utilities used across the codebase.
 """
 
 import io
+import sys
 from collections.abc import Generator
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager
+
+from rich.console import Console
 
 
 @contextmanager
-def suppress_stdout() -> Generator[None, None, None]:
-    """Context manager to suppress stdout during execution.
+def capture_and_display_stdout(prefix: str = "") -> Generator[None, None, None]:
+    """Context manager to capture stdout and display it with Rich formatting.
 
-    Redirects stdout to StringIO to prevent unwanted console output
-    from third-party libraries (e.g., Strands SDK agent responses).
-    Uses contextlib.redirect_stdout for proper async compatibility.
+    Captures stdout (e.g., LLM streaming responses) and displays it using Rich
+    with optional dimmed formatting to distinguish from structured logs.
+    This preserves the visual progress feedback while keeping output clean.
+
+    Args:
+        prefix: Optional prefix to add before captured output (e.g., agent name)
 
     Example:
-        with suppress_stdout():
+        with capture_and_display_stdout(prefix="[Agent] "):
             response = await agent.invoke_async(prompt)
-            # Agent's stdout is suppressed; only structured logs appear
+            # Streaming output appears with prefix/formatting
 
     Yields:
         None
     """
-    with redirect_stdout(io.StringIO()):
+    console = Console()
+    captured = io.StringIO()
+    original_stdout = sys.stdout
+
+    try:
+        # Redirect stdout to our StringIO buffer
+        sys.stdout = captured
         yield
+    finally:
+        # Restore original stdout
+        sys.stdout = original_stdout
+
+        # Get captured content
+        content = captured.getvalue()
+
+        # Display captured content with Rich formatting if non-empty
+        if content.strip():
+            # Display with dimmed style to distinguish from logs
+            console.print(f"[dim]{prefix}{content.rstrip()}[/dim]")
+
+        captured.close()

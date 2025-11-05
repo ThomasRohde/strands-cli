@@ -1,5 +1,0 @@
-- **Non-blocking I/O is the core advantage** – async code frees the thread while waiting for external resources, improving throughput and reducing CPU idle time.  
-- **Event loop is the scheduler** – the single thread that dispatches ready callbacks, making concurrency deterministic but also limiting parallel CPU-bound work unless offloaded to workers.  
-- **Callback hell is mitigated by promises/async-await** – these abstractions linearize asynchronous logic, lowering cognitive load and making error handling more explicit.  
-- **Backpressure must be managed** – naive async pipelines can overwhelm producers; techniques like buffering, throttling, or reactive streams are essential for stable throughput.  
-- **Debugging complexity increases** – stack traces span multiple event-loop ticks, so structured logging and tools that unwind async chains are vital for maintainability.

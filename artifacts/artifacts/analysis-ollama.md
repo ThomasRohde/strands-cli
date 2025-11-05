@@ -1,5 +1,0 @@
-- **Alignment is critical** – without aligning AI objectives with human values, systems risk pursuing unintended or harmful outcomes.  
-- **Robustness to uncertainty is essential** – building models that withstand adversarial attacks and distribution shifts protects against unpredictable failures.  
-- **Transparency underpins trust** – interpretable architectures enable users to verify decisions and identify latent biases.  
-- **Governance structures are necessary** – regulatory frameworks and international coordination mitigate systemic risks from widespread AI deployment.  
-- **Continuous monitoring sustains safety** – real‑time oversight and adaptive safeguards catch anomalies before they cause damage.
