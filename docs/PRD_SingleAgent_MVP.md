@@ -15,7 +15,7 @@ Initial scope is **Single Agent MVP**; however, the CLI must:
 - **Detect unsupported features** and **stop with a clear plan + remediation tips** (no silent partial behavior).
 - Provide **stable internal interfaces** so we can later enable multi‑agent patterns (chain, routing, parallel, orchestrator‑workers, evaluator‑optimizer, graph, workflow) with minimal refactoring.
 
-**Schema Ground Truth:** All validation, capability checks, and feature support are defined by [`strands-workflow.schema.json`](strands-workflow.schema.json) (JSON Schema Draft 2020-12). This schema is the canonical specification for the workflow format.
+**Schema Ground Truth:** All validation, capability checks, and feature support are defined by [`strands-workflow.schema.json`](../src/strands_cli/schema/strands-workflow.schema.json) (JSON Schema Draft 2020-12). This schema is the canonical specification for the workflow format.
 
 ### Success criteria (MVP)
 - ✅ CLI runs a valid **single‑agent** workflow end‑to‑end (Bedrock/Claude default).  
@@ -133,7 +133,7 @@ strands-cli version
 ```
 
 ### 5.1 Modules
-- `schema/`: embed [`strands-workflow.schema.json`](strands-workflow.schema.json) (compile with `fastjsonschema`).  
+- `schema/`: embed [`strands-workflow.schema.json`](../src/strands_cli/schema/strands-workflow.schema.json) (compile with `fastjsonschema`).  
 - `loader/`: read YAML/JSON, resolve `--var` into `inputs`, produce a typed `Spec`.  
 - `capability/`: validate **MVP compatibility**; produce a `CapabilityReport` (used by `plan` and `explain`).  
 - `runtime/strands_adapter.py`: map `Spec` → Strands `Agent` (+ tools).  
@@ -158,7 +158,7 @@ strands-cli version
 ## 6) Detailed Behaviors
 
 ### 6.1 Schema Compatibility Matrix (v0)
-*Based on [`strands-workflow.schema.json`](strands-workflow.schema.json)*
+*Based on [`strands-workflow.schema.json`](../src/strands_cli/schema/strands-workflow.schema.json)*
 
 | Section                 | MVP Behavior                                                                           |
 |-------------------------|-----------------------------------------------------------------------------------------|
@@ -279,7 +279,7 @@ def run_single_agent(spec: Spec, vars: dict) -> RunResult:
 
 - `strands-cli/` Python package (Typer), `uv` project.  
 - Modules as defined in §5.1.  
-- Embedded [`strands-workflow.schema.json`](strands-workflow.schema.json) — **JSON Schema Draft 2020-12** — the single source of truth for workflow spec validation.  
+- Embedded [`strands-workflow.schema.json`](../src/strands_cli/schema/strands-workflow.schema.json) — **JSON Schema Draft 2020-12** — the single source of truth for workflow spec validation.  
 - Example specs:
   - `examples/single-agent-chain.yaml` (1 step)  
   - `examples/single-agent-workflow.yaml` (1 task)

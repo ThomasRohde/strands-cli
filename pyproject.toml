@@ -87,15 +87,12 @@ packages = ["src/strands_cli"]
 include = [
   "src/strands_cli",
   "README.md",
-  "LICENSE",
-  "docs/strands-workflow.schema.json"
+  "LICENSE"
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/strands_cli"]
-include = [
-  "docs/strands-workflow.schema.json"
-]
+# Schema is now embedded in src/strands_cli/schema/ (auto-included)
 
 # ---- uv configuration ----
 # Dev/test/docs groups and settings for uv users.

@@ -67,7 +67,7 @@ This phased plan extends the strands-cli from its current state (multi-step work
 - **Exit code discipline**: Continue using EX_UNSUPPORTED (18) until feature is complete
 
 **Key Reference Documents:**
-- **`docs/strands-workflow.schema.json`** - JSON Schema Draft 2020-12 (source of truth for validation)
+- **`src/strands_cli/schema/strands-workflow.schema.json`** - JSON Schema Draft 2020-12 (source of truth for validation)
 - **`docs/strands-workflow-manual.md`** - Comprehensive manual with examples for all 7 patterns
 - **`docs/PRD_SingleAgent_MVP.md`** - MVP requirements and scope boundaries
 - **`docs/stack.md`** - Technology stack and dependency rationale

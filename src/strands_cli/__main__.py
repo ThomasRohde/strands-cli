@@ -482,7 +482,7 @@ def list_supported() -> None:
     console.print(table)
 
     console.print("\n[dim]For the full schema and roadmap, see:[/dim]")
-    console.print("[dim]  docs/strands-workflow.schema.json[/dim]")
+    console.print("[dim]  src/strands_cli/schema/strands-workflow.schema.json[/dim]")
     console.print("[dim]  PLAN.md - Multi-agent roadmap[/dim]")
 
     sys.exit(EX_OK)
@@ -523,15 +523,17 @@ def doctor() -> None:
 
     # Check 2: Schema file exists
     console.print("\n[cyan]→[/cyan] Checking schema file...")
-    from pathlib import Path
+    try:
+        from strands_cli.schema.validator import get_schema
 
-    schema_path = Path(__file__).parent.parent.parent / "docs" / "strands-workflow.schema.json"
-
-    if schema_path.exists():
-        console.print(f"  [green]✓[/green] Schema file found: {schema_path}")
+        schema = get_schema()
+        console.print(
+            f"  [green]✓[/green] Schema loaded: {schema.get('title', 'Unknown')} "
+            f"v{schema.get('version', 'Unknown')}"
+        )
         checks_passed += 1
-    else:
-        console.print(f"  [red]✗[/red] Schema file not found: {schema_path}")
+    except Exception as e:
+        console.print(f"  [red]✗[/red] Schema load failed: {e}")
         console.print("      [yellow]Try reinstalling with:[/yellow] uv sync")
         checks_failed += 1
 

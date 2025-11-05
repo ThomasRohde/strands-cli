@@ -293,10 +293,12 @@ strands-cli/
 │       ├── invalid/          # Schema-invalid specs
 │       └── unsupported/      # MVP-unsupported specs
 ├── docs/                     # Documentation
-│   ├── strands-workflow.schema.json  # JSON Schema (source of truth)
 │   ├── strands-workflow-manual.md    # Comprehensive spec manual
 │   ├── PRD_SingleAgent_MVP.md        # MVP requirements
 │   └── stack.md              # Dependency rationale
+├── src/strands_cli/schema/   # Schema validation (source of truth)
+│   ├── strands-workflow.schema.json  # Statically bundled with package
+│   └── validator.py          # JSON Schema validation
 ├── examples/                 # Sample workflows
 │   ├── single-agent-chain-ollama.yaml
 │   ├── single-agent-chain-bedrock.yaml
@@ -342,12 +344,12 @@ This runs:
 
 ### Adding New Features
 
-1. **Update schema**: Edit `docs/strands-workflow.schema.json`
+1. **Update schema**: Edit `src/strands_cli/schema/strands-workflow.schema.json` (source of truth)
 2. **Update types**: Add Pydantic models in `src/strands_cli/types.py`
-3. **Write tests first**: Add fixtures and tests
-4. **Implement**: Follow existing patterns (see `CONTRIBUTING.md`)
-5. **Run CI**: `.\scripts\dev.ps1 ci`
-6. **Update docs**: Update `README.md`, `CHANGELOG.md`
+4. **Write tests first**: Add fixtures and tests
+5. **Implement**: Follow existing patterns (see `CONTRIBUTING.md`)
+6. **Run CI**: `.\scripts\dev.ps1 ci`
+7. **Update docs**: Update `README.md`, `CHANGELOG.md`
 
 ## Configuration
 

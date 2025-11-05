@@ -23,7 +23,8 @@ src/strands_cli/
 ├── exit_codes.py         # Exit code constants (EX_OK, EX_SCHEMA, EX_UNSUPPORTED, etc.)
 ├── config.py             # Pydantic Settings (env vars)
 ├── schema/
-│   └── validator.py      # JSON Schema validation using fastjsonschema
+│   ├── strands-workflow.schema.json  # Embedded schema (statically bundled)
+│   └── validator.py      # JSON Schema validation (uses importlib.resources)
 ├── loader/
 │   ├── yaml_loader.py    # Load YAML/JSON, merge --var variables
 │   └── template.py       # Jinja2 template rendering
@@ -190,7 +191,7 @@ def test_capability_check_rejects_multiple_agents(multi_agent_spec: Spec) -> Non
 
 ## Key Files & References
 
-- **Schema**: `strands-workflow.schema.json` (JSON Schema Draft 2020-12) — the source of truth
+- **Schema**: `src/strands_cli/schema/strands-workflow.schema.json` (JSON Schema Draft 2020-12) — the source of truth
 - **Manual**: `strands-workflow-manual.md` — comprehensive workflow spec docs with examples for all 7 patterns
 - **PRD**: `PRD_SingleAgent_MVP.md` — full MVP requirements, scope, and acceptance criteria
 - **Stack**: `stack.md` — dependency choices and rationale
@@ -277,7 +278,7 @@ ALLOWED_PYTHON_CALLABLES = {
 ## Questions to Clarify
 
 When encountering ambiguity:
-1. Check `strands-workflow.schema.json` for validation rules
+1. Check `src/strands_cli/schema/strands-workflow.schema.json` for validation rules
 2. Reference `PRD_SingleAgent_MVP.md` for scope boundaries
 3. Consult `strands-workflow-manual.md` for intended behavior
 4. If still unclear: Ask user to specify scope (MVP vs future) and update this file

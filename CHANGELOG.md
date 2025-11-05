@@ -162,7 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `70` (EX_UNKNOWN) - Unexpected exception
 
 #### Documentation
-- JSON Schema: `docs/strands-workflow.schema.json` (Draft 2020-12)
+- JSON Schema: `src/strands_cli/schema/strands-workflow.schema.json` (Draft 2020-12)
 - Manual: `docs/strands-workflow-manual.md` (comprehensive spec guide)
 - PRD: `docs/PRD_SingleAgent_MVP.md` (MVP requirements)
 - Stack: `docs/stack.md` (dependency rationale)

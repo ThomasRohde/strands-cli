@@ -10,11 +10,12 @@ Validation Architecture:
     - Validation is required before Pydantic model conversion
 
 Schema Location:
-    docs/strands-workflow.schema.json (relative to project root)
+    Statically embedded in package: strands_cli/schema/strands-workflow.schema.json
+    Loaded via importlib.resources for proper packaging support
 """
 
 import json
-from pathlib import Path
+from importlib.resources import files
 from typing import Any
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
@@ -37,7 +38,10 @@ class SchemaValidationError(Exception):
 def _load_embedded_schema() -> dict[str, Any]:
     """Load the embedded strands-workflow.schema.json.
 
-    Loads the schema from the docs/ directory relative to the project root.
+    Uses importlib.resources to load the schema file from the package.
+    This ensures the schema is properly bundled with the package and works
+    in all installation scenarios (editable installs, wheel installs, etc.).
+
     This function is called once at module import time and the result is cached.
 
     Returns:
@@ -47,12 +51,14 @@ def _load_embedded_schema() -> dict[str, Any]:
         FileNotFoundError: If schema file is missing
         json.JSONDecodeError: If schema JSON is malformed
     """
-    schema_path = (
-        Path(__file__).parent.parent.parent.parent / "docs" / "strands-workflow.schema.json"
+    # Use importlib.resources for proper package data access (Python 3.12+)
+    schema_text = (
+        files("strands_cli.schema")
+        .joinpath("strands-workflow.schema.json")
+        .read_text(encoding="utf-8")
     )
-    with schema_path.open("r", encoding="utf-8") as f:
-        schema_dict: dict[str, Any] = json.load(f)
-        return schema_dict
+    schema_dict: dict[str, Any] = json.loads(schema_text)
+    return schema_dict
 
 
 # Cache the schema and validator at module load time

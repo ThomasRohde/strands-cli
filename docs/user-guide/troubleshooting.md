@@ -49,7 +49,7 @@ uv run strands doctor
 cd strands-cli
 
 # Verify schema file exists
-ls docs/strands-workflow.schema.json
+ls src/strands_cli/schema/strands-workflow.schema.json
 
 # If missing, re-clone the repository
 git pull origin main
@@ -201,7 +201,7 @@ runtime:
 **Solution**:
 1. Run validation: `uv run strands validate spec.yaml --verbose`
 2. Error message includes exact location (JSONPointer) and expected format
-3. Check schema reference: `docs/strands-workflow.schema.json`
+3. Check schema reference: `src/strands_cli/schema/strands-workflow.schema.json`
 4. Common fixes:
    - Enum values must be exact: `bedrock` not `Bedrock`
    - Required fields must be present: `name`, `version`, `agents`, `runtime`, `pattern`
@@ -488,7 +488,7 @@ If you encounter a bug:
 
 ## Additional Resources
 
-- **Schema Reference**: `docs/strands-workflow.schema.json`
+- **Schema Reference**: `src/strands_cli/schema/strands-workflow.schema.json`
 - **Full Manual**: `docs/strands-workflow-manual.md`
 - **MVP Requirements**: `docs/PRD_SingleAgent_MVP.md`
 - **Examples**: `examples/` directory
