@@ -110,9 +110,15 @@ def malformed_spec(invalid_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
-def multi_agent_spec(unsupported_fixtures_dir: Path) -> Path:
-    """Path to multi-agent spec (unsupported)."""
-    return unsupported_fixtures_dir / "multi-agent.yaml"
+def parallel_pattern_spec(unsupported_fixtures_dir: Path) -> Path:
+    """Path to parallel pattern spec (unsupported - Phase 3)."""
+    return unsupported_fixtures_dir / "parallel-pattern.yaml"
+
+
+@pytest.fixture
+def multi_agent_chain_spec(valid_fixtures_dir: Path) -> Path:
+    """Path to multi-agent chain spec (supported in Phase 2)."""
+    return valid_fixtures_dir / "multi-agent-chain.yaml"
 
 
 @pytest.fixture
@@ -128,15 +134,25 @@ def multi_task_workflow_spec(valid_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
-def routing_pattern_spec(unsupported_fixtures_dir: Path) -> Path:
-    """Path to routing pattern spec (unsupported)."""
-    return unsupported_fixtures_dir / "routing-pattern.yaml"
+def routing_pattern_spec(valid_fixtures_dir: Path) -> Path:
+    """Path to routing pattern spec (supported in Phase 2)."""
+    return valid_fixtures_dir / "routing-pattern.yaml"
 
 
 @pytest.fixture
 def mcp_tools_spec(unsupported_fixtures_dir: Path) -> Path:
     """Path to MCP tools spec (unsupported)."""
     return unsupported_fixtures_dir / "mcp-tools.yaml"
+
+
+@pytest.fixture
+def multi_agent_spec(unsupported_fixtures_dir: Path) -> Path:
+    """Path to parallel pattern spec (unsupported - Phase 3).
+
+    Alias for parallel_pattern_spec to maintain backward compatibility with tests
+    that expect an unsupported multi-feature spec.
+    """
+    return unsupported_fixtures_dir / "parallel-pattern.yaml"
 
 
 # ============================================================================

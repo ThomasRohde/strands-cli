@@ -4,9 +4,9 @@ Analyzes validated workflow specs to determine if they can be executed
 with current capabilities. Gracefully rejects unsupported features with
 structured error reports rather than silently ignoring them.
 
-Supported Features (Phase 1):
-    - Exactly 1 agent in agents map
-    - Pattern: chain (multi-step) OR workflow (multi-task with DAG)
+Supported Features (Phase 2):
+    - Multiple agents (for routing pattern)
+    - Pattern: chain (multi-step), workflow (multi-task with DAG), OR routing
     - Providers: bedrock, ollama
     - Python tools: strands_tools.http_request, strands_tools.file_read
     - HTTP executors: full support
@@ -14,8 +14,7 @@ Supported Features (Phase 1):
     - Skills: metadata injection (no code execution)
 
 Unsupported (with remediation):
-    - Multiple agents
-    - Patterns: routing, parallel, orchestrator_workers, evaluator_optimizer, graph
+    - Patterns: parallel, orchestrator_workers, evaluator_optimizer, graph
     - MCP tools
     - Non-env secret sources
     - Non-allowlisted Python callables
@@ -116,14 +115,13 @@ def check_capability(spec: Spec) -> CapabilityReport:
     """
     issues: list[CapabilityIssue] = []
 
-    # Check 1: Must have exactly one agent (single-agent execution only)
-    if len(spec.agents) != 1:
-        agent_keys = list(spec.agents.keys())
+    # Check 1: Must have at least one agent
+    if len(spec.agents) < 1:
         issues.append(
             CapabilityIssue(
                 pointer="/agents",
-                reason=f"Found {len(spec.agents)} agents, but MVP supports exactly 1",
-                remediation=f"Keep only one agent (e.g., '{agent_keys[0]}' if available)",
+                reason="No agents defined",
+                remediation="Add at least one agent to the agents map",
             )
         )
 
@@ -157,13 +155,13 @@ def check_capability(spec: Spec) -> CapabilityReport:
             )
         )
 
-    # Check 5: Pattern type must be chain or workflow
-    if spec.pattern.type not in {PatternType.CHAIN, PatternType.WORKFLOW}:
+    # Check 5: Pattern type must be chain, workflow, or routing
+    if spec.pattern.type not in {PatternType.CHAIN, PatternType.WORKFLOW, PatternType.ROUTING}:
         issues.append(
             CapabilityIssue(
                 pointer="/pattern/type",
-                reason=f"Pattern type '{spec.pattern.type}' not supported in MVP",
-                remediation="Use 'chain' or 'workflow'",
+                reason=f"Pattern type '{spec.pattern.type}' not supported yet",
+                remediation="Use 'chain', 'workflow', or 'routing'",
             )
         )
 
@@ -213,6 +211,59 @@ def check_capability(spec: Spec) -> CapabilityReport:
                             remediation="Remove circular dependencies to form a valid DAG",
                         )
                     )
+
+    # Check 7b: Routing pattern validations
+    if spec.pattern.type == PatternType.ROUTING:
+        if not spec.pattern.config.router:
+            issues.append(
+                CapabilityIssue(
+                    pointer="/pattern/config/router",
+                    reason="Routing pattern requires router configuration",
+                    remediation="Add pattern.config.router with agent and optional input",
+                )
+            )
+        else:
+            # Validate router agent exists
+            router_agent_id = spec.pattern.config.router.agent
+            if router_agent_id not in spec.agents:
+                issues.append(
+                    CapabilityIssue(
+                        pointer="/pattern/config/router/agent",
+                        reason=f"Router agent '{router_agent_id}' not found in agents map",
+                        remediation=f"Define agent '{router_agent_id}' in agents section",
+                    )
+                )
+
+        # Validate routes exist and have valid agents
+        if not spec.pattern.config.routes:
+            issues.append(
+                CapabilityIssue(
+                    pointer="/pattern/config/routes",
+                    reason="Routing pattern requires at least one route",
+                    remediation="Add routes to pattern.config.routes",
+                )
+            )
+        else:
+            for route_name, route in spec.pattern.config.routes.items():
+                if not route.then or len(route.then) == 0:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer=f"/pattern/config/routes/{route_name}/then",
+                            reason=f"Route '{route_name}' has no steps",
+                            remediation=f"Add at least one step to route '{route_name}'",
+                        )
+                    )
+                else:
+                    # Validate each step's agent exists
+                    for i, step in enumerate(route.then):
+                        if step.agent not in spec.agents:
+                            issues.append(
+                                CapabilityIssue(
+                                    pointer=f"/pattern/config/routes/{route_name}/then/{i}/agent",
+                                    reason=f"Route step agent '{step.agent}' not found in agents map",
+                                    remediation=f"Define agent '{step.agent}' in agents section",
+                                )
+                            )
 
     # Check 7a: Validate tool_overrides in chain steps reference defined tools
     if spec.pattern.type == PatternType.CHAIN and spec.pattern.config.steps:

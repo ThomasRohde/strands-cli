@@ -112,6 +112,23 @@
           "description": "Server host URL for providers like Ollama (e.g., http://localhost:11434).",
           "format": "uri"
         },
+        "temperature": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 2.0,
+          "description": "Sampling temperature for generation."
+        },
+        "top_p": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Nucleus sampling parameter."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum tokens to generate."
+        },
         "max_parallel": {
           "type": "integer",
           "minimum": 1
@@ -638,6 +655,12 @@
             },
             "input": {
               "type": "string"
+            },
+            "max_retries": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 2,
+              "description": "Maximum retry attempts for malformed router JSON responses."
             }
           }
         },

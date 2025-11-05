@@ -276,7 +276,10 @@ async def _execute_task(
     # Execute with retry logic
     async def _execute_with_retry(agent_instance: Any, input_text: str) -> AgentResult:
         """Execute agent with retry logic."""
-        return await agent_instance.invoke_async(input_text)
+        from strands_cli.utils import suppress_stdout
+
+        with suppress_stdout():
+            return await agent_instance.invoke_async(input_text)
 
     retry_decorator = retry(
         stop=stop_after_attempt(max_attempts),

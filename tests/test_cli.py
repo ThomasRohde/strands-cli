@@ -119,9 +119,9 @@ class TestPlanCommand:
         assert '"runtime"' in result.stdout
         assert '"provider"' in result.stdout
 
-    def test_plan_unsupported_spec_shows_issues(self, multi_agent_spec: Path) -> None:
+    def test_plan_unsupported_spec_shows_issues(self, parallel_pattern_spec: Path) -> None:
         """Test plan command shows unsupported features."""
-        result = runner.invoke(app, ["plan", str(multi_agent_spec)])
+        result = runner.invoke(app, ["plan", str(parallel_pattern_spec)])
 
         assert result.exit_code == EX_OK
         assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
@@ -144,9 +144,9 @@ class TestExplainCommand:
         assert result.exit_code == EX_OK
         assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
 
-    def test_explain_unsupported_spec_shows_remediation(self, multi_agent_spec: Path) -> None:
+    def test_explain_unsupported_spec_shows_remediation(self, parallel_pattern_spec: Path) -> None:
         """Test explain command shows remediation for unsupported features."""
-        result = runner.invoke(app, ["explain", str(multi_agent_spec)])
+        result = runner.invoke(app, ["explain", str(parallel_pattern_spec)])
 
         assert result.exit_code == EX_OK
         assert "Unsupported Features" in result.stdout
@@ -161,11 +161,12 @@ class TestExplainCommand:
         assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
 
     def test_explain_routing_pattern(self, routing_pattern_spec: Path) -> None:
-        """Test explain command for routing pattern."""
+        """Test explain command for routing pattern (now supported in Phase 2)."""
         result = runner.invoke(app, ["explain", str(routing_pattern_spec)])
 
+        # Phase 2: Routing is now supported, so explain should show no issues
         assert result.exit_code == EX_OK
-        assert "routing" in result.stdout.lower()
+        assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
 
 
 class TestListSupportedCommand:
@@ -294,7 +295,7 @@ class TestRunCommand:
 
     def test_run_unsupported_spec_returns_unsupported(
         self,
-        multi_agent_spec: Path,
+        parallel_pattern_spec: Path,
         temp_artifacts_dir: Path,
     ) -> None:
         """Test run command with unsupported spec returns EX_UNSUPPORTED."""
@@ -302,7 +303,7 @@ class TestRunCommand:
             app,
             [
                 "run",
-                str(multi_agent_spec),
+                str(parallel_pattern_spec),
                 "--out",
                 str(temp_artifacts_dir),
             ],

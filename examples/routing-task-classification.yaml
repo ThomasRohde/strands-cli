@@ -1,0 +1,94 @@
+version: 0
+name: "task-classifier"
+description: "Classify tasks and route to specialized agents (coding, research, or writing)"
+
+runtime:
+  provider: ollama
+  host: "http://localhost:11434"
+  model_id: "llama3.2"
+  temperature: 0.2
+
+inputs:
+  values:
+    task: "Explain how binary search works"
+
+agents:
+  task_router:
+    prompt: |
+      You are an intelligent task classifier. Analyze the given task and determine which type of agent
+      should handle it.
+      
+      Available routes:
+      - coding: Programming tasks, code reviews, algorithm implementations, debugging
+      - research: Information gathering, analysis, summaries, comparisons
+      - writing: Content creation, documentation, creative writing, editing
+      
+      Respond with ONLY valid JSON:
+      {"route": "<route_name>"}
+      
+      Base your decision on the primary nature of the task.
+
+  coder:
+    prompt: |
+      You are an expert software engineer. Implement clean, well-documented code with examples
+      and explanations. Focus on best practices and clarity.
+
+  researcher:
+    prompt: |
+      You are a thorough researcher. Gather information systematically, analyze multiple perspectives,
+      and provide well-sourced insights.
+
+  writer:
+    prompt: |
+      You are a skilled technical writer. Create clear, engaging content that is well-structured
+      and accessible to your target audience.
+
+pattern:
+  type: routing
+  config:
+    router:
+      agent: task_router
+      input: |
+        Task: {{ task }}
+        
+        Classify this task as: coding, research, or writing
+      max_retries: 3
+    
+    routes:
+      coding:
+        then:
+          - agent: coder
+            input: |
+              Task: {{ task }}
+              
+              Provide a complete code implementation with explanations and examples.
+              Selected route: {{ router.chosen_route }}
+          - agent: writer
+            input: |
+              Take the code from the previous step and create user-friendly documentation.
+      
+      research:
+        then:
+          - agent: researcher
+            input: |
+              Research topic: {{ task }}
+              
+              Conduct thorough research and provide comprehensive findings.
+              Selected route: {{ router.chosen_route }}
+          - agent: writer
+            input: |
+              Transform the research findings into a well-organized article.
+      
+      writing:
+        then:
+          - agent: writer
+            input: |
+              Writing task: {{ task }}
+              
+              Create high-quality content that addresses the task requirements.
+              Selected route: {{ router.chosen_route }}
+
+outputs:
+  artifacts:
+    - path: "./artifacts/task-{{ router.chosen_route }}-output.md"
+      from: "{{ last_response }}"

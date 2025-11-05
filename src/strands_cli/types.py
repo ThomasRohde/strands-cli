@@ -183,12 +183,60 @@ class WorkflowTask(BaseModel):
     input: str | None = None  # Prompt template (optional)
 
 
+class Route(BaseModel):
+    """Single route in a routing pattern.
+
+    Attributes:
+        then: Chain of steps to execute if this route is selected
+    """
+
+    then: list[ChainStep] | None = None  # Steps to execute for this route
+
+
+class RouterConfig(BaseModel):
+    """Router configuration for routing pattern.
+
+    Attributes:
+        agent: Agent ID that performs classification
+        input: Prompt template for router agent
+        max_retries: Maximum retry attempts for malformed JSON (default: 2)
+    """
+
+    agent: str  # Agent ID for classification
+    input: str | None = None  # Router prompt template
+    max_retries: int = Field(default=2, ge=0)  # Retry limit for malformed responses
+
+
+class RouterDecision(BaseModel):
+    """Router agent decision output.
+
+    Attributes:
+        route: Name of the selected route
+    """
+
+    route: str  # Selected route name
+
+
+class RoutingConfig(BaseModel):
+    """Routing pattern configuration.
+
+    Attributes:
+        router: Router agent configuration
+        routes: Map of route names to route definitions
+    """
+
+    router: RouterConfig
+    routes: dict[str, Route]  # route_name -> Route definition
+
+
 class PatternConfig(BaseModel):
     """Pattern-specific configuration."""
 
     steps: list[ChainStep] | None = None  # For chain
     tasks: list[WorkflowTask] | None = None  # For workflow
-    # Future: routing rules, parallel config, graph DAG, etc.
+    router: RouterConfig | None = None  # For routing
+    routes: dict[str, Route] | None = None  # For routing
+    # Future: parallel config, graph DAG, etc.
 
 
 class Pattern(BaseModel):

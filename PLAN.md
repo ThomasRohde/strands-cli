@@ -185,7 +185,19 @@ Successfully implemented multi-step chain and workflow execution with DAG-based 
 
 **Duration:** 2 weeks  
 **Complexity:** Medium  
-**Dependencies:** Phase 1 (chains to implement route execution)
+**Dependencies:** Phase 1 (chains to implement route execution)  
+**Status:** 📋 PLANNED
+
+### Design Decisions (Resolved 2025-11-04)
+
+**Q1: Fallback strategy when router returns invalid route name?**  
+**Resolution:** **A - Fail with ExecutionError**. Clean failure with clear error message. No silent fallbacks or implicit defaults. If user wants fallback behavior, they should explicitly handle it in router prompt or add validation logic.
+
+**Q2: Router retry configuration?**  
+**Resolution:** **B - Configurable via `pattern.config.router.max_retries` (default 2)**. Allows users to control retry behavior while maintaining sensible default. Schema extension required.
+
+**Q3: Router context in routes?**  
+**Resolution:** **Expose `router.chosen_route` only**. Minimal template variable (`{{ router.chosen_route }}`) available in route steps. Rationale and confidence excluded to keep context simple for MVP; can be added later if needed.
 
 ### Features
 
@@ -193,48 +205,121 @@ Successfully implemented multi-step chain and workflow execution with DAG-based 
 - Implement `pattern.type = routing` in `exec/routing.py`
 - **Router agent**:
   - Executes with classification prompt
-  - Returns JSON: `{"route": "<route_name>", "rationale": "..."}`
+  - Returns JSON: `{"route": "<route_name>"}`
   - Validates route exists in `pattern.config.routes`
 - **Route execution**:
   - Select matching route based on router output
-  - Execute route's `then` steps as a chain
-  - Support default/fallback route
+  - Execute route's `then` steps as a chain (reuse `run_chain()`)
+  - Inject `{{ router.chosen_route }}` into route step context
 - **Error handling**:
-  - Invalid route name → use fallback or fail gracefully
-  - Malformed router JSON → retry with clarification prompt
+  - Invalid route name → fail with `ExecutionError` showing valid route names
+  - Malformed router JSON → retry with clarification prompt (up to `max_retries`, default 2)
+  - Retry prompt: "Return valid JSON: {\"route\": \"<route_name>\"}"
 
 #### 2.2 Router Output Validation
 - Parse and validate router agent responses
-- Schema for router output: `{"route": str, "rationale": str, "confidence": float}`
-- Retry on parse failures (max 2 retries)
-- Log routing decisions with confidence scores
+- Expected JSON schema: `{"route": str}` (simplified from original design)
+- Retry on parse failures (configurable `max_retries`, default 2)
+- Log routing decisions with chosen route
 
 #### 2.3 Routing Telemetry
 - Add router decision spans
-- Attributes: `router.chosen_route`, `router.confidence`, `router.rationale`
+- Attributes: `router.chosen_route`, `router.attempts` (retry count)
 - Enable routing analytics and optimization
+
+#### 2.4 Multi-Agent Support
+- **Relax agent constraint**: Change from `len(agents) == 1` to `len(agents) >= 1` in capability checker
+- **Validation**: Ensure router agent exists in `agents` map
+- **Validation**: Ensure all agents referenced in routes exist in `agents` map
+- Enables router agent to differ from route execution agents
 
 ### Acceptance Criteria
 
 - [ ] Router agent classifies input into 3 routes correctly
-- [ ] Each route executes its `then` chain
+- [ ] Each route executes its `then` chain steps sequentially
 - [ ] Malformed router JSON triggers retry with success on 2nd attempt
-- [ ] Invalid route name falls back to default route
-- [ ] Router decisions appear in traces with all attributes
+- [ ] Invalid route name fails with clear error message listing valid routes
+- [ ] `{{ router.chosen_route }}` accessible in route step templates
+- [ ] `max_retries` configuration controls retry attempts (test with 0, 1, 2)
+- [ ] Multiple agents supported (router + route agents)
+- [ ] Router decisions appear in traces with chosen_route and attempts attributes
 - [ ] Coverage ≥85%
-- [ ] New tests: `test_routing.py` (happy path, fallback, retry, malformed JSON)
+- [ ] New tests: `test_routing.py` (happy path, invalid route, retry with malformed JSON, multi-agent validation)
 
 ### Implementation Checklist
 
 - [ ] **Consult `strands-workflow-manual.md`** section 12.2 (Routing) for router agent expectations
 - [ ] **Review schema** `routingConfig` definition for routes structure
-- [ ] Create `exec/routing.py` with router execution logic
-- [ ] Implement router output parser with JSON schema validation
-- [ ] Add retry logic for router failures
-- [ ] Update capability checker to support routing pattern
-- [ ] Add 3+ routing examples (customer support, task classification, etc.)
-- [ ] Document routing pattern in user guide
-- [ ] Add router decision visualization to `plan` command
+- [ ] **Extend schema** - Add `router.max_retries` (optional, default 2)
+- [ ] **Update `types.py`**:
+  - [ ] Create `RoutingConfig` Pydantic model with router + routes
+  - [ ] Create `RouterDecision` model with `route: str`
+  - [ ] Create `Route` model with `then: list[Step]`
+  - [ ] Add `RoutingConfig` to `PatternConfig` union
+- [ ] **Create `exec/routing.py`**:
+  - [ ] `run_routing(spec, variables)` - Main entry point
+  - [ ] `_execute_router(agent_config, router_input, max_retries)` - Execute router with retry
+  - [ ] `_parse_router_response(response)` - Extract and validate JSON
+  - [ ] `_validate_route_exists(route_name, routes)` - Check route validity
+  - [ ] Reuse `run_chain()` for selected route execution
+  - [ ] Inject `router.chosen_route` into route context
+- [ ] **Update `capability/checker.py`**:
+  - [ ] Remove routing pattern from unsupported list
+  - [ ] Change agent count constraint: `len(agents) >= 1` when `pattern.type == routing`
+  - [ ] Add validation: router agent exists in agents map
+  - [ ] Add validation: all route step agents exist in agents map
+- [ ] **Update `__main__.py`**:
+  - [ ] Import `run_routing` from `exec.routing`
+  - [ ] Add `elif spec.pattern.type == PatternType.ROUTING:` case
+  - [ ] Call `run_routing(spec, variables)`
+- [ ] **Create `tests/test_routing.py`**:
+  - [ ] Test valid routing with 3 routes
+  - [ ] Test invalid route name (expect ExecutionError)
+  - [ ] Test malformed JSON with retry success
+  - [ ] Test max_retries exhaustion
+  - [ ] Test multi-agent configuration
+  - [ ] Test `{{ router.chosen_route }}` in route templates
+  - [ ] Test budget tracking across router + route
+- [ ] **Create routing examples**:
+  - [ ] `examples/routing-customer-support.yaml` - FAQ/research/escalate routes
+  - [ ] `examples/routing-task-classification.yaml` - Coding/research/writing routes
+- [ ] **Documentation**:
+  - [ ] Add routing pattern section to user guide
+  - [ ] Document router JSON format requirements
+  - [ ] Document error behavior (no fallback, explicit failure)
+  - [ ] Document `max_retries` configuration
+- [ ] **Update CHANGELOG.md** - Document Phase 2 routing features
+
+### Technical Notes
+
+**Router Execution Flow:**
+```
+1. Execute router agent with router.input prompt
+2. Parse response to extract JSON {"route": "..."}
+3. If malformed → retry with clarification (up to max_retries)
+4. If invalid route → fail with ExecutionError
+5. If valid → extract route.then steps
+6. Call run_chain() with route steps + router context
+7. Return result with routing metadata
+```
+
+**JSON Parsing Strategy:**
+```python
+# Try direct JSON parse
+# If fails, extract JSON block with regex: ```json...``` or {...}
+# Validate against schema: {"route": str}
+# If validation fails and retries remain → retry
+# If retries exhausted → raise ExecutionError
+```
+
+**Template Context Injection:**
+```python
+route_context = {
+    **variables,  # User variables
+    "router": {"chosen_route": route_name}
+}
+# Pass to run_chain() for template rendering
+```
 
 ---
 

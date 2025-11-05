@@ -43,20 +43,14 @@ class TestCapabilityChecker:
         assert report.supported is True
         assert len(report.issues) == 0
 
-    def test_multi_agent_unsupported(self, multi_agent_spec: Path) -> None:
-        """Test that multi-agent spec is rejected."""
-        spec = load_spec(multi_agent_spec)
+    def test_multi_agent_chain_supported(self, multi_agent_chain_spec: Path) -> None:
+        """Test that multi-agent chain spec is now supported in Phase 2."""
+        spec = load_spec(multi_agent_chain_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
-        assert len(report.issues) >= 1
-
-        # Find the agent count issue
-        agent_issue = next((issue for issue in report.issues if "/agents" in issue.pointer), None)
-        assert agent_issue is not None
-        assert "2 agents" in agent_issue.reason
-        assert "exactly 1" in agent_issue.reason
-        assert "remediation" in agent_issue.model_dump()
+        # Phase 2: Multi-agent specs are now supported
+        assert report.supported is True
+        assert len(report.issues) == 0
 
     def test_multi_step_chain_supported(self, multi_step_chain_spec: Path) -> None:
         """Test that multi-step chain is now supported in Phase 1."""
@@ -76,20 +70,23 @@ class TestCapabilityChecker:
         assert report.supported is True
         assert len(report.issues) == 0
 
-    def test_routing_pattern_unsupported(self, routing_pattern_spec: Path) -> None:
-        """Test that routing pattern is rejected."""
+    def test_routing_pattern_supported(self, routing_pattern_spec: Path) -> None:
+        """Test that routing pattern is now supported in Phase 2."""
         spec = load_spec(routing_pattern_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
+        # Phase 2: Routing pattern is now supported
+        assert report.supported is True
+        assert len(report.issues) == 0
 
-        # Find the pattern type issue
-        pattern_issue = next(
-            (issue for issue in report.issues if "/pattern/type" in issue.pointer), None
-        )
-        assert pattern_issue is not None
-        assert "routing" in pattern_issue.reason.lower()
-        assert "not supported" in pattern_issue.reason
+    def test_parallel_pattern_unsupported(self, parallel_pattern_spec: Path) -> None:
+        """Test that parallel pattern is unsupported (Phase 3)."""
+        spec = load_spec(parallel_pattern_spec)
+        report = check_capability(spec)
+
+        assert report.supported is False
+        assert len(report.issues) > 0
+        assert any("parallel" in issue.reason.lower() for issue in report.issues)
 
     def test_mcp_tools_unsupported(self, mcp_tools_spec: Path) -> None:
         """Test that MCP tools are rejected."""
@@ -317,18 +314,18 @@ outputs:
         assert "provider" in report.normalized
         assert "model_id" in report.normalized
 
-    def test_no_normalized_values_when_unsupported(self, multi_agent_spec: Path) -> None:
+    def test_no_normalized_values_when_unsupported(self, parallel_pattern_spec: Path) -> None:
         """Test that normalized values are None when spec is unsupported."""
-        spec = load_spec(multi_agent_spec)
+        spec = load_spec(parallel_pattern_spec)
         report = check_capability(spec)
 
         assert report.supported is False
         assert report.normalized is None
 
-    def test_jsonpointer_accuracy(self, routing_pattern_spec: Path) -> None:
+    def test_jsonpointer_accuracy(self, parallel_pattern_spec: Path) -> None:
         """Test that JSONPointer paths are accurate."""
-        # Use routing pattern spec since it's still unsupported
-        spec = load_spec(routing_pattern_spec)
+        # Use parallel pattern spec since it's unsupported (Phase 3)
+        spec = load_spec(parallel_pattern_spec)
         report = check_capability(spec)
 
         # All issues should have valid JSONPointer format
@@ -336,9 +333,9 @@ outputs:
             assert issue.pointer.startswith("/")
             assert "pointer" in issue.model_dump()
 
-    def test_remediation_provided(self, routing_pattern_spec: Path) -> None:
+    def test_remediation_provided(self, parallel_pattern_spec: Path) -> None:
         """Test that all issues include remediation guidance."""
-        spec = load_spec(routing_pattern_spec)
+        spec = load_spec(parallel_pattern_spec)
         report = check_capability(spec)
 
         for issue in report.issues:

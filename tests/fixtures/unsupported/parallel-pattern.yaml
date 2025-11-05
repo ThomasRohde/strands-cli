@@ -1,0 +1,30 @@
+version: 0
+name: parallel-pattern
+description: Parallel pattern (unsupported - Phase 3)
+
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+
+agents:
+  worker:
+    prompt: "You do work."
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: branch1
+        steps:
+          - agent: worker
+            input: "Task 1"
+      - id: branch2
+        steps:
+          - agent: worker
+            input: "Task 2"
+
+outputs:
+  artifacts:
+    - path: ./artifacts/output.txt
+      from: "{{ last_response }}"

@@ -163,28 +163,24 @@ class TestBedrockE2E:
 class TestUnsupportedFeaturesE2E:
     """End-to-end tests for unsupported feature detection and reporting."""
 
-    def test_multi_agent_spec_rejected(
+    def test_parallel_pattern_rejected(
         self,
-        multi_agent_spec: Path,
+        parallel_pattern_spec: Path,
     ) -> None:
-        """Test multi-agent spec fails capability check with proper report."""
+        """Test parallel pattern spec fails capability check with proper report."""
         # Load spec (should pass schema validation)
-        spec = load_spec(str(multi_agent_spec))
+        spec = load_spec(str(parallel_pattern_spec))
 
-        # Check capability (should fail - multiple agents)
+        # Check capability (should fail - parallel pattern unsupported in Phase 2)
         capability_report = check_capability(spec)
         assert not capability_report.supported
         assert len(capability_report.issues) > 0
 
         # Verify issue details
         issue = capability_report.issues[0]
-        assert "agent" in issue.reason.lower()
+        assert "parallel" in issue.reason.lower()
         assert issue.pointer is not None
-        assert (
-            "keep only one" in issue.remediation.lower()
-            or "single" in issue.remediation.lower()
-            or "reduce" in issue.remediation.lower()
-        )
+        assert issue.remediation is not None
 
     def test_multi_step_chain_supported(
         self,
@@ -210,16 +206,17 @@ class TestUnsupportedFeaturesE2E:
         assert capability_report.supported
         assert len(capability_report.issues) == 0
 
-    def test_routing_pattern_rejected(
+    def test_routing_pattern_accepted(
         self,
         routing_pattern_spec: Path,
     ) -> None:
-        """Test routing pattern spec fails capability check."""
+        """Test routing pattern spec is now supported in Phase 2."""
         spec = load_spec(str(routing_pattern_spec))
 
         capability_report = check_capability(spec)
-        assert not capability_report.supported
-        assert any("routing" in issue.reason.lower() for issue in capability_report.issues)
+        # Phase 2: Routing pattern is now supported
+        assert capability_report.supported is True
+        assert len(capability_report.issues) == 0
 
     def test_mcp_tools_rejected(
         self,

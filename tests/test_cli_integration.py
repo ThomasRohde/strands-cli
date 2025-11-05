@@ -1,7 +1,7 @@
 """Integration tests for CLI commands with multi-step workflows."""
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -294,27 +294,31 @@ class TestCLIExplainCommand:
 
     def test_explain_unsupported_features(self, cli_runner: CliRunner, tmp_path: Path):
         """Test explain command for unsupported features."""
-        # Use a spec with multiple agents (valid schema, unsupported by MVP)
+        # Use a spec with parallel pattern (valid schema, unsupported - Phase 3)
         unsupported_spec = tmp_path / "unsupported.yaml"
         unsupported_spec.write_text(
             """
 version: 0
-name: unsupported-multi-agent
+name: unsupported-parallel
 runtime:
   provider: ollama
   model_id: gpt
   host: http://localhost:11434
 agents:
-  agent1:
-    prompt: "Agent 1"
-  agent2:
-    prompt: "Agent 2"
+  worker:
+    prompt: "Worker agent"
 pattern:
-  type: chain
+  type: parallel
   config:
-    steps:
-      - agent: agent1
-        input: "Step 1"
+    branches:
+      - id: branch1
+        steps:
+          - agent: worker
+            input: "Task 1"
+      - id: branch2
+        steps:
+          - agent: worker
+            input: "Task 2"
 outputs:
   artifacts:
     - path: "./out.txt"
@@ -328,7 +332,7 @@ outputs:
         assert result.exit_code == 0  # explain shows issues but doesn't fail
         # Check that output mentions unsupported features
         assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
-        assert "agents" in result.stdout.lower()
+        assert "parallel" in result.stdout.lower()
 
     def test_explain_supported_spec(self, cli_runner: CliRunner, multi_step_chain_yaml: Path):
         """Test explain command for supported spec."""
@@ -336,3 +340,111 @@ outputs:
 
         assert result.exit_code == 0
         assert "MVP Compatible" in result.stdout or "supported" in result.stdout.lower()
+
+
+class TestCLIRoutingPattern:
+    """Test the 'run' command with routing pattern."""
+
+    @pytest.fixture
+    def routing_spec_yaml(self, tmp_path: Path) -> Path:
+        """Create a routing pattern spec for CLI testing."""
+        spec_content = """
+version: 0
+name: cli-test-routing
+runtime:
+  provider: ollama
+  model_id: gpt-oss
+  host: http://localhost:11434
+  budgets:
+    max_tokens: 1000
+agents:
+  router:
+    prompt: "You are a routing agent. Classify customer queries."
+  faq_handler:
+    prompt: "You handle FAQ questions"
+  support_handler:
+    prompt: "You handle support tickets"
+pattern:
+  type: routing
+  config:
+    router:
+      agent: router
+      input: "Classify: {{ query }}"
+      max_retries: 2
+    routes:
+      faq:
+        then:
+          - agent: faq_handler
+            input: "Answer FAQ: {{ query }}"
+      support:
+        then:
+          - agent: support_handler
+            input: "Handle support: {{ query }}"
+outputs:
+  artifacts:
+    - path: "./routing-output.txt"
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "routing-test.yaml"
+        spec_file.write_text(spec_content, encoding="utf-8")
+        return spec_file
+
+    @patch("strands_cli.exec.routing.build_agent")
+    @patch("strands_cli.exec.routing.run_chain")
+    def test_run_routing_via_cli(
+        self,
+        mock_run_chain: MagicMock,
+        mock_build_agent: MagicMock,
+        cli_runner: CliRunner,
+        routing_spec_yaml: Path,
+        tmp_path: Path,
+    ):
+        """Test running a routing pattern via CLI."""
+        # Mock router agent to return "faq" route
+        mock_router_agent = MagicMock()
+        mock_router_agent.invoke_async = AsyncMock(return_value='{"route": "faq"}')
+        mock_build_agent.return_value = mock_router_agent
+
+        # Mock chain execution
+        chain_result = Mock()
+        chain_result.success = True
+        chain_result.last_response = "FAQ Response"
+        chain_result.duration_seconds = 1.0  # Fix: use duration_seconds, not duration
+        chain_result.pattern_type = "CHAIN"
+        chain_result.execution_context = {}
+        mock_run_chain.return_value = chain_result
+
+        output_dir = tmp_path / "output"
+        result = cli_runner.invoke(
+            app,
+            [
+                "run",
+                str(routing_spec_yaml),
+                "--var",
+                "query=How do I reset password?",
+                "--out",
+                str(output_dir),
+                "--force",
+            ],
+        )
+
+        # Debug: print output if test fails
+        if result.exit_code != 0:
+            print(f"Exit code: {result.exit_code}")
+            print(f"stdout: {result.stdout}")
+            if result.exception:
+                print(f"Exception: {result.exception}")
+                import traceback
+
+                traceback.print_exception(
+                    type(result.exception), result.exception, result.exception.__traceback__
+                )
+
+        assert result.exit_code == 0
+        assert "Workflow completed successfully" in result.stdout
+        assert mock_build_agent.called
+        assert mock_run_chain.called
+
+        # Verify artifact was written
+        artifact_file = output_dir / "routing-output.txt"
+        assert artifact_file.exists()

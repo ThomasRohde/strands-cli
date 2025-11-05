@@ -193,10 +193,6 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     if not spec.pattern.config.steps:
         raise ChainExecutionError("Chain pattern has no steps")
 
-    # Extract single agent (Phase 1 limitation)
-    agent_id = next(iter(spec.agents.keys()))
-    agent_config = spec.agents[agent_id]
-
     # Get retry config
     max_attempts, wait_min, wait_max = _get_retry_config(spec)
 
@@ -228,17 +224,30 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
         except Exception as e:
             raise ChainExecutionError(f"Failed to render step {step_index} input: {e}") from e
 
+        # Get the correct agent config for this step (Phase 2: support multi-agent chains)
+        step_agent_id = step.agent
+        if step_agent_id not in spec.agents:
+            raise ChainExecutionError(
+                f"Step {step_index} references unknown agent '{step_agent_id}'"
+            )
+        step_agent_config = spec.agents[step_agent_id]
+
         # Build agent for this step (with optional tool overrides)
         try:
             # Use step's tool_overrides if provided, else use agent's tools
             tools_for_step = step.tool_overrides if step.tool_overrides else None
-            agent = build_agent(spec, step.agent, agent_config, tool_overrides=tools_for_step)
+            agent = build_agent(
+                spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
+            )
         except Exception as e:
             raise ChainExecutionError(f"Failed to build agent for step {step_index}: {e}") from e
 
         # Execute with retry logic
         async def _execute_step(agent_instance: Any, input_text: str) -> Any:
-            return await agent_instance.invoke_async(input_text)
+            from strands_cli.utils import suppress_stdout
+
+            with suppress_stdout():
+                return await agent_instance.invoke_async(input_text)
 
         retry_decorator = retry(
             stop=stop_after_attempt(max_attempts),
@@ -294,6 +303,8 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
 
     # Final response is from last step
     final_response = step_history[-1]["response"]
+    # Agent ID is from the last step that produced the final response
+    final_agent_id = step_history[-1]["agent"]
 
     logger.info(
         "chain_execution_complete",
@@ -307,7 +318,7 @@ def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
         success=True,
         last_response=final_response,
         error=None,
-        agent_id=agent_id,
+        agent_id=final_agent_id,
         pattern_type=PatternType.CHAIN,
         started_at=started_at,
         completed_at=completed_at,
