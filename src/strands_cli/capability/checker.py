@@ -7,7 +7,7 @@ structured error reports rather than silently ignoring them.
 Supported Features (Phase 2):
     - Multiple agents (for routing pattern)
     - Pattern: chain (multi-step), workflow (multi-task with DAG), OR routing
-    - Providers: bedrock, ollama
+    - Providers: bedrock, ollama, openai
     - Python tools: strands_tools.http_request, strands_tools.file_read
     - HTTP executors: full support
     - Secrets: source=env only
@@ -125,13 +125,17 @@ def check_capability(spec: Spec) -> CapabilityReport:
             )
         )
 
-    # Check 2: Provider must be bedrock or ollama
-    if spec.runtime.provider not in {ProviderType.BEDROCK, ProviderType.OLLAMA}:
+    # Check 2: Provider must be bedrock, ollama, or openai
+    if spec.runtime.provider not in {
+        ProviderType.BEDROCK,
+        ProviderType.OLLAMA,
+        ProviderType.OPENAI,
+    }:
         issues.append(
             CapabilityIssue(
                 pointer="/runtime/provider",
-                reason=f"Provider '{spec.runtime.provider}' not supported in MVP",
-                remediation="Use 'bedrock' or 'ollama'",
+                reason=f"Provider '{spec.runtime.provider}' not supported",
+                remediation="Use 'bedrock', 'ollama', or 'openai'",
             )
         )
 
@@ -154,6 +158,19 @@ def check_capability(spec: Spec) -> CapabilityReport:
                 remediation="Add 'runtime.host' (e.g., 'http://localhost:11434')",
             )
         )
+
+    # Check 4b: OpenAI requires API key in environment
+    if spec.runtime.provider == ProviderType.OPENAI:
+        import os
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            issues.append(
+                CapabilityIssue(
+                    pointer="/runtime/provider",
+                    reason="OpenAI provider requires OPENAI_API_KEY environment variable",
+                    remediation="Set environment variable: export OPENAI_API_KEY=your-api-key",
+                )
+            )
 
     # Check 5: Pattern type must be chain, workflow, or routing
     if spec.pattern.type not in {PatternType.CHAIN, PatternType.WORKFLOW, PatternType.ROUTING}:

@@ -25,14 +25,14 @@ class _TeeStream:
         self.buffer.write(text)
         # Also write to original stream for immediate streaming display
         if hasattr(self.original_stream, 'write'):
-            self.original_stream.write(text)  # type: ignore[union-attr]
+            self.original_stream.write(text)
         return len(text)
 
     def flush(self) -> None:
         self.buffer.flush()
         # Also flush the original stream
         if hasattr(self.original_stream, 'flush'):
-            self.original_stream.flush()  # type: ignore[union-attr]
+            self.original_stream.flush()
 
     def __getattr__(self, name: str) -> object:
         # Delegate all other attributes to the original stream
@@ -64,7 +64,7 @@ def capture_and_display_stdout(prefix: str = "") -> Generator[None, None, None]:
 
     try:
         # Use tee stream to capture without breaking other stdout users
-        sys.stdout = _TeeStream(original_stdout, captured)  # type: ignore[assignment]
+        sys.stdout = _TeeStream(original_stdout, captured)
         yield
     finally:
         # Restore original stdout FIRST before any operations

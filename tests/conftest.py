@@ -210,6 +210,22 @@ def mock_ollama_client(mocker: Any) -> Mock:
     return mock_client
 
 
+@pytest.fixture
+def mock_openai_client(mocker: Any) -> Mock:
+    """Mock OpenAI client."""
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_message = MagicMock()
+    mock_message.content = "Mocked OpenAI response"
+    mock_response.choices = [MagicMock(message=mock_message)]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    # Mock OpenAI client
+    mocker.patch("openai.OpenAI", return_value=mock_client)
+
+    return mock_client
+
+
 # ============================================================================
 # Mock Strands Agent
 # ============================================================================
@@ -338,6 +354,53 @@ def sample_bedrock_spec(sample_bedrock_spec_dict: dict[str, Any]) -> Any:
     from strands_cli.types import Spec
 
     return Spec.model_validate(sample_bedrock_spec_dict)
+
+
+@pytest.fixture
+def sample_openai_spec_dict() -> dict[str, Any]:
+    """Return an OpenAI spec as a dictionary."""
+    return {
+        "version": 0,
+        "name": "openai-test",
+        "runtime": {
+            "provider": "openai",
+            "model_id": "gpt-4o-mini",
+            "temperature": 0.7,
+            "max_tokens": 2000,
+        },
+        "agents": {
+            "test_agent": {
+                "prompt": "You are a test agent.",
+            }
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    {
+                        "agent": "test_agent",
+                        "input": "Test input",
+                    }
+                ]
+            },
+        },
+        "outputs": {
+            "artifacts": [
+                {
+                    "path": "./artifacts/test-output.txt",
+                    "from": "{{ last_response }}",
+                }
+            ]
+        },
+    }
+
+
+@pytest.fixture
+def sample_openai_spec(sample_openai_spec_dict: dict[str, Any]) -> Any:
+    """Return a minimal OpenAI spec as a Spec object (mutable for tests)."""
+    from strands_cli.types import Spec
+
+    return Spec.model_validate(sample_openai_spec_dict)
 
 
 # ============================================================================

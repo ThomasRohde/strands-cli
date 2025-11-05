@@ -10,7 +10,7 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ✅ **Multi-step chain workflows** - Sequential execution with context threading
 - ✅ **Multi-task DAG workflows** - Parallel execution with dependency resolution
 - ✅ **Template-based context** - Access prior step/task outputs via `{{ steps[n].response }}` and `{{ tasks.<id>.response }}`
-- ✅ **AWS Bedrock and Ollama** provider support
+- ✅ **AWS Bedrock, Ollama, and OpenAI** provider support
 - ✅ **Schema validation** using JSON Schema Draft 2020-12 with JSONPointer error reporting
 - ✅ **Capability checking** with graceful degradation (exit code 18)
 - ✅ **Variable substitution** via `--var` flags and Jinja2 templates
@@ -50,6 +50,9 @@ Before using strands-cli, ensure you have:
 - **For AWS Bedrock workflows**:
   - AWS credentials configured: `aws configure` or environment variables
   - Appropriate Bedrock model access in your AWS region
+- **For OpenAI workflows**:
+  - OpenAI API key: Set `OPENAI_API_KEY` environment variable
+  - Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 
 **Verify your setup** with the health check:
 ```bash
@@ -106,6 +109,14 @@ Artifacts written:
 # Requires AWS credentials configured
 export AWS_REGION=us-east-1
 uv run strands run examples/single-agent-chain-bedrock.yaml --out ./output --force
+```
+
+#### Run a workflow (OpenAI)
+
+```bash
+# Requires OPENAI_API_KEY environment variable
+export OPENAI_API_KEY=your-api-key
+uv run strands run examples/single-agent-chain-openai.yaml --var topic="quantum computing"
 ```
 
 #### Show execution plan
@@ -352,7 +363,7 @@ Environment variables (prefix: `STRANDS_`):
 |---------|---------|-------|
 | **Agents** | Exactly 1 | Multi-agent → exit 18 |
 | **Patterns** | `chain` (1 step) OR `workflow` (1 task) | Multi-step/task → exit 18 |
-| **Providers** | `bedrock`, `ollama` | |
+| **Providers** | `bedrock`, `ollama`, `openai` | |
 | **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read` |
 | **HTTP Executors** | ✅ Full support | Timeout, retries, headers |
 | **Secrets** | `source: env` only | Secrets Manager/SSM → future |

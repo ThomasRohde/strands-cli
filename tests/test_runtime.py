@@ -9,6 +9,7 @@ from strands_cli.runtime.providers import (
     create_bedrock_model,
     create_model,
     create_ollama_model,
+    create_openai_model,
 )
 from strands_cli.runtime.strands_adapter import (
     AdapterError,
@@ -160,6 +161,131 @@ class TestOllamaModelCreation:
             create_ollama_model(runtime)
 
 
+class TestOpenAIModelCreation:
+    """Tests for create_openai_model."""
+
+    def test_creates_openai_model_with_api_key(self, mocker, monkeypatch):
+        """Should create OpenAIModel with valid API key from environment."""
+        # Set API key in environment
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-12345")
+
+        mock_openai_model_cls = mocker.patch("strands_cli.runtime.providers.OpenAIModel")
+        mock_model = Mock()
+        mock_openai_model_cls.return_value = mock_model
+
+        runtime = Runtime(
+            provider=ProviderType.OPENAI,
+            model_id="gpt-4o-mini",
+        )
+
+        result = create_openai_model(runtime)
+
+        # Verify OpenAIModel created with correct params
+        mock_openai_model_cls.assert_called_once_with(
+            client_args={"api_key": "sk-test-key-12345"},
+            model_id="gpt-4o-mini",
+            params=None,
+        )
+
+        assert result == mock_model
+
+    def test_uses_default_model_id_if_not_specified(self, mocker, monkeypatch):
+        """Should use gpt-4o-mini as default model ID when not provided."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+        mock_openai_model_cls = mocker.patch("strands_cli.runtime.providers.OpenAIModel")
+
+        runtime = Runtime(provider=ProviderType.OPENAI)
+
+        create_openai_model(runtime)
+
+        # Check that default model ID was used
+        call_kwargs = mock_openai_model_cls.call_args[1]
+        assert call_kwargs["model_id"] == "gpt-4o-mini"
+
+    def test_raises_error_when_api_key_missing(self, monkeypatch):
+        """Should raise ProviderError when OPENAI_API_KEY is not set."""
+        # Ensure API key is not in environment
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        runtime = Runtime(provider=ProviderType.OPENAI)
+
+        with pytest.raises(
+            ProviderError, match=r"OpenAI provider requires OPENAI_API_KEY environment variable"
+        ):
+            create_openai_model(runtime)
+
+    def test_supports_base_url_for_compatible_servers(self, mocker, monkeypatch):
+        """Should support runtime.host as base_url for OpenAI-compatible servers."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+        mock_openai_model_cls = mocker.patch("strands_cli.runtime.providers.OpenAIModel")
+
+        runtime = Runtime(
+            provider=ProviderType.OPENAI,
+            model_id="custom-model",
+            host="https://api.custom-openai.com/v1",
+        )
+
+        create_openai_model(runtime)
+
+        # Verify base_url was passed in client_args
+        call_kwargs = mock_openai_model_cls.call_args[1]
+        assert call_kwargs["client_args"]["base_url"] == "https://api.custom-openai.com/v1"
+
+    def test_passes_inference_params_to_model(self, mocker, monkeypatch):
+        """Should pass temperature, max_tokens, and top_p to params dict."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+        mock_openai_model_cls = mocker.patch("strands_cli.runtime.providers.OpenAIModel")
+
+        runtime = Runtime(
+            provider=ProviderType.OPENAI,
+            model_id="gpt-4",
+            temperature=0.8,
+            max_tokens=1500,
+            top_p=0.95,
+        )
+
+        create_openai_model(runtime)
+
+        # Verify params dict was constructed correctly
+        call_kwargs = mock_openai_model_cls.call_args[1]
+        assert call_kwargs["params"] == {
+            "temperature": 0.8,
+            "max_tokens": 1500,
+            "top_p": 0.95,
+        }
+
+    def test_omits_params_when_not_specified(self, mocker, monkeypatch):
+        """Should pass None for params when no inference params specified."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+        mock_openai_model_cls = mocker.patch("strands_cli.runtime.providers.OpenAIModel")
+
+        runtime = Runtime(provider=ProviderType.OPENAI)
+
+        create_openai_model(runtime)
+
+        # Verify params is None
+        call_kwargs = mock_openai_model_cls.call_args[1]
+        assert call_kwargs["params"] is None
+
+    def test_raises_error_on_openai_model_failure(self, mocker, monkeypatch):
+        """Should raise ProviderError when OpenAIModel init fails."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+        mocker.patch(
+            "strands_cli.runtime.providers.OpenAIModel",
+            side_effect=Exception("Invalid API key"),
+        )
+
+        runtime = Runtime(provider=ProviderType.OPENAI)
+
+        with pytest.raises(ProviderError, match="Failed to create OpenAIModel"):
+            create_openai_model(runtime)
+
+
 class TestCreateModel:
     """Tests for create_model factory function."""
 
@@ -187,6 +313,19 @@ class TestCreateModel:
         result = create_model(runtime)
 
         mock_ollama.assert_called_once_with(runtime)
+        assert result == mock_model
+
+    def test_creates_openai_model_when_provider_is_openai(self, mocker):
+        """Should delegate to create_openai_model."""
+        mock_openai = mocker.patch("strands_cli.runtime.providers.create_openai_model")
+        mock_model = Mock()
+        mock_openai.return_value = mock_model
+
+        runtime = Runtime(provider=ProviderType.OPENAI)
+
+        result = create_model(runtime)
+
+        mock_openai.assert_called_once_with(runtime)
         assert result == mock_model
 
     def test_raises_error_for_unsupported_provider(self):

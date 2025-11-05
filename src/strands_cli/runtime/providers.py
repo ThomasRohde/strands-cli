@@ -15,9 +15,12 @@ Ollama:
 Both providers support model_id override from runtime or agent config.
 """
 
+import os
+
 import structlog
 from strands.models.bedrock import BedrockModel
 from strands.models.ollama import OllamaModel
+from strands.models.openai import OpenAIModel
 
 from strands_cli.types import ProviderType, Runtime
 
@@ -105,14 +108,78 @@ def create_ollama_model(runtime: Runtime) -> OllamaModel:
     return model
 
 
-def create_model(runtime: Runtime) -> BedrockModel | OllamaModel:
+def create_openai_model(runtime: Runtime) -> OpenAIModel:
+    """Create an OpenAI model client.
+
+    Initializes OpenAI client using API key from environment.
+    Supports optional base_url for OpenAI-compatible servers.
+
+    Args:
+        runtime: Runtime configuration with provider=openai
+
+    Returns:
+        Configured OpenAIModel ready for agent creation
+
+    Raises:
+        ProviderError: If API key is missing or client creation fails
+    """
+    logger = structlog.get_logger(__name__)
+
+    # Check for API key in environment
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise ProviderError(
+            "OpenAI provider requires OPENAI_API_KEY environment variable. "
+            "Set it with: export OPENAI_API_KEY=your-api-key"
+        )
+
+    # Default model if not specified
+    model_id = runtime.model_id or "gpt-4o-mini"
+
+    # Build client_args with API key
+    client_args = {"api_key": api_key}
+
+    # Optional: support base_url for OpenAI-compatible servers
+    if runtime.host:
+        client_args["base_url"] = runtime.host
+        logger.debug(
+            "creating_openai_model",
+            model_id=model_id,
+            base_url=runtime.host,
+        )
+    else:
+        logger.debug("creating_openai_model", model_id=model_id)
+
+    # Build inference params from runtime configuration
+    params = {}
+    if runtime.temperature is not None:
+        params["temperature"] = runtime.temperature
+    if runtime.max_tokens is not None:
+        params["max_tokens"] = runtime.max_tokens
+    if runtime.top_p is not None:
+        params["top_p"] = runtime.top_p
+
+    # Create Strands OpenAI model
+    try:
+        model = OpenAIModel(
+            client_args=client_args,
+            model_id=model_id,
+            params=params if params else None,
+        )
+    except Exception as e:
+        raise ProviderError(f"Failed to create OpenAIModel: {e}") from e
+
+    return model
+
+
+def create_model(runtime: Runtime) -> BedrockModel | OllamaModel | OpenAIModel:
     """Create a model client based on the provider.
 
     Args:
         runtime: Runtime configuration
 
     Returns:
-        Strands model (BedrockModel or OllamaModel)
+        Strands model (BedrockModel, OllamaModel, or OpenAIModel)
 
     Raises:
         ProviderError: If provider is unsupported or configuration is invalid
@@ -121,5 +188,9 @@ def create_model(runtime: Runtime) -> BedrockModel | OllamaModel:
         return create_bedrock_model(runtime)
     elif runtime.provider == ProviderType.OLLAMA:
         return create_ollama_model(runtime)
+    elif runtime.provider == ProviderType.OPENAI:
+        return create_openai_model(runtime)
     else:
-        raise ProviderError(f"Unsupported provider: {runtime.provider}. Use 'bedrock' or 'ollama'.")
+        raise ProviderError(
+            f"Unsupported provider: {runtime.provider}. Use 'bedrock', 'ollama', or 'openai'."
+        )

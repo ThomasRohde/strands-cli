@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from strands_cli.capability.checker import ALLOWED_PYTHON_CALLABLES, check_capability
-from strands_cli.loader.yaml_loader import load_spec
+from strands_cli.loader.yaml_loader import LoadError, load_spec
 from strands_cli.types import PatternType, ProviderType
 
 
@@ -173,12 +173,50 @@ outputs:
         assert host_issue is not None
         assert "requires 'host'" in host_issue.reason
 
-    def test_unsupported_provider(self, temp_output_dir: Path) -> None:
-        """Test that unsupported provider is rejected."""
+    def test_openai_supported_with_api_key(self, temp_output_dir: Path, monkeypatch) -> None:
+        """Test that OpenAI spec passes when API key is set."""
+        # Set API key in environment
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key-12345")
+
         spec_file = temp_output_dir / "openai-provider.yaml"
         spec_content = """
 version: 0
 name: openai-test
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+agents:
+  test:
+    prompt: "Test"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+        spec = load_spec(spec_file)
+        report = check_capability(spec)
+
+        assert report.supported is True
+        assert len(report.issues) == 0
+        assert report.normalized is not None
+        assert report.normalized["provider"] == ProviderType.OPENAI
+
+    def test_openai_requires_api_key(self, temp_output_dir: Path, monkeypatch) -> None:
+        """Test that OpenAI without API key is rejected."""
+        # Ensure API key is not set
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        spec_file = temp_output_dir / "openai-no-key.yaml"
+        spec_content = """
+version: 0
+name: openai-no-key
 runtime:
   provider: openai
   model_id: gpt-4
@@ -202,12 +240,46 @@ outputs:
 
         assert report.supported is False
 
-        # Find the provider issue
-        provider_issue = next(
-            (issue for issue in report.issues if "/runtime/provider" in issue.pointer), None
+        # Find the API key issue
+        api_key_issue = next(
+            (
+                issue
+                for issue in report.issues
+                if "OPENAI_API_KEY" in issue.reason or "/runtime/provider" in issue.pointer
+            ),
+            None,
         )
-        assert provider_issue is not None
-        assert "not supported" in provider_issue.reason
+        assert api_key_issue is not None
+        assert "OPENAI_API_KEY" in api_key_issue.reason
+
+    def test_unsupported_provider(self, temp_output_dir: Path) -> None:
+        """Test that invalid provider raises LoadError during schema validation."""
+        spec_file = temp_output_dir / "invalid-provider.yaml"
+        spec_content = """
+version: 0
+name: invalid-provider-test
+runtime:
+  provider: fake_provider
+  model_id: test-model
+agents:
+  test:
+    prompt: "Test"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+
+        # Should raise LoadError because Pydantic enum validation rejects invalid provider
+        with pytest.raises(LoadError, match="Failed to create typed Spec"):
+            load_spec(spec_file)
 
     def test_secrets_source_env_only(self, with_secrets_spec: Path) -> None:
         """Test that env-sourced secrets are supported."""

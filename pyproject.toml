@@ -52,6 +52,7 @@ dependencies = [
   "strands-agents-tools>=0.1",
   "boto3==1.40.65",
   "ollama>=0.4.2",
+  "openai>=1.58.1",
   "python-dotenv==1.2.1",
   "diskcache==5.6.3",
   "platformdirs>=4.2",
@@ -65,7 +66,6 @@ docs = [
   "mkdocs-material==9.6.3",
   "mkdocstrings[python]==0.26.2",
 ]
-openai = ["openai==2.7.0"]
 mcp = ["mcp>=1.11.0"]
 prometheus = ["prometheus-client>=0.20"]
 
