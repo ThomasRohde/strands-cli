@@ -130,7 +130,9 @@ class TestRunChain:
 
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
-    async def test_run_chain_success(self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec) -> None:
+    async def test_run_chain_success(
+        self, mock_get_agent: MagicMock, chain_spec_3_steps: Spec
+    ) -> None:
         """Test successful 3-step chain execution."""
         # Mock agent responses
         mock_agent = MagicMock()
@@ -372,9 +374,7 @@ class TestSingleAgentRegression:
         assert result.success is True
 
     @pytest.mark.asyncio
-    async def test_single_agent_respects_cli_vars(
-        self, tmp_path: Path, mocker: Any
-    ) -> None:
+    async def test_single_agent_respects_cli_vars(self, tmp_path: Path, mocker: Any) -> None:
         """Test that --var CLI overrides are merged into template variables.
 
         Regression test for issue where variables argument was ignored in run_single_agent.

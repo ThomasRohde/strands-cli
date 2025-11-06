@@ -171,7 +171,9 @@ async def _execute_branch(
 
         # Execute with retry logic
         try:
-            response = await invoke_agent_with_retry(agent, step_input, max_attempts, wait_min, wait_max)
+            response = await invoke_agent_with_retry(
+                agent, step_input, max_attempts, wait_min, wait_max
+            )
             response_text = response if isinstance(response, str) else str(response)
         except Exception as e:
             logger.error(
@@ -273,8 +275,12 @@ async def _execute_reduce_step(
 
     # Execute reduce with retry
     try:
-        reduce_response = await invoke_agent_with_retry(reduce_agent, reduce_input, max_attempts, wait_min, wait_max)
-        final_response = reduce_response if isinstance(reduce_response, str) else str(reduce_response)
+        reduce_response = await invoke_agent_with_retry(
+            reduce_agent, reduce_input, max_attempts, wait_min, wait_max
+        )
+        final_response = (
+            reduce_response if isinstance(reduce_response, str) else str(reduce_response)
+        )
 
         # Track reduce tokens using shared estimator
         reduce_tokens = estimate_tokens(reduce_input, final_response)
@@ -434,7 +440,9 @@ async def run_parallel(
         branches_dict: dict[str, dict[str, Any]] = {}
         cumulative_tokens = 0
 
-        for branch, (response, tokens) in zip(spec.pattern.config.branches, branch_results, strict=True):
+        for branch, (response, tokens) in zip(
+            spec.pattern.config.branches, branch_results, strict=True
+        ):
             cumulative_tokens += tokens
             branches_dict[branch.id] = {
                 "response": response,

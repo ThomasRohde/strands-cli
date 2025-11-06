@@ -54,7 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Python tool allowlist** - Expanded from 2 to 5 tools in `capability/checker.py`
   - Old: `strands_tools.http_request`, `strands_tools.file_read`
-  - New: All tools use full path format (see Breaking Changes below)
+  - New: Supports both old and new path formats (backward compatible)
+  - New format: `strands_tools.http_request.http_request` (explicit function name)
+  - Old format: `strands_tools.http_request` (auto-inferred function name) - still works!
 - **Error handling refactoring** - Cleaner error propagation in executors
   - Chain executor: Single catch-all exception handler replaces nested try-except
   - Evaluator-optimizer: Extracted helper functions for better separation of concerns
@@ -89,38 +91,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **289 tests passing** - Added 2 integration tests for --bypass-tool-consent
   - `test_run_with_bypass_tool_consent_sets_env_var` - Verifies flag sets environment variable
   - `test_run_without_bypass_tool_consent_does_not_set_env_var` - Verifies default behavior
-- **Updated capability tests** - Now validate all 5 tools in allowlist
+- **Added 1 test for backward compatibility** - `test_loads_old_format_callable` verifies old tool paths work
+- **Updated capability tests** - Now validate all 10 tools in allowlist (5 new + 5 old formats)
 - **Updated runtime tests** - Fixed mocks for new tool loading behavior
 - **Updated chain tests** - Updated for new tool path format
 
 ### Breaking Changes
 
-⚠️ **Python Tool Path Format Change**
+**None** - The tool path format change is **fully backward compatible**.
 
-Python tool paths now require the full module path including the callable name:
+Both formats are supported:
 
-**Old format (NO LONGER SUPPORTED)**:
-```yaml
-tools:
-  python:
-    - callable: "strands_tools.http_request"
-```
-
-**New format (REQUIRED)**:
+**New format (recommended)**:
 ```yaml
 tools:
   python:
     - callable: "strands_tools.http_request.http_request"
 ```
 
-**Migration Guide**:
-1. Update all workflow specs to use full path format
-2. Pattern: `strands_tools.<module>.<function>`
-3. Examples:
-   - `strands_tools.http_request` → `strands_tools.http_request.http_request`
-   - `strands_tools.file_read` → `strands_tools.file_read.file_read`
+**Old format (still works)**:
+```yaml
+tools:
+  python:
+    - callable: "strands_tools.http_request"
+```
 
-**Rationale**: This format aligns with Python's module.function convention and supports both @tool decorated functions and module-based tools with TOOL_SPEC attributes.
+The old format automatically infers the function name from the module name. No migration is required for existing workflow specs.
 
 ### Documentation
 - **README.md** - Updated to list all 5 Python tools in Features and Supported Features sections

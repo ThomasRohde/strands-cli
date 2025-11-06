@@ -443,7 +443,7 @@ Environment variables (prefix: `STRANDS_`):
 | **Agents** | Multiple agents | Single or multi-agent workflows |
 | **Patterns** | `chain`, `workflow`, `routing`, `parallel` | Multi-step/task/branch supported |
 | **Providers** | `bedrock`, `ollama`, `openai` | Full authentication support |
-| **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time` |
+| **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time` (both old and new path formats supported) |
 | **HTTP Executors** | ✅ Full support | Timeout, retries, headers |
 | **Secrets** | `source: env` only | Secrets Manager/SSM → future |
 | **Skills** | Metadata injection | Code execution → future |

@@ -159,9 +159,7 @@ def _handle_unsupported_spec(
         console.print(f"    [dim]→ {issue.remediation}[/dim]\n")
 
     if len(capability_report.issues) > 3:
-        console.print(
-            f"  [dim]... and {len(capability_report.issues) - 3} more issue(s)[/dim]\n"
-        )
+        console.print(f"  [dim]... and {len(capability_report.issues) - 3} more issue(s)[/dim]\n")
 
     sys.exit(EX_UNSUPPORTED)
 
@@ -214,9 +212,7 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
         return asyncio.run(run_evaluator_optimizer(spec, variables))
     else:
         # Other patterns (orchestrator, graph, etc.) - not yet supported
-        console.print(
-            f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet"
-        )
+        console.print(f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet")
         sys.exit(EX_UNSUPPORTED)
 
 
@@ -323,7 +319,10 @@ def run(
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing artifacts")] = False,
     bypass_tool_consent: Annotated[
         bool,
-        typer.Option("--bypass-tool-consent", help="Skip interactive tool confirmations (sets BYPASS_TOOL_CONSENT=true)"),
+        typer.Option(
+            "--bypass-tool-consent",
+            help="Skip interactive tool confirmations (sets BYPASS_TOOL_CONSENT=true)",
+        ),
     ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
@@ -517,9 +516,7 @@ def _display_plan_markdown(spec: Spec, capability_report: CapabilityReport) -> N
     if capability_report.supported:
         console.print("\n[green]✓ MVP Compatible[/green]")
     else:
-        console.print(
-            f"\n[yellow]⚠ Unsupported Features:[/yellow] {len(capability_report.issues)}"
-        )
+        console.print(f"\n[yellow]⚠ Unsupported Features:[/yellow] {len(capability_report.issues)}")
         for issue in capability_report.issues[:3]:
             console.print(f"  • {issue.reason}")
         if len(capability_report.issues) > 3:
@@ -650,13 +647,19 @@ def list_supported() -> None:
         ("Agents", "Multiple agents supported"),
         ("Patterns", "chain, workflow, routing, parallel, evaluator-optimizer"),
         ("Providers", "bedrock, ollama, openai"),
-        ("Python Tools", "strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}"),
+        (
+            "Python Tools",
+            "strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}",
+        ),
         ("HTTP Executors", "Full support"),
         ("Secrets", "source: env only"),
         ("Skills", "Metadata injection (no code exec)"),
         ("Budgets", "Tracked with 80% warning threshold"),
         ("Retries", "Exponential backoff for transient errors"),
-        ("Artifacts", "{{ last_response }}, {{ steps[n].response }}, {{ tasks.<id>.response }}, {{ branches.<id>.response }}, {{ execution.history }}"),
+        (
+            "Artifacts",
+            "{{ last_response }}, {{ steps[n].response }}, {{ tasks.<id>.response }}, {{ branches.<id>.response }}, {{ execution.history }}",
+        ),
         ("Context", "Explicit step/task/branch references, execution metadata"),
         ("OTEL", "Parsed (no-op; scaffolding ready)"),
     ]

@@ -533,9 +533,7 @@ class TestCLIErrorHandling:
         # Should show loading steps or capability checking
         assert len(result.stdout) > 100  # Verbose output should be substantial
 
-    def test_explain_with_verbose_shows_capability_details(
-        self, minimal_ollama_spec: Path
-    ) -> None:
+    def test_explain_with_verbose_shows_capability_details(self, minimal_ollama_spec: Path) -> None:
         """Test explain command with --verbose shows capability check details."""
         result = runner.invoke(app, ["explain", str(minimal_ollama_spec), "--verbose"])
 

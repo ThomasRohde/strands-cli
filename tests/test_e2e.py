@@ -293,7 +293,9 @@ class TestRuntimeErrorsE2E:
         """Test graceful handling of provider connection failures."""
         # Mock AgentCache.get_or_build_agent to raise an error
         mock_cache = mocker.AsyncMock()
-        mock_cache.get_or_build_agent.side_effect = RuntimeError("Failed to connect to Ollama server")
+        mock_cache.get_or_build_agent.side_effect = RuntimeError(
+            "Failed to connect to Ollama server"
+        )
         mocker.patch("strands_cli.exec.single_agent.AgentCache", return_value=mock_cache)
 
         spec = load_spec(str(minimal_ollama_spec))

@@ -693,10 +693,12 @@ class TestArtifactPathSecurity:
     def test_blocks_path_traversal_via_template(self, temp_artifacts_dir: Path):
         """Test that path traversal via template is blocked."""
         artifacts = [
-            Artifact.model_validate({
-                "path": "{{ malicious_path }}",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "{{ malicious_path }}",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         variables = {"malicious_path": "../../etc/passwd"}
@@ -714,10 +716,12 @@ class TestArtifactPathSecurity:
         import platform
 
         artifacts = [
-            Artifact.model_validate({
-                "path": "{{ abs_path }}",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "{{ abs_path }}",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         # Use platform-appropriate absolute path
@@ -739,10 +743,12 @@ class TestArtifactPathSecurity:
     def test_blocks_windows_absolute_path(self, temp_artifacts_dir: Path):
         """Test that Windows absolute paths are blocked."""
         artifacts = [
-            Artifact.model_validate({
-                "path": "{{ win_path }}",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "{{ win_path }}",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         variables = {"win_path": "C:\\Windows\\System32\\config"}
@@ -769,10 +775,12 @@ class TestArtifactPathSecurity:
             pytest.skip("Symlinks not supported on this platform")
 
         artifacts = [
-            Artifact.model_validate({
-                "path": "symlink.txt",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "symlink.txt",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         with pytest.raises(ArtifactError, match=r"(symlink|escapes output directory)"):
@@ -786,10 +794,12 @@ class TestArtifactPathSecurity:
     def test_sanitizes_path_components_after_rendering(self, temp_artifacts_dir: Path):
         """Test that each path component is sanitized after template rendering."""
         artifacts = [
-            Artifact.model_validate({
-                "path": "{{ subdir }}/{{ filename }}",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "{{ subdir }}/{{ filename }}",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         variables = {
@@ -817,10 +827,12 @@ class TestArtifactPathSecurity:
     def test_nested_path_stays_within_output_dir(self, temp_artifacts_dir: Path):
         """Test that nested paths stay within output directory."""
         artifacts = [
-            Artifact.model_validate({
-                "path": "reports/analysis/summary.txt",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "reports/analysis/summary.txt",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         written = write_artifacts(
@@ -843,10 +855,12 @@ class TestArtifactPathSecurity:
     def test_complex_traversal_attempt_blocked(self, temp_artifacts_dir: Path):
         """Test that complex multi-level traversal is blocked."""
         artifacts = [
-            Artifact.model_validate({
-                "path": "{{ path }}",
-                "from": "{{ last_response }}",
-            })
+            Artifact.model_validate(
+                {
+                    "path": "{{ path }}",
+                    "from": "{{ last_response }}",
+                }
+            )
         ]
 
         # Multiple traversal attempts
@@ -859,4 +873,3 @@ class TestArtifactPathSecurity:
                 output_dir=temp_artifacts_dir,
                 variables=variables,
             )
-

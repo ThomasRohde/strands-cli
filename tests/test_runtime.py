@@ -482,7 +482,9 @@ class TestCreateModel:
 
         # Should have logged cache stats after the 10th call
         # Check if info was called with cache stats
-        info_calls = [call for call in mock_logger.info.call_args_list if call[0][0] == "model_cache_stats"]
+        info_calls = [
+            call for call in mock_logger.info.call_args_list if call[0][0] == "model_cache_stats"
+        ]
         assert len(info_calls) >= 1
 
         # Verify the logged stats
@@ -660,7 +662,9 @@ class TestBuildAgent:
         mock_load.return_value = mock_callable
 
         # Add Python tool to spec
-        sample_ollama_spec.tools = Tools(python=[PythonTool(callable="strands_tools.http_request.http_request")])
+        sample_ollama_spec.tools = Tools(
+            python=[PythonTool(callable="strands_tools.http_request.http_request")]
+        )
 
         agent_config = AgentConfig(prompt="Base prompt")
 
@@ -803,6 +807,24 @@ class TestLoadPythonCallable:
         assert result == mock_module
         assert hasattr(result, "TOOL_SPEC")
         assert result.TOOL_SPEC["name"] == "file_write"
+
+    def test_loads_old_format_callable(self, mocker):
+        """Should load callable using old format (backward compatibility)."""
+        # Mock the import
+        mock_module = Mock(spec=["calculator"])
+        mock_calculator_func = Mock()  # Simulated callable
+        mock_module.calculator = mock_calculator_func
+
+        mocker.patch(
+            "strands_cli.runtime.tools.importlib.import_module",
+            return_value=mock_module,
+        )
+
+        # Old format: strands_tools.calculator (without repeating function name)
+        result = load_python_callable("strands_tools.calculator")
+
+        assert result == mock_calculator_func
+        assert callable(result)
 
     def test_loads_decorated_tool_without_tool_spec(self, mocker):
         """Should return function object if module doesn't have TOOL_SPEC (@tool decorated)."""
@@ -1127,9 +1149,7 @@ class TestHttpExecutorSecurity:
     def test_env_var_allowed_domains_enforces_allowlist(self, monkeypatch):
         """Test that STRANDS_HTTP_ALLOWED_DOMAINS env var enforces allowlist."""
         # Set allowed domains (use simple pattern)
-        monkeypatch.setenv(
-            "STRANDS_HTTP_ALLOWED_DOMAINS", '["^https://api.trusted.com"]'
-        )
+        monkeypatch.setenv("STRANDS_HTTP_ALLOWED_DOMAINS", '["^https://api.trusted.com"]')
 
         # Should allow URLs matching the pattern
         executor = HttpExecutor(

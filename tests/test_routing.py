@@ -163,9 +163,9 @@ def test_validate_route_exists_invalid():
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
 @pytest.mark.asyncio
-
-
-async def test_run_routing_success(mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent):
+async def test_run_routing_success(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
+):
     """Test successful routing execution with valid route selection."""
     # Mock router agent response - invoke_async returns string directly
     mock_agent.invoke_async = AsyncMock(return_value='{"route": "faq"}')
@@ -201,8 +201,6 @@ async def test_run_routing_success(mock_run_chain, mock_get_agent, minimal_routi
 
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_invalid_route(mock_get_agent, minimal_routing_spec, mock_agent):
     """Test routing fails with clear error for invalid route name."""
     # Mock router returns invalid route - invoke_async returns string directly
@@ -222,8 +220,6 @@ async def test_run_routing_invalid_route(mock_get_agent, minimal_routing_spec, m
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_retry_on_malformed_json(
     mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
@@ -258,8 +254,6 @@ async def test_run_routing_retry_on_malformed_json(
 
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_exhausts_retries(mock_get_agent, minimal_routing_spec, mock_agent):
     """Test routing fails after exhausting retry attempts."""
     # All attempts return malformed JSON
@@ -277,8 +271,6 @@ async def test_run_routing_exhausts_retries(mock_get_agent, minimal_routing_spec
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_multi_step_route(
     mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
@@ -310,8 +302,6 @@ async def test_run_routing_multi_step_route(
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_template_context(
     mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
@@ -342,8 +332,6 @@ async def test_run_routing_template_context(
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_custom_max_retries(
     mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
@@ -363,8 +351,6 @@ async def test_run_routing_custom_max_retries(
 
 
 @pytest.mark.asyncio
-
-
 async def test_run_routing_no_router_config(minimal_routing_spec):
     """Test routing fails gracefully when router config is missing."""
     minimal_routing_spec.pattern.config.router = None
@@ -376,8 +362,6 @@ async def test_run_routing_no_router_config(minimal_routing_spec):
 
 
 @pytest.mark.asyncio
-
-
 async def test_run_routing_no_routes(minimal_routing_spec):
     """Test routing fails gracefully when routes are missing."""
     minimal_routing_spec.pattern.config.routes = None
@@ -389,8 +373,6 @@ async def test_run_routing_no_routes(minimal_routing_spec):
 
 
 @pytest.mark.asyncio
-
-
 async def test_run_routing_empty_route(minimal_routing_spec):
     """Test routing fails when selected route has no steps."""
     # Create route with no steps
@@ -411,8 +393,6 @@ async def test_run_routing_empty_route(minimal_routing_spec):
 @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
 @patch("strands_cli.exec.routing.run_chain")
 @pytest.mark.asyncio
-
-
 async def test_run_routing_preserves_user_variables(
     mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
@@ -436,6 +416,3 @@ async def test_run_routing_preserves_user_variables(
     assert route_variables["query"] == "test"
     assert route_variables["user_id"] == "123"
     assert route_variables["router"]["chosen_route"] == "faq"
-
-
-

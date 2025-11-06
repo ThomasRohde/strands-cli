@@ -194,7 +194,9 @@ async def _execute_task(
     # Phase 5: Use cached agent instead of rebuilding per task
     try:
         # Use task's tool_overrides if provided, else use agent's tools
-        tools_for_task = task.tool_overrides if hasattr(task, 'tool_overrides') and task.tool_overrides else None
+        tools_for_task = (
+            task.tool_overrides if hasattr(task, 'tool_overrides') and task.tool_overrides else None
+        )
         agent = await cache.get_or_build_agent(
             spec, task_agent_id, task_agent_config, tool_overrides=tools_for_task
         )
@@ -203,7 +205,9 @@ async def _execute_task(
 
     # Execute with retry logic
     try:
-        task_response = await invoke_agent_with_retry(agent, task_input, max_attempts, wait_min, wait_max)
+        task_response = await invoke_agent_with_retry(
+            agent, task_input, max_attempts, wait_min, wait_max
+        )
     except Exception as e:
         error_msg = f"Task '{task.id}' failed: {e}"
         logger.error("workflow_task_failed", task=task.id, error=str(e))
@@ -387,7 +391,6 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     # Phase 5: Create AgentCache for agent reuse across tasks
     cache = AgentCache()
     try:
-
         # Execute each layer
         for layer_index, layer_task_ids in enumerate(execution_layers):
             logger.info(

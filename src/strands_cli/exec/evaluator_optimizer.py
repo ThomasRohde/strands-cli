@@ -125,7 +125,9 @@ async def _run_evaluation_phase(
     evaluator_result = await invoke_agent_with_retry(
         evaluator_agent, eval_prompt, max_attempts, wait_min, wait_max
     )
-    evaluator_response = evaluator_result if isinstance(evaluator_result, str) else str(evaluator_result)
+    evaluator_response = (
+        evaluator_result if isinstance(evaluator_result, str) else str(evaluator_result)
+    )
     estimated_tokens = estimate_tokens(eval_prompt, evaluator_response)
     return evaluator_response, estimated_tokens
 
@@ -270,9 +272,7 @@ def _validate_evaluator_optimizer_config(spec: Spec) -> None:
         )
 
 
-async def run_evaluator_optimizer(
-    spec: Spec, variables: dict[str, str] | None = None
-) -> RunResult:
+async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute evaluator-optimizer pattern workflow.
 
     Phase 4 Implementation:
@@ -346,12 +346,8 @@ async def run_evaluator_optimizer(
     cache = AgentCache()
     try:
         # Get or build agents (reuse cached agents)
-        producer_agent = await cache.get_or_build_agent(
-            spec, producer_agent_id, producer_config
-        )
-        evaluator_agent = await cache.get_or_build_agent(
-            spec, evaluator_agent_id, evaluator_config
-        )
+        producer_agent = await cache.get_or_build_agent(spec, producer_agent_id, producer_config)
+        evaluator_agent = await cache.get_or_build_agent(spec, evaluator_agent_id, evaluator_config)
 
         # Iteration 1: Initial production
         current_draft, estimated_tokens = await _run_initial_production(
@@ -369,7 +365,9 @@ async def run_evaluator_optimizer(
                 evaluator_agent, current_draft, config, variables, max_attempts, wait_min, wait_max
             )
             cumulative_tokens += estimated_tokens
-            check_budget_threshold(cumulative_tokens, max_tokens, f"iteration_{iteration}_evaluation")
+            check_budget_threshold(
+                cumulative_tokens, max_tokens, f"iteration_{iteration}_evaluation"
+            )
 
             # Parse evaluator response (retry once on malformed JSON)
             evaluation: EvaluatorDecision | None = None
@@ -395,7 +393,11 @@ async def run_evaluator_optimizer(
                         clarification_result = await invoke_agent_with_retry(
                             evaluator_agent, clarification_prompt, max_attempts, wait_min, wait_max
                         )
-                        evaluator_response = clarification_result if isinstance(clarification_result, str) else str(clarification_result)
+                        evaluator_response = (
+                            clarification_result
+                            if isinstance(clarification_result, str)
+                            else str(clarification_result)
+                        )
 
                         # Estimate tokens for retry
                         estimated_tokens = estimate_tokens(clarification_prompt, evaluator_response)
@@ -418,13 +420,15 @@ async def run_evaluator_optimizer(
             final_score = evaluation.score
 
             # Record iteration history with full evaluator feedback
-            iteration_history.append({
-                "iteration": iteration,
-                "score": evaluation.score,
-                "issues": evaluation.issues or [],
-                "fixes": evaluation.fixes or [],
-                "draft_preview": current_draft[:100],
-            })
+            iteration_history.append(
+                {
+                    "iteration": iteration,
+                    "score": evaluation.score,
+                    "issues": evaluation.issues or [],
+                    "fixes": evaluation.fixes or [],
+                    "draft_preview": current_draft[:100],
+                }
+            )
 
             logger.info(
                 "evaluation_complete",
@@ -462,7 +466,9 @@ async def run_evaluator_optimizer(
             revision_response = await invoke_agent_with_retry(
                 producer_agent, revision_prompt, max_attempts, wait_min, wait_max
             )
-            current_draft = revision_response if isinstance(revision_response, str) else str(revision_response)
+            current_draft = (
+                revision_response if isinstance(revision_response, str) else str(revision_response)
+            )
 
             # Estimate tokens for revision
             estimated_tokens = estimate_tokens(revision_prompt, current_draft)

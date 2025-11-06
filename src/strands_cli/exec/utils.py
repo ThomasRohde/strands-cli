@@ -66,9 +66,7 @@ def get_retry_config(spec: Spec) -> tuple[int, int, int]:
         retries = policy.get("retries", max_attempts - 1)
 
         if retries < 0:
-            raise ExecutionUtilsError(
-                f"Invalid retry config: retries must be >= 0, got {retries}"
-            )
+            raise ExecutionUtilsError(f"Invalid retry config: retries must be >= 0, got {retries}")
 
         max_attempts = retries + 1
         backoff = policy.get("backoff", "exponential")
@@ -126,7 +124,7 @@ def check_budget_threshold(
             cumulative=cumulative_tokens,
             max=max_tokens,
             usage_pct=f"{usage_pct:.1f}",
-            threshold=f"{warn_threshold*100:.0f}%",
+            threshold=f"{warn_threshold * 100:.0f}%",
         )
 
 
@@ -305,7 +303,11 @@ class AgentCache:
         # Track HTTP executors for cleanup (extract from agent.tools)
         if hasattr(agent, "tools") and agent.tools:
             for tool in agent.tools:
-                if isinstance(tool, HttpExecutorAdapter) and hasattr(tool, "config") and hasattr(tool.config, "id"):
+                if (
+                    isinstance(tool, HttpExecutorAdapter)
+                    and hasattr(tool, "config")
+                    and hasattr(tool.config, "id")
+                ):
                     # Use HTTP executor's config.id as key
                     self._http_executors[tool.config.id] = tool
 
@@ -341,4 +343,3 @@ class AgentCache:
         # Clear caches
         self._agents.clear()
         self._http_executors.clear()
-

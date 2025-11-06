@@ -24,7 +24,6 @@ def minimal_spec(minimal_ollama_spec: Any) -> Spec:
     return load_spec(minimal_ollama_spec)
 
 
-
 @pytest.fixture
 def mock_agent() -> Mock:
     """Create mock Strands Agent."""
@@ -43,9 +42,7 @@ async def test_agent_cache_initialization() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_cache_miss_builds_new_agent(
-    minimal_spec: Spec, mock_agent: Mock
-) -> None:
+async def test_agent_cache_miss_builds_new_agent(minimal_spec: Spec, mock_agent: Mock) -> None:
     """Test cache miss builds new agent and caches it."""
     cache = AgentCache()
 
@@ -77,9 +74,7 @@ async def test_agent_cache_miss_builds_new_agent(
 
 
 @pytest.mark.asyncio
-async def test_agent_cache_hit_returns_cached_agent(
-    minimal_spec: Spec, mock_agent: Mock
-) -> None:
+async def test_agent_cache_hit_returns_cached_agent(minimal_spec: Spec, mock_agent: Mock) -> None:
     """Test cache hit returns cached agent without rebuilding."""
     cache = AgentCache()
 
@@ -124,7 +119,9 @@ async def test_agent_cache_different_tools_creates_separate_entry(
     mock_agent2 = Mock()
     mock_agent2.tools = []
 
-    with patch("strands_cli.exec.utils.build_agent", side_effect=[mock_agent1, mock_agent2]) as mock_build:
+    with patch(
+        "strands_cli.exec.utils.build_agent", side_effect=[mock_agent1, mock_agent2]
+    ) as mock_build:
         # Request agent with no tool overrides (default)
         agent1 = await cache.get_or_build_agent(
             minimal_spec,
@@ -338,7 +335,9 @@ async def test_agent_cache_tool_override_changes_cache_key(
     mock_agent2 = Mock()
     mock_agent2.tools = []
 
-    with patch("strands_cli.exec.utils.build_agent", side_effect=[mock_agent1, mock_agent2]) as mock_build:
+    with patch(
+        "strands_cli.exec.utils.build_agent", side_effect=[mock_agent1, mock_agent2]
+    ) as mock_build:
         # Request with no overrides (uses agent_config.tools which is None)
         await cache.get_or_build_agent(
             minimal_spec,
@@ -394,4 +393,3 @@ async def test_agent_cache_same_tools_different_order_same_key(
 
         # Verify only one cache entry
         assert len(cache._agents) == 1
-

@@ -455,7 +455,9 @@ class TestMultiAgentWorkflowRegression:
 
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
-    async def test_tasks_use_declared_agents(self, mock_get_agent: MagicMock, tmp_path: Path) -> None:
+    async def test_tasks_use_declared_agents(
+        self, mock_get_agent: MagicMock, tmp_path: Path
+    ) -> None:
         """Test that multi-agent workflows use correct agent per task.
 
         Regression test for issue where run_workflow reused one agent config for all tasks.

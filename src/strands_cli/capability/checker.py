@@ -33,12 +33,21 @@ from strands_cli.types import (
 
 # Allowlisted Python callable paths for security
 # Only these imports are permitted to prevent arbitrary code execution
+# Supports both old format (strands_tools.http_request) and new format
+# (strands_tools.http_request.http_request) for backward compatibility
 ALLOWED_PYTHON_CALLABLES = {
+    # New format (full path)
     "strands_tools.http_request.http_request",
     "strands_tools.file_read.file_read",
     "strands_tools.file_write.file_write",
     "strands_tools.calculator.calculator",
     "strands_tools.current_time.current_time",
+    # Old format (backward compatibility)
+    "strands_tools.http_request",
+    "strands_tools.file_read",
+    "strands_tools.file_write",
+    "strands_tools.calculator",
+    "strands_tools.current_time",
 }
 
 

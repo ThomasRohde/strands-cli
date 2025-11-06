@@ -41,9 +41,13 @@ def load_python_callable(import_path: str) -> Any:
     Security: Only loads from the ALLOWED_PYTHON_CALLABLES allowlist to prevent
     arbitrary code execution.
 
+    Supports both old and new path formats for backward compatibility:
+    - Old: "strands_tools.http_request" (infers function name from module)
+    - New: "strands_tools.http_request.http_request" (explicit function name)
+
     Args:
         import_path: Dotted import path like "strands_tools.calculator.calculator"
-                    or "strands_tools.file_read.file_read"
+                    or "strands_tools.calculator" (old format)
 
     Returns:
         Either a decorated function tool or a module-based tool object
@@ -54,11 +58,19 @@ def load_python_callable(import_path: str) -> Any:
     if import_path not in ALLOWED_PYTHON_CALLABLES:
         raise ToolError(
             f"Python callable '{import_path}' not in allowlist. "
-            f"Allowed: {', '.join(ALLOWED_PYTHON_CALLABLES)}"
+            f"Allowed: {', '.join(sorted(ALLOWED_PYTHON_CALLABLES))}"
         )
 
     try:
-        module_path, func_name = import_path.rsplit(".", 1)
+        # Normalize old format to new format for consistent handling
+        # Old: "strands_tools.http_request" -> New: "strands_tools.http_request.http_request"
+        if import_path.count(".") == 1:  # Old format (module.submodule)
+            # Extract the function name from the last part of the path
+            func_name = import_path.split(".")[-1]
+            module_path = import_path
+        else:  # New format (module.submodule.function)
+            module_path, func_name = import_path.rsplit(".", 1)
+
         module = importlib.import_module(module_path)
 
         # Check if this is a module-based tool (has TOOL_SPEC)

@@ -246,7 +246,7 @@ async def test_agent_caching_in_workflow_dag(
                         "id": f"task-{i}",
                         "agent": "task_agent",
                         "input": f"Execute task {i}",
-                        "depends_on": [f"task-{i-1}"] if i > 0 else [],
+                        "depends_on": [f"task-{i - 1}"] if i > 0 else [],
                     }
                     for i in range(5)
                 ]
