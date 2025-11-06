@@ -61,6 +61,75 @@ class EvaluatorOptimizerExecutionError(Exception):
 logger = structlog.get_logger(__name__)
 
 
+async def _run_initial_production(
+    producer_agent: Any,
+    initial_prompt: str,
+    max_attempts: int,
+    wait_min: int,
+    wait_max: int,
+) -> tuple[str, int]:
+    """Execute initial production phase.
+
+    Args:
+        producer_agent: The producer agent
+        initial_prompt: Initial prompt for production
+        max_attempts: Max retry attempts
+        wait_min: Min wait time for retries
+        wait_max: Max wait time for retries
+
+    Returns:
+        Tuple of (draft, estimated_tokens)
+    """
+    logger.info("iteration_start", iteration=1, phase="production")
+    producer_response = await invoke_agent_with_retry(
+        producer_agent, initial_prompt, max_attempts, wait_min, wait_max
+    )
+    draft = producer_response if isinstance(producer_response, str) else str(producer_response)
+    estimated_tokens = estimate_tokens(initial_prompt, draft)
+    return draft, estimated_tokens
+
+
+async def _run_evaluation_phase(
+    evaluator_agent: Any,
+    current_draft: str,
+    config: Any,
+    variables: dict[str, str] | None,
+    max_attempts: int,
+    wait_min: int,
+    wait_max: int,
+) -> tuple[str, int]:
+    """Execute evaluation phase.
+
+    Args:
+        evaluator_agent: The evaluator agent
+        current_draft: Current draft to evaluate
+        config: Pattern configuration
+        variables: User-provided variables
+        max_attempts: Max retry attempts
+        wait_min: Min wait time for retries
+        wait_max: Max wait time for retries
+
+    Returns:
+        Tuple of (evaluator_response, estimated_tokens)
+    """
+    # Build evaluation prompt
+    if config.evaluator.input:
+        eval_context = {"draft": current_draft}
+        if variables:
+            eval_context.update(variables)
+        eval_prompt = render_template(config.evaluator.input, eval_context)
+    else:
+        eval_prompt = f"Evaluate the following draft and return JSON with score (0-100), issues, and fixes:\n\n{current_draft}"
+
+    # Execute evaluator with retry on malformed JSON
+    evaluator_result = await invoke_agent_with_retry(
+        evaluator_agent, eval_prompt, max_attempts, wait_min, wait_max
+    )
+    evaluator_response = evaluator_result if isinstance(evaluator_result, str) else str(evaluator_result)
+    estimated_tokens = estimate_tokens(eval_prompt, evaluator_response)
+    return evaluator_response, estimated_tokens
+
+
 def _parse_evaluator_response(response: str, attempt: int) -> EvaluatorDecision:
     """Parse evaluator response to extract decision.
 
@@ -185,24 +254,20 @@ def _validate_evaluator_optimizer_config(spec: Spec) -> None:
 
     config = spec.pattern.config
 
-    if not config.producer:
-        raise EvaluatorOptimizerExecutionError("Producer agent not configured")
+    # Runtime assertions for type safety (validates Pydantic schema loading)
+    assert config.producer is not None, "Evaluator-optimizer pattern must have producer agent"
+    assert config.evaluator is not None, "Evaluator-optimizer pattern must have evaluator config"
+    assert config.accept is not None, "Evaluator-optimizer pattern must have accept criteria"
 
     if config.producer not in spec.agents:
         raise EvaluatorOptimizerExecutionError(
             f"Producer agent '{config.producer}' not found in agents map"
         )
 
-    if not config.evaluator:
-        raise EvaluatorOptimizerExecutionError("Evaluator configuration not found")
-
     if config.evaluator.agent not in spec.agents:
         raise EvaluatorOptimizerExecutionError(
             f"Evaluator agent '{config.evaluator.agent}' not found in agents map"
         )
-
-    if not config.accept:
-        raise EvaluatorOptimizerExecutionError("Accept criteria not configured")
 
 
 async def run_evaluator_optimizer(
@@ -242,10 +307,16 @@ async def run_evaluator_optimizer(
     max_tokens = spec.runtime.budgets.get("max_tokens") if spec.runtime.budgets else None
 
     config = spec.pattern.config
+
+    # Runtime assertions for type safety (already validated in _validate_evaluator_optimizer_config)
+    assert config.producer is not None
+    assert config.evaluator is not None
+    assert config.accept is not None
+
     producer_agent_id = config.producer
-    evaluator_agent_id = config.evaluator.agent  # type: ignore
-    min_score = config.accept.min_score  # type: ignore
-    max_iters = config.accept.max_iters  # type: ignore
+    evaluator_agent_id = config.evaluator.agent
+    min_score = config.accept.min_score
+    max_iters = config.accept.max_iters
     revise_prompt_template = config.revise_prompt or (
         "Revise the following draft based on evaluator feedback.\n\n"
         "Draft:\n{{ draft }}\n\n"
@@ -260,7 +331,7 @@ async def run_evaluator_optimizer(
     )
 
     # Get agent configurations
-    producer_config = spec.agents[producer_agent_id]  # type: ignore
+    producer_config = spec.agents[producer_agent_id]
     evaluator_config = spec.agents[evaluator_agent_id]
 
     # Build initial producer prompt
@@ -276,21 +347,16 @@ async def run_evaluator_optimizer(
     try:
         # Get or build agents (reuse cached agents)
         producer_agent = await cache.get_or_build_agent(
-            spec, producer_agent_id, producer_config  # type: ignore
+            spec, producer_agent_id, producer_config
         )
         evaluator_agent = await cache.get_or_build_agent(
             spec, evaluator_agent_id, evaluator_config
         )
 
         # Iteration 1: Initial production
-        logger.info("iteration_start", iteration=1, phase="production")
-        producer_response = await invoke_agent_with_retry(
+        current_draft, estimated_tokens = await _run_initial_production(
             producer_agent, initial_prompt, max_attempts, wait_min, wait_max
         )
-        current_draft = producer_response if isinstance(producer_response, str) else str(producer_response)
-
-        # Estimate tokens for production
-        estimated_tokens = estimate_tokens(initial_prompt, current_draft)
         cumulative_tokens += estimated_tokens
         check_budget_threshold(cumulative_tokens, max_tokens, "iteration_1_production")
 
@@ -298,23 +364,10 @@ async def run_evaluator_optimizer(
         for iteration in range(1, max_iters + 1):
             logger.info("iteration_start", iteration=iteration, phase="evaluation")
 
-            # Build evaluation prompt
-            if config.evaluator.input:  # type: ignore
-                eval_context = {"draft": current_draft}
-                if variables:
-                    eval_context.update(variables)
-                eval_prompt = render_template(config.evaluator.input, eval_context)  # type: ignore
-            else:
-                eval_prompt = f"Evaluate the following draft and return JSON with score (0-100), issues, and fixes:\n\n{current_draft}"
-
-            # Execute evaluator with retry on malformed JSON
-            evaluator_result = await invoke_agent_with_retry(
-                evaluator_agent, eval_prompt, max_attempts, wait_min, wait_max
+            # Execute evaluation phase
+            evaluator_response, estimated_tokens = await _run_evaluation_phase(
+                evaluator_agent, current_draft, config, variables, max_attempts, wait_min, wait_max
             )
-            evaluator_response = evaluator_result if isinstance(evaluator_result, str) else str(evaluator_result)
-
-            # Estimate tokens for evaluation
-            estimated_tokens = estimate_tokens(eval_prompt, evaluator_response)
             cumulative_tokens += estimated_tokens
             check_budget_threshold(cumulative_tokens, max_tokens, f"iteration_{iteration}_evaluation")
 

@@ -321,6 +321,10 @@ def run(
         str, typer.Option("--out", help="Output directory for artifacts")
     ] = "./artifacts",
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing artifacts")] = False,
+    bypass_tool_consent: Annotated[
+        bool,
+        typer.Option("--bypass-tool-consent", help="Skip interactive tool confirmations (sets BYPASS_TOOL_CONSENT=true)"),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
     """Run a single-agent workflow from a YAML or JSON file.
@@ -338,6 +342,7 @@ def run(
         var: CLI variable overrides in key=value format, merged into inputs.values
         out: Output directory for artifacts (default: ./artifacts)
         force: Overwrite existing artifact files without error
+        bypass_tool_consent: Skip interactive tool confirmations (e.g., file_write prompts)
         verbose: Enable detailed logging and error traces
 
     Exit Codes:
@@ -348,7 +353,15 @@ def run(
         EX_UNSUPPORTED (18): Unsupported features detected (report written)
         EX_UNKNOWN (70): Unexpected exception
     """
+    import os
+
     try:
+        # Set environment variable for tool consent bypass if requested
+        if bypass_tool_consent:
+            os.environ["BYPASS_TOOL_CONSENT"] = "true"
+            if verbose:
+                console.print("[dim]BYPASS_TOOL_CONSENT enabled[/dim]")
+
         # Parse variables
         variables = parse_variables(var) if var else {}
 
@@ -637,7 +650,7 @@ def list_supported() -> None:
         ("Agents", "Multiple agents supported"),
         ("Patterns", "chain, workflow, routing, parallel, evaluator-optimizer"),
         ("Providers", "bedrock, ollama, openai"),
-        ("Python Tools", "strands_tools.http_request, strands_tools.file_read"),
+        ("Python Tools", "strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}"),
         ("HTTP Executors", "Full support"),
         ("Secrets", "source: env only"),
         ("Skills", "Metadata injection (no code exec)"),

@@ -45,6 +45,47 @@ class TestLoadSpec:
         assert len(spec.tools.http_executors) == 1
         assert spec.tools.http_executors[0].id == "api"
 
+    def test_load_python_tools_string_format(self, temp_output_dir: Path) -> None:
+        """Test that Python tools in string format are converted to PythonTool objects."""
+        spec_file = temp_output_dir / "python-tools.yaml"
+        spec_content = """
+version: 0
+name: python-tools-test
+runtime:
+  provider: ollama
+  model_id: gpt
+  host: http://localhost:11434
+tools:
+  python:
+    - strands_tools.http_request.http_request
+    - strands_tools.calculator.calculator
+agents:
+  test:
+    prompt: "Test agent"
+    tools:
+      - strands_tools.http_request.http_request
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+
+        spec = load_spec(spec_file)
+
+        # Verify that string format was converted to PythonTool objects
+        assert spec.tools is not None
+        assert spec.tools.python is not None
+        assert len(spec.tools.python) == 2
+        assert spec.tools.python[0].callable == "strands_tools.http_request.http_request"
+        assert spec.tools.python[1].callable == "strands_tools.calculator.calculator"
+
     def test_load_yaml_with_skills(self, with_skills_spec: Path) -> None:
         """Test loading spec with skills."""
         spec = load_spec(with_skills_spec)

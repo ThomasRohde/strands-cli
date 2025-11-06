@@ -18,7 +18,7 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ✅ **Capability checking** with graceful degradation (exit code 18)
 - ✅ **Variable substitution** via `--var` flags and Jinja2 templates
 - ✅ **HTTP executor tools** with timeout/retry
-- ✅ **Python tool allowlist** (`strands_tools.http_request`, `strands_tools.file_read`)
+- ✅ **Python tool allowlist** (`strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time`)
 - ✅ **Artifact output** with overwrite protection (`--force` to override)
 - ✅ **Skills metadata** injection (no code execution)
 - ✅ **Environment secrets** (`source: env`)
@@ -127,6 +127,16 @@ export OPENAI_API_KEY=your-api-key
 uv run strands run examples/single-agent-chain-openai.yaml --var topic="quantum computing"
 ```
 
+#### Run workflow with file_write tool (bypass consent for automation)
+
+```bash
+# Interactive mode (prompts for file write consent)
+uv run strands run examples/workflow-file-operations-openai.yaml
+
+# Automation mode (bypasses consent prompts)
+uv run strands run examples/workflow-file-operations-openai.yaml --bypass-tool-consent
+```
+
 #### Show execution plan
 
 ```bash
@@ -176,6 +186,16 @@ uv run strands run workflow.yaml \
 uv run strands run workflow.yaml --force
 ```
 
+#### Bypass file_write consent for automation
+
+```bash
+# Review workflow first
+uv run strands validate workflow.yaml
+
+# Run with bypassed consent (for CI/CD)
+uv run strands run workflow.yaml --bypass-tool-consent --force
+```
+
 #### Verbose output
 
 ```bash
@@ -190,7 +210,7 @@ Strands CLI implements defense-in-depth security for user-editable workflow spec
 
 **🔒 Template Sandboxing** - Jinja2 templates use `SandboxedEnvironment` to prevent code execution
 ```yaml
-# ❌ BLOCKED: Python introspection attacks
+# [X] BLOCKED: Python introspection attacks
 outputs:
   artifacts:
     - path: "{{ ''.__class__.__mro__ }}"  # Sandbox blocks this
@@ -198,7 +218,7 @@ outputs:
 
 **🔒 SSRF Prevention** - HTTP executors validate URLs against blocklist
 ```yaml
-# ❌ BLOCKED: Internal network access
+# [X] BLOCKED: Internal network access
 tools:
   http_executors:
     - base_url: "http://169.254.169.254"  # AWS metadata endpoint blocked
@@ -206,7 +226,7 @@ tools:
 
 **🔒 Path Traversal Protection** - Artifact paths validated and sanitized
 ```bash
-# ❌ BLOCKED: Directory escape attempts
+# [X] BLOCKED: Directory escape attempts
 strands run spec.yaml --var path="../../etc/passwd"
 ```
 
@@ -423,7 +443,7 @@ Environment variables (prefix: `STRANDS_`):
 | **Agents** | Multiple agents | Single or multi-agent workflows |
 | **Patterns** | `chain`, `workflow`, `routing`, `parallel` | Multi-step/task/branch supported |
 | **Providers** | `bedrock`, `ollama`, `openai` | Full authentication support |
-| **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read` |
+| **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time` |
 | **HTTP Executors** | ✅ Full support | Timeout, retries, headers |
 | **Secrets** | `source: env` only | Secrets Manager/SSM → future |
 | **Skills** | Metadata injection | Code execution → future |

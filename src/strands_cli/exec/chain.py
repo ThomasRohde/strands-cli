@@ -146,10 +146,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
             # Render step input (default to empty if not provided)
             step_input_template = step.input or ""
-            try:
-                step_input = render_template(step_input_template, template_context)
-            except Exception as e:
-                raise ChainExecutionError(f"Failed to render step {step_index} input: {e}") from e
+            step_input = render_template(step_input_template, template_context)
 
             # Get the correct agent config for this step (Phase 2: support multi-agent chains)
             step_agent_id = step.agent
@@ -160,24 +157,16 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             step_agent_config = spec.agents[step_agent_id]
 
             # Phase 4: Use cached agent instead of rebuilding per step
-            try:
-                # Use step's tool_overrides if provided, else use agent's tools
-                tools_for_step = step.tool_overrides if step.tool_overrides else None
-                agent = await cache.get_or_build_agent(
-                    spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
-                )
-            except Exception as e:
-                raise ChainExecutionError(f"Failed to build agent for step {step_index}: {e}") from e
+            # Use step's tool_overrides if provided, else use agent's tools
+            tools_for_step = step.tool_overrides if step.tool_overrides else None
+            agent = await cache.get_or_build_agent(
+                spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
+            )
 
             # Phase 4: Direct await instead of asyncio.run() per step
-            try:
-                step_response = await invoke_agent_with_retry(
-                    agent, step_input, max_attempts, wait_min, wait_max
-                )
-            except Exception as e:
-                error_msg = f"Step {step_index} failed: {e}"
-                logger.error("chain_step_failed", step=step_index, error=str(e))
-                raise ChainExecutionError(error_msg) from e
+            step_response = await invoke_agent_with_retry(
+                agent, step_input, max_attempts, wait_min, wait_max
+            )
 
             # Extract response text
             response_text = step_response if isinstance(step_response, str) else str(step_response)
@@ -204,6 +193,12 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 response_length=len(response_text),
                 cumulative_tokens=cumulative_tokens,
             )
+
+    except Exception as e:
+        # Re-wrap low-level errors in ChainExecutionError for consistent error handling
+        if isinstance(e, ChainExecutionError):
+            raise
+        raise ChainExecutionError(f"Chain execution failed: {e}") from e
     finally:
         # Phase 4: Clean up cached agents and HTTP clients
         await cache.close()

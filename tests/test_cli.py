@@ -442,3 +442,176 @@ class TestCLIErrorHandling:
 
         # Should still exit with schema error, but verbose may show more context
         assert result.exit_code == EX_SCHEMA
+
+    def test_malformed_yaml_returns_schema_error(self, malformed_spec: Path) -> None:
+        """Test malformed YAML returns EX_SCHEMA across all commands."""
+        # Validate command
+        result = runner.invoke(app, ["validate", str(malformed_spec)])
+        assert result.exit_code == EX_SCHEMA
+        assert "failed" in result.stdout.lower() or "error" in result.stdout.lower()
+
+        # Plan command
+        result = runner.invoke(app, ["plan", str(malformed_spec)])
+        assert result.exit_code == EX_SCHEMA
+
+        # Explain command
+        result = runner.invoke(app, ["explain", str(malformed_spec)])
+        assert result.exit_code == EX_SCHEMA
+
+    def test_schema_validation_error_shows_location(self, missing_required_spec: Path) -> None:
+        """Test schema validation errors show JSONPointer location."""
+        result = runner.invoke(app, ["validate", str(missing_required_spec)])
+
+        assert result.exit_code == EX_SCHEMA
+        # Should show some path context (may vary based on error message format)
+        assert "error" in result.stdout.lower()
+
+    def test_run_with_invalid_provider_returns_runtime_error(
+        self,
+        mocker: Any,
+        temp_artifacts_dir: Path,
+        minimal_ollama_spec: Path,
+    ) -> None:
+        """Test run command with provider initialization failure returns EX_RUNTIME."""
+        # Mock create_model to raise RuntimeError (simulating provider failure)
+        mocker.patch(
+            "strands_cli.runtime.strands_adapter.create_model",
+            side_effect=RuntimeError("Failed to connect to provider"),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(minimal_ollama_spec),
+                "--out",
+                str(temp_artifacts_dir),
+                "--force",
+            ],
+        )
+
+        assert result.exit_code == EX_RUNTIME
+        assert "failed" in result.stdout.lower() or "error" in result.stdout.lower()
+
+    def test_run_with_readonly_output_dir_shows_error(
+        self,
+        mocker: Any,
+        minimal_ollama_spec: Path,
+        temp_artifacts_dir: Path,
+        mock_ollama_client: Mock,
+        mock_strands_agent: Mock,
+        mock_create_model: Any,
+    ) -> None:
+        """Test run command with read-only output directory shows artifact write error."""
+        mocker.patch("time.sleep")
+        mock_strands_agent.invoke_async.return_value = "Test response"
+
+        # Mock Path.write_text to raise PermissionError (simulating read-only filesystem)
+        mocker.patch("pathlib.Path.write_text", side_effect=PermissionError("Permission denied"))
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(minimal_ollama_spec),
+                "--out",
+                str(temp_artifacts_dir),
+                "--force",
+            ],
+        )
+
+        # Should show error message about artifact writing
+        # Note: Current implementation may exit with EX_RUNTIME or show error message
+        # This test ensures the error is surfaced to the user
+        assert "error" in result.stdout.lower() or "failed" in result.stdout.lower()
+
+    def test_plan_with_verbose_shows_detailed_info(self, minimal_ollama_spec: Path) -> None:
+        """Test plan command with --verbose shows detailed execution info."""
+        result = runner.invoke(app, ["plan", str(minimal_ollama_spec), "--verbose"])
+
+        assert result.exit_code == EX_OK
+        # Should show loading steps or capability checking
+        assert len(result.stdout) > 100  # Verbose output should be substantial
+
+    def test_explain_with_verbose_shows_capability_details(
+        self, minimal_ollama_spec: Path
+    ) -> None:
+        """Test explain command with --verbose shows capability check details."""
+        result = runner.invoke(app, ["explain", str(minimal_ollama_spec), "--verbose"])
+
+        assert result.exit_code == EX_OK
+        # Should show checking messages or detailed compatibility info
+        assert "compatible" in result.stdout.lower() or "no unsupported" in result.stdout.lower()
+
+    def test_run_with_bypass_tool_consent_sets_env_var(
+        self,
+        mocker: Any,
+        minimal_ollama_spec: Path,
+        temp_artifacts_dir: Path,
+        mock_ollama_client: Mock,
+        mock_strands_agent: Mock,
+        mock_create_model: Any,
+    ) -> None:
+        """Test --bypass-tool-consent flag sets BYPASS_TOOL_CONSENT environment variable."""
+        mocker.patch("time.sleep")
+        mock_strands_agent.invoke_async.return_value = "Test response"
+
+        # Mock os.environ to capture environment variable changes
+        import os
+
+        original_environ = os.environ.copy()
+        mocker.patch.dict(os.environ, original_environ, clear=False)
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(minimal_ollama_spec),
+                "--bypass-tool-consent",
+                "--out",
+                str(temp_artifacts_dir),
+                "--force",
+            ],
+        )
+
+        # Verify the environment variable was set to "true"
+        assert os.environ.get("BYPASS_TOOL_CONSENT") == "true"
+
+        # Should still succeed normally
+        assert result.exit_code == EX_OK
+
+    def test_run_without_bypass_tool_consent_does_not_set_env_var(
+        self,
+        mocker: Any,
+        minimal_ollama_spec: Path,
+        temp_artifacts_dir: Path,
+        mock_ollama_client: Mock,
+        mock_strands_agent: Mock,
+        mock_create_model: Any,
+    ) -> None:
+        """Test run without --bypass-tool-consent does not set the environment variable."""
+        mocker.patch("time.sleep")
+        mock_strands_agent.invoke_async.return_value = "Test response"
+
+        # Ensure BYPASS_TOOL_CONSENT is not set initially
+        import os
+
+        if "BYPASS_TOOL_CONSENT" in os.environ:
+            del os.environ["BYPASS_TOOL_CONSENT"]
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(minimal_ollama_spec),
+                "--out",
+                str(temp_artifacts_dir),
+                "--force",
+            ],
+        )
+
+        # Verify the environment variable was NOT set
+        assert "BYPASS_TOOL_CONSENT" not in os.environ
+
+        # Should still succeed normally
+        assert result.exit_code == EX_OK

@@ -1,0 +1,139 @@
+# Routing Example with Multiple Tools (OpenAI)
+#
+# This example demonstrates using different tools in different routing paths.
+# A router agent determines the type of request and routes it to specialized
+# agents equipped with appropriate tools (calculator for math, file_read for
+# documentation, http_request for API queries, current_time for scheduling).
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/routing-multi-tool-openai.yaml --var request="What is the derivative of x^2 + 3x?"
+#   uv run strands run examples/routing-multi-tool-openai.yaml --var request="Read the contents of README.md"
+#   uv run strands run examples/routing-multi-tool-openai.yaml --var request="What time is it in UTC?"
+#   uv run strands run examples/routing-multi-tool-openai.yaml --var request="Get the latest Python version from pypi.org/pypi/python/json"
+#
+# Features Demonstrated:
+#   - Routing pattern with tool-specific routes
+#   - Multiple Python tools: calculator, file_read, current_time, http_request
+#   - Dynamic agent selection based on request type
+#   - Specialized agents with targeted tool access
+
+version: 0
+name: routing-multi-tool-openai
+description: |
+  Demonstrates routing requests to specialized agents with different tools.
+  Router analyzes the request and directs it to math, file, time, or API specialist.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+agents:
+  request_router:
+    prompt: |
+      You are a request router. Analyze the user's request and determine which
+      specialist should handle it. Choose the route name based on the request type:
+      
+      - "math" - for mathematical calculations, equations, derivatives, integrals
+      - "file" - for reading file contents or documentation
+      - "time" - for current time, date, or timezone queries
+      - "api" - for HTTP API requests or web data retrieval
+      
+      Respond with ONLY a JSON object in this exact format: {"route": "<route_name>"}
+      where <route_name> is one of: math, file, time, or api.
+
+  math_specialist:
+    prompt: |
+      You are a mathematics specialist with access to a powerful calculator.
+      Use the calculator tool to solve mathematical problems accurately.
+      Explain your solutions clearly and show the results.
+
+  file_specialist:
+    prompt: |
+      You are a documentation specialist with access to file reading capabilities.
+      Use the file_read tool to access files and provide their contents or
+      information about them. Be helpful and thorough.
+
+  time_specialist:
+    prompt: |
+      You are a time and scheduling specialist. Use the current_time tool to
+      provide accurate time information. You can get current time, convert
+      between timezones, and answer time-related queries.
+
+  api_specialist:
+    prompt: |
+      You are an API integration specialist. Use the http_request tool to
+      make HTTP requests and retrieve data from web APIs. Parse and present
+      the results in a user-friendly format.
+
+tools:
+  python:
+    - strands_tools.calculator.calculator
+    - strands_tools.file_read.file_read
+    - strands_tools.current_time.current_time
+    - strands_tools.http_request.http_request
+
+pattern:
+  type: routing
+  config:
+    router:
+      agent: request_router
+      input: |
+        Analyze this request and choose the appropriate route (math/file/time/api):
+        
+        {{ request }}
+
+    routes:
+      math:
+        then:
+          - agent: math_specialist
+            input: |
+              Solve this mathematical problem:
+              {{ request }}
+              
+              Use the calculator tool to compute the answer.
+
+      file:
+        then:
+          - agent: file_specialist
+            input: |
+              Handle this file-related request:
+              {{ request }}
+              
+              Use the file_read tool to access the file.
+
+      time:
+        then:
+          - agent: time_specialist
+            input: |
+              Answer this time-related query:
+              {{ request }}
+              
+              Use the current_time tool to get accurate time information.
+
+      api:
+        then:
+          - agent: api_specialist
+            input: |
+              Handle this API request:
+              {{ request }}
+              
+              Use the http_request tool to retrieve the data. For URLs like
+              "pypi.org/pypi/python/json", prepend "https://" to make it complete.
+
+outputs:
+  artifacts:
+    - path: ./artifacts/routing-result.md
+      from: |
+        # Multi-Tool Routing Result
+        
+        ## Original Request
+        {{ request }}
+        
+        ## Response
+        {{ last_response }}

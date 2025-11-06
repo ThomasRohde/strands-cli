@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Python Tool Expansion
+
+#### New Python Tools
+- **file_write tool** - Write content to files with user consent protection
+  - Interactive consent prompts in normal mode
+  - `--bypass-tool-consent` flag for automation/CI environments
+  - Sets `BYPASS_TOOL_CONSENT=true` environment variable
+  - Security warnings for untrusted workflows (see docs/security.md)
+- **calculator tool** - Mathematical calculations using SymPy
+  - Supports arithmetic, algebra, calculus operations
+  - Safe evaluation (no code execution)
+- **current_time tool** - Get current date and time
+  - Returns formatted timestamps
+  - Read-only operation
+
+#### Tool Loading Architecture Improvements
+- **Module-based tool detection** - Support for tools with `TOOL_SPEC` attribute
+  - Automatically detects module-based vs @tool decorated functions
+  - Returns module itself for module-based tools (e.g., file_write)
+  - Returns function object for @tool decorated functions
+  - Fixes "unrecognized tool specification" warnings from Strands SDK
+- **String format support** - Simplified tool specification in YAML
+  - JSON Schema accepts: `["strands_tools.calculator.calculator"]`
+  - Pydantic validator converts to: `[{"callable": "strands_tools.calculator.calculator"}]`
+  - Backwards compatible with dict format
+
+#### CLI Enhancements
+- **--bypass-tool-consent flag** - Added to `run` command
+  - Skips interactive file_write confirmation prompts
+  - Required for CI/CD automation with file_write tool
+  - Security implications documented in docs/security.md
+- **Updated list-supported output** - Now shows all 5 Python tools
+  - `strands_tools.http_request.http_request`
+  - `strands_tools.file_read.file_read`
+  - `strands_tools.file_write.file_write` (NEW)
+  - `strands_tools.calculator.calculator` (NEW)
+  - `strands_tools.current_time.current_time` (NEW)
+
+#### Example Workflows
+- **chain-calculator-openai.yaml** - Demonstrates calculator tool for multi-step math problems
+- **routing-multi-tool-openai.yaml** - Routes to specialized agents using all 5 Python tools
+- **simple-file-read-openai.yaml** - Simple file reading and summarization
+- **workflow-file-operations-openai.yaml** - File read/write workflow for document generation
+
+### Changed
+- **Python tool allowlist** - Expanded from 2 to 5 tools in `capability/checker.py`
+  - Old: `strands_tools.http_request`, `strands_tools.file_read`
+  - New: All tools use full path format (see Breaking Changes below)
+- **Error handling refactoring** - Cleaner error propagation in executors
+  - Chain executor: Single catch-all exception handler replaces nested try-except
+  - Evaluator-optimizer: Extracted helper functions for better separation of concerns
+  - Removed nested error wrapping for clearer stack traces
+- **Type safety improvements** - Replaced `type: ignore` comments with runtime assertions
+  - Added explanatory assertion messages in single_agent.py, workflow.py, routing.py
+  - Maintains strict mypy compliance without type suppression
+
 ### Fixed
 - **pytest-asyncio configuration** - Added `asyncio_default_fixture_loop_scope = "function"` to `pyproject.toml` to fix deprecation warning
 - **Mypy strict type safety** - Fixed 3 type errors in workflow and routing execution:
@@ -14,6 +70,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `routing.py:270` - Added type assertion for routes before indexing
   - `routing.py:337` - Added type assertion for steps before len()
 - **Import ordering** - Fixed import block formatting in `yaml_loader.py`
+- **Tool loading for module-based tools** - Fixed return type and detection logic in `runtime/tools.py`
+  - Changed return type from `Callable[..., Any]` to `Any`
+  - Detects and returns modules with `TOOL_SPEC` attribute
+  - Prevents SDK warnings about unrecognized tool specifications
+
+### Security
+- **Python tool security documentation** - Added comprehensive security section to docs/security.md
+  - Documented file_write tool risks and mitigation
+  - Explained --bypass-tool-consent security implications
+  - Added best practices for production/CI usage
+  - Updated threat model to include dangerous tool usage
+- **Tool allowlist enforcement** - Capability checker validates all Python tools
+  - Non-allowlisted tools trigger exit code 18 with remediation
+  - Structured logging for blocked tool attempts
+
+### Testing
+- **289 tests passing** - Added 2 integration tests for --bypass-tool-consent
+  - `test_run_with_bypass_tool_consent_sets_env_var` - Verifies flag sets environment variable
+  - `test_run_without_bypass_tool_consent_does_not_set_env_var` - Verifies default behavior
+- **Updated capability tests** - Now validate all 5 tools in allowlist
+- **Updated runtime tests** - Fixed mocks for new tool loading behavior
+- **Updated chain tests** - Updated for new tool path format
+
+### Breaking Changes
+
+⚠️ **Python Tool Path Format Change**
+
+Python tool paths now require the full module path including the callable name:
+
+**Old format (NO LONGER SUPPORTED)**:
+```yaml
+tools:
+  python:
+    - callable: "strands_tools.http_request"
+```
+
+**New format (REQUIRED)**:
+```yaml
+tools:
+  python:
+    - callable: "strands_tools.http_request.http_request"
+```
+
+**Migration Guide**:
+1. Update all workflow specs to use full path format
+2. Pattern: `strands_tools.<module>.<function>`
+3. Examples:
+   - `strands_tools.http_request` → `strands_tools.http_request.http_request`
+   - `strands_tools.file_read` → `strands_tools.file_read.file_read`
+
+**Rationale**: This format aligns with Python's module.function convention and supports both @tool decorated functions and module-based tools with TOOL_SPEC attributes.
+
+### Documentation
+- **README.md** - Updated to list all 5 Python tools in Features and Supported Features sections
+- **docs/security.md** - Added comprehensive Python Tool Security section
+- **CONTRIBUTING.md** - Updated copilot-instructions.md reference (if applicable)
+
+### Performance
+- No performance changes (existing agent caching and model pooling unchanged)
+
+---
 
 ## [0.4.0] - 2025-11-05
 

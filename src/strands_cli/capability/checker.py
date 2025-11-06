@@ -8,7 +8,7 @@ Supported Features (Phase 3):
     - Multiple agents (for routing and parallel patterns)
     - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, OR parallel
     - Providers: bedrock, ollama, openai
-    - Python tools: strands_tools.http_request, strands_tools.file_read
+    - Python tools: strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}
     - HTTP executors: full support
     - Secrets: source=env only
     - Skills: metadata injection (no code execution)
@@ -34,8 +34,11 @@ from strands_cli.types import (
 # Allowlisted Python callable paths for security
 # Only these imports are permitted to prevent arbitrary code execution
 ALLOWED_PYTHON_CALLABLES = {
-    "strands_tools.http_request",
-    "strands_tools.file_read",
+    "strands_tools.http_request.http_request",
+    "strands_tools.file_read.file_read",
+    "strands_tools.file_write.file_write",
+    "strands_tools.calculator.calculator",
+    "strands_tools.current_time.current_time",
 }
 
 

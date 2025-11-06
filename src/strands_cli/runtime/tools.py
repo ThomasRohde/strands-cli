@@ -17,7 +17,6 @@ All tools raise ToolError on failures for consistent error handling.
 """
 
 import importlib
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -32,22 +31,25 @@ class ToolError(Exception):
     pass
 
 
-def load_python_callable(import_path: str) -> Callable[..., Any]:
-    """Load a Python callable from an import path.
+def load_python_callable(import_path: str) -> Any:
+    """Load a Python tool from an import path.
 
-    Security: Only loads callables from the ALLOWED_PYTHON_CALLABLES allowlist
-    to prevent arbitrary code execution. Uses dynamic import to load the module
-    and extract the callable.
+    Handles two types of tools based on Strands patterns:
+    1. @tool decorated functions: Returns the decorated function object
+    2. Module-based tools: Returns the module itself (has TOOL_SPEC)
+
+    Security: Only loads from the ALLOWED_PYTHON_CALLABLES allowlist to prevent
+    arbitrary code execution.
 
     Args:
-        import_path: Dotted import path like "strands_tools.http_request"
+        import_path: Dotted import path like "strands_tools.calculator.calculator"
+                    or "strands_tools.file_read.file_read"
 
     Returns:
-        The loaded callable object
+        Either a decorated function tool or a module-based tool object
 
     Raises:
-        ToolError: If callable is not in allowlist, cannot be loaded,
-                  or is not actually callable
+        ToolError: If tool is not in allowlist, cannot be loaded, or is invalid
     """
     if import_path not in ALLOWED_PYTHON_CALLABLES:
         raise ToolError(
@@ -58,16 +60,23 @@ def load_python_callable(import_path: str) -> Callable[..., Any]:
     try:
         module_path, func_name = import_path.rsplit(".", 1)
         module = importlib.import_module(module_path)
+
+        # Check if this is a module-based tool (has TOOL_SPEC)
+        # According to Strands docs, module-based tools should pass the module itself
+        if hasattr(module, "TOOL_SPEC"):
+            # Module-based tool: return the module, not the function
+            # This fixes the "unrecognized tool specification" warning
+            return module
+
+        # Otherwise, get the callable (should be @tool decorated)
         callable_obj = getattr(module, func_name)
+        if not callable(callable_obj):
+            raise ToolError(f"'{import_path}' is not callable")
+
+        return callable_obj
+
     except Exception as e:
-        raise ToolError(f"Failed to load callable '{import_path}': {e}") from e
-
-    if not callable(callable_obj):
-        raise ToolError(f"'{import_path}' is not callable")
-
-    # Type assertion for mypy - we verified it's callable
-    result: Callable[..., Any] = callable_obj
-    return result
+        raise ToolError(f"Failed to load tool '{import_path}': {e}") from e
 
 
 class HttpExecutorAdapter:

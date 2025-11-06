@@ -216,6 +216,36 @@ class Tools(BaseModel):
     http_executors: list[HttpExecutor] | None = None
     mcp: list[McpServer] | None = None
 
+    @field_validator("python", mode="before")
+    @classmethod
+    def convert_python_tools(
+        cls, v: list[str | dict[str, Any]] | None
+    ) -> list[dict[str, Any]] | None:
+        """Convert string format to PythonTool dict format.
+
+        JSON Schema accepts strings, but Pydantic model expects dicts.
+        This validator bridges the gap.
+
+        Args:
+            v: List of strings or dicts
+
+        Returns:
+            List of dicts suitable for PythonTool validation
+        """
+        if v is None:
+            return None
+
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                # Convert string to dict format
+                result.append({"callable": item})
+            else:
+                # Already a dict
+                result.append(item)
+
+        return result
+
 
 class Agent(BaseModel):
     """Agent configuration."""

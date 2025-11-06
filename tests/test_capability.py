@@ -415,9 +415,12 @@ outputs:
 
     def test_allowed_python_callables_list(self) -> None:
         """Test that allowed Python callables are defined."""
-        assert "strands_tools.http_request" in ALLOWED_PYTHON_CALLABLES
-        assert "strands_tools.file_read" in ALLOWED_PYTHON_CALLABLES
-        assert len(ALLOWED_PYTHON_CALLABLES) >= 2
+        assert "strands_tools.http_request.http_request" in ALLOWED_PYTHON_CALLABLES
+        assert "strands_tools.file_read.file_read" in ALLOWED_PYTHON_CALLABLES
+        assert "strands_tools.file_write.file_write" in ALLOWED_PYTHON_CALLABLES
+        assert "strands_tools.calculator.calculator" in ALLOWED_PYTHON_CALLABLES
+        assert "strands_tools.current_time.current_time" in ALLOWED_PYTHON_CALLABLES
+        assert len(ALLOWED_PYTHON_CALLABLES) >= 5
 
     def test_empty_chain_steps_rejected(self, temp_output_dir: Path) -> None:
         """Test that chain with empty steps is rejected at schema validation."""

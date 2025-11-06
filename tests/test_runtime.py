@@ -660,14 +660,14 @@ class TestBuildAgent:
         mock_load.return_value = mock_callable
 
         # Add Python tool to spec
-        sample_ollama_spec.tools = Tools(python=[PythonTool(callable="strands_tools.http_request")])
+        sample_ollama_spec.tools = Tools(python=[PythonTool(callable="strands_tools.http_request.http_request")])
 
         agent_config = AgentConfig(prompt="Base prompt")
 
         build_agent(sample_ollama_spec, "agent1", agent_config)
 
         # Verify load_python_callable called
-        mock_load.assert_called_once_with("strands_tools.http_request")
+        mock_load.assert_called_once_with("strands_tools.http_request.http_request")
 
         # Verify tools list passed to Agent
         call_args = mock_agent_cls.call_args[1]
@@ -732,14 +732,17 @@ class TestLoadPythonCallable:
         mock_module = Mock()
         mock_http_request = Mock()  # Simulated callable
         mock_module.http_request = mock_http_request
+        # Ensure module doesn't have TOOL_SPEC attribute
+        mock_module.TOOL_SPEC = None
+        delattr(mock_module, "TOOL_SPEC")
 
         mocker.patch(
             "strands_cli.runtime.tools.importlib.import_module",
             return_value=mock_module,
         )
 
-        # strands_tools.http_request is in ALLOWED_PYTHON_CALLABLES
-        result = load_python_callable("strands_tools.http_request")
+        # strands_tools.http_request.http_request is in ALLOWED_PYTHON_CALLABLES
+        result = load_python_callable("strands_tools.http_request.http_request")
 
         assert result == mock_http_request
         assert callable(result)
@@ -757,14 +760,17 @@ class TestLoadPythonCallable:
             side_effect=ImportError("No module named strands_tools"),
         )
 
-        with pytest.raises(ToolError, match="Failed to load callable"):
-            load_python_callable("strands_tools.http_request")
+        with pytest.raises(ToolError, match="Failed to load tool"):
+            load_python_callable("strands_tools.http_request.http_request")
 
     def test_raises_error_if_not_callable(self, mocker):
         """Should raise ToolError if loaded object is not callable."""
         # Mock importlib to return a non-callable
         mock_module = Mock()
         mock_module.http_request = "not_a_function"
+        # Ensure module doesn't have TOOL_SPEC attribute
+        mock_module.TOOL_SPEC = None
+        delattr(mock_module, "TOOL_SPEC")
 
         mocker.patch(
             "strands_cli.runtime.tools.importlib.import_module",
@@ -772,7 +778,53 @@ class TestLoadPythonCallable:
         )
 
         with pytest.raises(ToolError, match="is not callable"):
-            load_python_callable("strands_tools.http_request")
+            load_python_callable("strands_tools.http_request.http_request")
+
+    def test_loads_module_based_tool_with_tool_spec(self, mocker):
+        """Should return module itself if it has TOOL_SPEC attribute (module-based tool)."""
+        # Mock the import
+        mock_module = Mock()
+        mock_module.TOOL_SPEC = {
+            "name": "file_write",
+            "description": "Write content to a file",
+        }  # Module-based tool
+        mock_file_write_func = Mock()  # Function exists but should not be returned
+        mock_module.file_write = mock_file_write_func
+
+        mocker.patch(
+            "strands_cli.runtime.tools.importlib.import_module",
+            return_value=mock_module,
+        )
+
+        # strands_tools.file_write.file_write is in ALLOWED_PYTHON_CALLABLES
+        result = load_python_callable("strands_tools.file_write.file_write")
+
+        # Should return the module itself, not the function
+        assert result == mock_module
+        assert hasattr(result, "TOOL_SPEC")
+        assert result.TOOL_SPEC["name"] == "file_write"
+
+    def test_loads_decorated_tool_without_tool_spec(self, mocker):
+        """Should return function object if module doesn't have TOOL_SPEC (@tool decorated)."""
+        # Mock the import
+        # Use spec parameter to prevent TOOL_SPEC from being auto-created
+        mock_module = Mock(spec=["calculator"])
+        mock_calculator_func = Mock()  # Simulated @tool decorated function
+        mock_module.calculator = mock_calculator_func
+
+        mocker.patch(
+            "strands_cli.runtime.tools.importlib.import_module",
+            return_value=mock_module,
+        )
+
+        # strands_tools.calculator.calculator is in ALLOWED_PYTHON_CALLABLES
+        result = load_python_callable("strands_tools.calculator.calculator")
+
+        # Should return the function object, not the module
+        assert result == mock_calculator_func
+        assert callable(result)
+        # Module itself should not have been returned (it doesn't have TOOL_SPEC)
+        assert result is not mock_module
 
 
 class TestHttpExecutorAdapter:
@@ -939,7 +991,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_localhost_ipv4(self):
         """Test that localhost IPv4 (127.0.0.1) is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://127.0.0.1:8080",
@@ -947,7 +999,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_localhost_hostname(self):
         """Test that localhost hostname is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://localhost:8080",
@@ -955,7 +1007,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_localhost_ipv6(self):
         """Test that localhost IPv6 (::1) is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://[::1]:8080",
@@ -963,7 +1015,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_aws_metadata_endpoint(self):
         """Test that AWS metadata endpoint is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://169.254.169.254/latest/meta-data/",
@@ -971,13 +1023,13 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_rfc1918_10_network(self):
         """Test that RFC1918 10.0.0.0/8 network is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://10.0.0.1:8080",
             )
 
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://10.255.255.255:8080",
@@ -985,13 +1037,13 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_rfc1918_172_network(self):
         """Test that RFC1918 172.16.0.0/12 network is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://172.16.0.1:8080",
             )
 
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://172.31.255.255:8080",
@@ -999,7 +1051,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_rfc1918_192_network(self):
         """Test that RFC1918 192.168.0.0/16 network is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+        with pytest.raises(ValueError, match=r"blocked pattern.*SSRF"):
             HttpExecutor(
                 id="malicious",
                 base_url="http://192.168.1.1:8080",
@@ -1078,10 +1130,6 @@ class TestHttpExecutorSecurity:
         monkeypatch.setenv(
             "STRANDS_HTTP_ALLOWED_DOMAINS", '["^https://api.trusted.com"]'
         )
-
-        from strands_cli.config import StrandsConfig
-
-        config = StrandsConfig()
 
         # Should allow URLs matching the pattern
         executor = HttpExecutor(

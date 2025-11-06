@@ -1,0 +1,67 @@
+# Simple File Read Example (OpenAI)
+#
+# This example demonstrates reading a file and summarizing its contents.
+# Uses the file_read tool to access file content.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/simple-file-read-openai.yaml --var filepath="README.md"
+#   uv run strands run examples/simple-file-read-openai.yaml --var filepath="pyproject.toml"
+#
+# Features Demonstrated:
+#   - Python tool: file_read
+#   - Single-agent workflow
+#   - File content analysis
+
+version: 0
+name: simple-file-read-openai
+description: |
+  Demonstrates reading a file and creating a summary using the file_read tool.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+agents:
+  file_analyst:
+    prompt: |
+      You are a helpful file analyst. When given a file path, you:
+      1. Use the file_read tool to read the file contents
+      2. Analyze the content and structure
+      3. Provide a clear, concise summary
+      
+      Focus on the key information, purpose, and structure of the file.
+
+tools:
+  python:
+    - strands_tools.file_read.file_read
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: file_analyst
+        input: |
+          Please read the file at this path: {{ filepath }}
+          
+          Then provide a summary that includes:
+          - What type of file it is
+          - Its main purpose
+          - Key sections or components
+          - Any important details or highlights
+
+outputs:
+  artifacts:
+    - path: ./artifacts/file-summary.md
+      from: |
+        # File Summary
+        
+        **File analyzed:** {{ filepath }}
+        
+        ## Analysis
+        
+        {{ last_response }}

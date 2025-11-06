@@ -1,0 +1,121 @@
+# Workflow Example with File Operations (OpenAI)
+#
+# This example demonstrates using file_read and file_write tools in a workflow pattern.
+# The workflow creates a multi-task DAG where different agents read content, analyze it,
+# and write summaries to new files.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/workflow-file-operations-openai.yaml --var source_file="README.md" --bypass-tool-consent
+#
+# Note: The --bypass-tool-consent flag skips interactive prompts for file_write operations,
+#       which is necessary when running in automated/non-interactive contexts.
+# Features Demonstrated:
+#   - Python tools: file_read and file_write
+#   - Workflow pattern with parallel task execution
+#   - Multiple agents with different specializations
+#   - Task dependencies in DAG
+#   - Tool usage across different agents
+
+version: 0
+name: workflow-file-operations-openai
+description: |
+  Demonstrates file operations in a workflow pattern. Reads a source file,
+  creates both a technical summary and a user-friendly guide from it.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+agents:
+  file_reader:
+    prompt: |
+      You are a file content reader. Your job is to read the specified file
+      and provide its contents accurately. Use the file_read tool to access files.
+
+  technical_analyst:
+    prompt: |
+      You are a technical documentation specialist who creates concise technical
+      summaries. You focus on:
+      - Key technical concepts and architecture
+      - Implementation details
+      - Prerequisites and dependencies
+      - Technical requirements
+      
+      Keep your summaries clear, structured, and focused on technical audience.
+
+  user_guide_writer:
+    prompt: |
+      You are a user-focused technical writer who creates accessible guides.
+      You focus on:
+      - Clear step-by-step instructions
+      - User-friendly language
+      - Practical examples
+      - Common use cases
+      
+      Make technical content approachable for non-technical users.
+
+tools:
+  python:
+    - strands_tools.file_read.file_read
+    - strands_tools.file_write.file_write
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: read_source
+        agent: file_reader
+        input: |
+          Read the contents of the file: {{ source_file }}
+          Use the file_read tool to get the complete file content.
+
+      - id: create_technical_summary
+        agent: technical_analyst
+        deps: [read_source]
+        input: |
+          Based on this file content, create a concise technical summary:
+          
+          {{ tasks.read_source.response }}
+          
+          Write the technical summary to ./artifacts/technical-summary.md using the file_write tool.
+          The summary should be 200-300 words and focus on technical aspects.
+
+      - id: create_user_guide
+        agent: user_guide_writer
+        deps: [read_source]
+        input: |
+          Based on this file content, create a user-friendly quick start guide:
+          
+          {{ tasks.read_source.response }}
+          
+          Write the guide to ./artifacts/user-guide.md using the file_write tool.
+          The guide should be practical and accessible, around 200-300 words.
+
+      - id: summary_report
+        agent: technical_analyst
+        deps: [create_technical_summary, create_user_guide]
+        input: |
+          Create a brief report summarizing what files were created and what they contain.
+          Don't use any tools, just provide a text summary based on the previous tasks.
+
+outputs:
+  artifacts:
+    - path: ./artifacts/file-ops-report.md
+      from: |
+        # File Operations Workflow Report
+        
+        ## Source File
+        {{ source_file }}
+        
+        ## Summary
+        {{ tasks.summary_report.response }}
+        
+        ## Generated Files
+        - `./artifacts/technical-summary.md` - Technical documentation summary
+        - `./artifacts/user-guide.md` - User-friendly quick start guide

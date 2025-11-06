@@ -1,0 +1,91 @@
+# Chain Example with Calculator Tool (OpenAI)
+#
+# This example demonstrates using the strands_tools.calculator tool with OpenAI.
+# The workflow uses a mathematical assistant agent with the calculator tool to
+# solve complex mathematical problems and provide step-by-step explanations.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/chain-calculator-openai.yaml --var problem="Find the derivative of x^3 + 2x^2 - 5x + 7"
+#   uv run strands run examples/chain-calculator-openai.yaml --var problem="Solve the equation x^2 + 5x + 6 = 0"
+#   uv run strands run examples/chain-calculator-openai.yaml --var problem="Calculate the integral of sin(x) + cos(x)"
+#
+# Features Demonstrated:
+#   - Python tool integration (strands_tools.calculator)
+#   - Tool usage in chain pattern
+#   - Multi-step workflow with tool-enabled agent
+#   - Mathematical operations (derivatives, integrals, equation solving)
+
+version: 0
+name: chain-calculator-openai
+description: |
+  Demonstrates using the calculator tool with OpenAI to solve mathematical problems.
+  The agent uses SymPy-powered calculator for symbolic math operations.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+agents:
+  math_tutor:
+    prompt: |
+      You are a patient and thorough mathematics tutor who helps students understand
+      mathematical concepts and solve problems step-by-step.
+      
+      When solving problems:
+      1. First, explain the problem in simple terms
+      2. Use the calculator tool to perform the actual calculations
+      3. Explain the result and what it means
+      4. Provide additional context or related concepts when helpful
+      
+      Use the calculator tool for all mathematical operations - it supports:
+      - Basic arithmetic and algebra
+      - Calculus (derivatives, integrals, limits)
+      - Equation solving
+      - Trigonometry and logarithms
+      - Matrix operations
+      
+      Always show your work and explain your reasoning.
+
+tools:
+  python:
+    - strands_tools.calculator.calculator
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: math_tutor
+        input: |
+          A student has asked you to help them solve this mathematical problem:
+          
+          {{ problem }}
+          
+          Please use the calculator tool to solve it and explain your solution clearly.
+
+      - agent: math_tutor
+        input: |
+          Now, based on the problem you just solved, provide a brief summary of:
+          1. The key mathematical concepts used
+          2. Similar types of problems a student might encounter
+          3. One practice problem (don't solve it) that would help reinforce the concept
+
+outputs:
+  artifacts:
+    - path: ./artifacts/math-solution.md
+      from: |
+        # Mathematical Problem Solution
+        
+        ## Original Problem
+        {{ problem }}
+        
+        ## Solution
+        {{ steps[0].response }}
+        
+        ## Learning Summary
+        {{ steps[1].response }}

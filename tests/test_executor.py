@@ -775,7 +775,7 @@ class TestArtifactPathSecurity:
             })
         ]
 
-        with pytest.raises(ArtifactError, match="(symlink|escapes output directory)"):
+        with pytest.raises(ArtifactError, match=r"(symlink|escapes output directory)"):
             write_artifacts(
                 artifacts,
                 "content",

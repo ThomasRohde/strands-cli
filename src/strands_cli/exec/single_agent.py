@@ -86,11 +86,13 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
         # Extract pattern info and determine which agent to use
         # Use the agent referenced in the step/task, not just the first agent in the spec
         if spec.pattern.type == PatternType.CHAIN:
-            step = spec.pattern.config.steps[0]  # type: ignore
+            assert spec.pattern.config.steps is not None, "Chain pattern must have steps"
+            step = spec.pattern.config.steps[0]
             agent_id = step.agent
             task_input_template = step.input
         elif spec.pattern.type == PatternType.WORKFLOW:
-            task = spec.pattern.config.tasks[0]  # type: ignore
+            assert spec.pattern.config.tasks is not None, "Workflow pattern must have tasks"
+            task = spec.pattern.config.tasks[0]
             agent_id = task.agent
             task_input_template = task.input
         else:
