@@ -28,7 +28,6 @@ from strands_cli.types import (
     CapabilityReport,
     PatternType,
     ProviderType,
-    SecretSource,
     Spec,
 )
 
@@ -172,14 +171,96 @@ def _validate_pattern_type(spec: Spec, issues: list[CapabilityIssue]) -> None:
         PatternType.WORKFLOW,
         PatternType.ROUTING,
         PatternType.PARALLEL,
+        PatternType.EVALUATOR_OPTIMIZER,
     }:
         issues.append(
             CapabilityIssue(
                 pointer="/pattern/type",
                 reason=f"Pattern type '{spec.pattern.type}' not supported yet",
-                remediation="Use 'chain', 'workflow', 'routing', or 'parallel'",
+                remediation="Use 'chain', 'workflow', 'routing', 'parallel', or 'evaluator_optimizer'",
             )
         )
+
+
+def _validate_evaluator_optimizer_pattern(spec: Spec, issues: list[CapabilityIssue]) -> None:
+    """Validate evaluator-optimizer pattern configuration.
+
+    Args:
+        spec: Workflow spec
+        issues: List to append issues to
+    """
+    if spec.pattern.type != PatternType.EVALUATOR_OPTIMIZER:
+        return
+
+    config = spec.pattern.config
+
+    # Check producer agent exists
+    if not config.producer:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/producer",
+                reason="Evaluator-optimizer pattern requires producer agent",
+                remediation="Add 'producer' field with agent ID",
+            )
+        )
+    elif config.producer not in spec.agents:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/producer",
+                reason=f"Producer agent '{config.producer}' not found in agents map",
+                remediation=f"Add agent '{config.producer}' to agents section or use existing agent",
+            )
+        )
+
+    # Check evaluator agent exists
+    if not config.evaluator:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/evaluator",
+                reason="Evaluator-optimizer pattern requires evaluator configuration",
+                remediation="Add 'evaluator' field with agent and optional input",
+            )
+        )
+    elif config.evaluator.agent not in spec.agents:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/evaluator/agent",
+                reason=f"Evaluator agent '{config.evaluator.agent}' not found in agents map",
+                remediation=f"Add agent '{config.evaluator.agent}' to agents section or use existing agent",
+            )
+        )
+
+    # Check accept criteria exists
+    if not config.accept:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/accept",
+                reason="Evaluator-optimizer pattern requires accept criteria",
+                remediation="Add 'accept' field with min_score and optional max_iters",
+            )
+        )
+
+
+def _validate_secrets(spec: Spec, issues: list[CapabilityIssue]) -> None:
+    """Validate secret configurations.
+
+    Args:
+        spec: Workflow spec
+        issues: List to append issues to
+    """
+    # Import here to avoid circular dependency
+    from strands_cli.types import SecretSource
+
+    if spec.env and spec.env.secrets:
+        for i, secret in enumerate(spec.env.secrets):
+            if secret.source != SecretSource.ENV:
+                issues.append(
+                    CapabilityIssue(
+                        pointer=f"/env/secrets/{i}/source",
+                        reason=f"Secret source '{secret.source}' not supported in MVP",
+                        remediation="Use source: env",
+                    )
+                )
 
 
 def _build_available_tools_set(spec: Spec) -> set[str]:
@@ -446,25 +527,6 @@ def _validate_parallel_pattern(spec: Spec, issues: list[CapabilityIssue]) -> Non
         )
 
 
-def _validate_secrets(spec: Spec, issues: list[CapabilityIssue]) -> None:
-    """Validate secret configurations.
-
-    Args:
-        spec: Workflow spec
-        issues: List to append issues to
-    """
-    if spec.env and spec.env.secrets:
-        for i, secret in enumerate(spec.env.secrets):
-            if secret.source != SecretSource.ENV:
-                issues.append(
-                    CapabilityIssue(
-                        pointer=f"/env/secrets/{i}/source",
-                        reason=f"Secret source '{secret.source}' not supported in MVP",
-                        remediation="Use source: env",
-                    )
-                )
-
-
 def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
     """Validate tool configurations.
 
@@ -549,6 +611,7 @@ def check_capability(spec: Spec) -> CapabilityReport:
     _validate_workflow_pattern(spec, issues)
     _validate_routing_pattern(spec, issues)
     _validate_parallel_pattern(spec, issues)
+    _validate_evaluator_optimizer_pattern(spec, issues)
     _validate_secrets(spec, issues)
     _validate_tools(spec, issues)
 

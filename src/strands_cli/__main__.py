@@ -45,6 +45,10 @@ from strands_cli.capability import (
 from strands_cli.exec.chain import ChainExecutionError, run_chain
 
 # Import executors
+from strands_cli.exec.evaluator_optimizer import (
+    EvaluatorOptimizerExecutionError,
+    run_evaluator_optimizer,
+)
 from strands_cli.exec.parallel import ParallelExecutionError, run_parallel
 from strands_cli.exec.routing import RoutingExecutionError, run_routing
 from strands_cli.exec.single_agent import ExecutionError as SingleAgentExecutionError
@@ -69,6 +73,8 @@ ExecutionError = (
     ChainExecutionError,
     WorkflowExecutionError,
     RoutingExecutionError,
+    ParallelExecutionError,
+    EvaluatorOptimizerExecutionError,
 )
 
 app = typer.Typer(
@@ -202,8 +208,12 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
         # Parallel pattern - use async parallel executor
         # Phase 6: Wrap with asyncio.run() for single event loop
         return asyncio.run(run_parallel(spec, variables))
+    elif spec.pattern.type == PatternType.EVALUATOR_OPTIMIZER:
+        # Evaluator-optimizer pattern - use async evaluator-optimizer executor
+        # Phase 4: Wrap with asyncio.run() for single event loop
+        return asyncio.run(run_evaluator_optimizer(spec, variables))
     else:
-        # Other patterns (orchestrator, etc.) - not yet supported
+        # Other patterns (orchestrator, graph, etc.) - not yet supported
         console.print(
             f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet"
         )

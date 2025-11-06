@@ -1,0 +1,85 @@
+version: 0
+name: "evaluator-optimizer-writing-openai"
+description: "Iterative content refinement with evaluator feedback using OpenAI"
+tags: ["evaluator-optimizer", "content", "openai"]
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_tokens: 50000
+
+agents:
+  writer:
+    model_id: "gpt-4o-mini"
+    prompt: |
+      You are an expert content writer. Create well-structured, engaging content.
+      
+      Write a professional blog post about artificial intelligence for technical professionals.
+      
+      Focus on:
+      - Clear, concise writing
+      - Logical flow and structure
+      - Accurate information
+      - Engaging introduction and conclusion
+  
+  critic:
+    model_id: "gpt-5-nano"
+    prompt: |
+      You are a critical editor who evaluates content quality with high standards.
+      
+      Evaluate the following draft objectively and return your assessment as JSON.
+      Be honest and thorough - identify real issues even in otherwise good content.
+      
+      Required JSON format:
+      {
+        "score": <0-100>,
+        "issues": ["issue1", "issue2", ...],
+        "fixes": ["fix1", "fix2", ...]
+      }
+      
+      Score 0-100 based on overall quality:
+      - Consider clarity, readability, structure, accuracy, depth, grammar, style, and engagement
+      - Be critical: most first drafts have room for improvement
+      - Only score above 85 if truly publication-ready with minimal issues
+
+pattern:
+  type: evaluator_optimizer
+  config:
+    producer: writer
+    
+    evaluator:
+      agent: critic
+      input: |
+        Evaluate this draft about artificial intelligence:
+        
+        === DRAFT ===
+        {{ draft }}
+        === END DRAFT ===
+        
+        Return your evaluation as JSON with score, issues, and fixes.
+    
+    accept:
+      min_score: 90
+      max_iters: 3
+    
+    revise_prompt: |
+      Your previous draft scored {{ evaluation.score }}/100.
+      
+      Issues identified:
+      {% for issue in evaluation.issues %}
+      - {{ issue }}
+      {% endfor %}
+      
+      Suggested fixes:
+      {% for fix in evaluation.fixes %}
+      - {{ fix }}
+      {% endfor %}
+      
+      Please revise the draft to address these issues. Maintain the topic (artificial intelligence) and professional blog post style.
+      Focus on improving the areas mentioned in the feedback.
+
+outputs:
+  artifacts:
+    - path: "./artifacts/refined-content.md"
+      from: "{{ last_response }}"

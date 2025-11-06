@@ -317,6 +317,47 @@ class ParallelBranch(BaseModel):
     steps: list[ChainStep]  # Steps to execute sequentially (min 1)
 
 
+class EvaluatorConfig(BaseModel):
+    """Evaluator configuration for evaluator-optimizer pattern.
+
+    Attributes:
+        agent: Evaluator agent ID (required)
+        input: Evaluation prompt template (optional)
+    """
+
+    agent: str  # Evaluator agent ID (required)
+    input: str | None = None  # Evaluation prompt template (optional)
+
+
+class AcceptConfig(BaseModel):
+    """Acceptance criteria for evaluator-optimizer pattern.
+
+    Attributes:
+        min_score: Minimum score (0-100) to accept output
+        max_iters: Maximum iterations (default: 3)
+    """
+
+    min_score: int = Field(ge=0, le=100)  # Minimum score (0-100, required)
+    max_iters: int = Field(default=3, ge=1)  # Maximum iterations (default: 3)
+
+
+class EvaluatorDecision(BaseModel):
+    """Evaluator agent decision output.
+
+    Expected JSON format from evaluator agent:
+    {"score": 85, "issues": ["Issue 1", ...], "fixes": ["Fix 1", ...]}
+
+    Attributes:
+        score: Quality score (0-100)
+        issues: Identified issues (optional)
+        fixes: Suggested fixes (optional)
+    """
+
+    score: int = Field(ge=0, le=100)  # Quality score (0-100)
+    issues: list[str] | None = None  # Identified issues (optional)
+    fixes: list[str] | None = None  # Suggested fixes (optional)
+
+
 class PatternConfig(BaseModel):
     """Pattern-specific configuration."""
 
@@ -326,6 +367,12 @@ class PatternConfig(BaseModel):
     routes: dict[str, Route] | None = None  # For routing
     branches: list[ParallelBranch] | None = None  # For parallel
     reduce: ChainStep | None = None  # For parallel reduce step
+
+    # Evaluator-optimizer fields
+    producer: str | None = None  # Producer agent ID
+    evaluator: EvaluatorConfig | None = None  # Evaluator config
+    accept: AcceptConfig | None = None  # Accept criteria
+    revise_prompt: str | None = None  # Revision prompt template
 
 
 class Pattern(BaseModel):

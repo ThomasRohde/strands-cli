@@ -170,17 +170,27 @@ def build_agent(
 
     logger = structlog.get_logger(__name__)
 
+    # Determine which model_id to use (agent override takes precedence)
+    effective_model_id = agent_config.model_id or spec.runtime.model_id
+    
     logger.debug(
         "building_agent",
         agent_id=agent_id,
         provider=spec.runtime.provider.value,
-        model_id=spec.runtime.model_id or agent_config.model_id,
+        model_id=effective_model_id,
         tool_overrides=tool_overrides,
     )
 
-    # Create the model
+    # Create the model with agent-level model_id override if specified
     try:
-        model = create_model(spec.runtime)
+        if agent_config.model_id:
+            # Create a modified runtime with agent's model_id
+            runtime_with_override = spec.runtime.model_copy(
+                update={"model_id": agent_config.model_id}
+            )
+            model = create_model(runtime_with_override)
+        else:
+            model = create_model(spec.runtime)
     except Exception as e:
         raise AdapterError(f"Failed to create model: {e}") from e
 

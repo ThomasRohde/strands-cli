@@ -27,7 +27,13 @@ from typing import Any
 
 import structlog
 from jinja2 import BaseLoader, StrictUndefined, TemplateSyntaxError, UndefinedError
-from jinja2.sandbox import SandboxedEnvironment, SecurityError
+from jinja2.sandbox import SandboxedEnvironment
+
+try:
+    from jinja2.sandbox import SecurityError  # type: ignore[attr-defined]
+except ImportError:
+    # Fallback for older jinja2 versions
+    SecurityError = Exception  # type: ignore[misc,assignment]
 
 logger = structlog.get_logger(__name__)
 

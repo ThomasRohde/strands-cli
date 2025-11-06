@@ -1,0 +1,108 @@
+version: 0
+name: "evaluator-optimizer-code-review-bedrock"
+description: "Iterative code quality improvement with reviewer feedback using Bedrock"
+tags: ["evaluator-optimizer", "code-review", "bedrock"]
+
+runtime:
+  provider: bedrock
+  region: "us-east-1"
+  model_id: "anthropic.claude-3-sonnet-20240229-v1:0"
+  budgets:
+    max_tokens: 100000
+
+agents:
+  coder:
+    prompt: |
+      You are an expert Python developer.
+      
+      Implement: binary search tree implementation
+      
+      Requirements:
+      type hints, docstrings, error handling
+      
+      Write production-quality code with:
+      - Clear structure and organization
+      - Comprehensive type hints
+      - Detailed docstrings
+      - Proper error handling
+      - Efficient algorithms
+      - Good variable names
+  
+  reviewer:
+    prompt: |
+      You are a senior code reviewer who evaluates code quality.
+      
+      Review the following Python code and return your assessment as JSON.
+      
+      Required JSON format:
+      {
+        "score": <0-100>,
+        "issues": ["issue1", "issue2", ...],
+        "fixes": ["fix1", "fix2", ...]
+      }
+      
+      Scoring rubric:
+      - 90-100: Production ready - excellent quality
+      - 85-89: Good - minor improvements
+      - 75-84: Acceptable - needs improvements
+      - 65-74: Below standard - significant issues
+      - <65: Needs major rework
+      
+      Evaluate based on:
+      1. Code correctness and logic
+      2. Type hints completeness
+      3. Documentation quality
+      4. Error handling
+      5. Code style and readability
+      6. Performance considerations
+      7. Edge case handling
+
+pattern:
+  type: evaluator_optimizer
+  config:
+    producer: coder
+    
+    evaluator:
+      agent: reviewer
+      input: |
+        Review this Python code for: binary search tree implementation
+        
+        === CODE ===
+        {{ draft }}
+        === END CODE ===
+        
+        Requirements to check:
+        type hints, docstrings, error handling
+        
+        Return JSON evaluation with score (0-100), issues array, and fixes array.
+    
+    accept:
+      min_score: 85
+      max_iters: 4
+    
+    revise_prompt: |
+      Code Review Results (Iteration {{ iteration }}):
+      Score: {{ evaluation.score }}/100 (minimum: 85)
+      
+      Issues Found:
+      {% for issue in evaluation.issues %}
+      {{ loop.index }}. {{ issue }}
+      {% endfor %}
+      
+      Recommended Fixes:
+      {% for fix in evaluation.fixes %}
+      {{ loop.index }}. {{ fix }}
+      {% endfor %}
+      
+      Task: binary search tree implementation
+      Language: Python
+      
+      Please revise the code to address ALL issues listed above.
+      Apply the recommended fixes and ensure all requirements are met: type hints, docstrings, error handling
+      
+      Return only the complete revised code.
+
+outputs:
+  artifacts:
+    - path: "./artifacts/reviewed-code.py"
+      from: "{{ last_response }}"

@@ -1,0 +1,106 @@
+version: 0
+name: "evaluator-optimizer-code-review-openai"
+description: "Iterative code quality improvement with reviewer feedback using OpenAI"
+tags: ["evaluator-optimizer", "code-review", "openai"]
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_tokens: 100000
+
+agents:
+  coder:
+    model_id: "gpt-4o-mini"
+    prompt: |
+      You are an expert Python developer.
+      
+      Implement: binary search tree implementation
+      
+      Requirements:
+      type hints, docstrings, error handling
+      
+      Write production-quality code with:
+      - Clear structure and organization
+      - Comprehensive type hints
+      - Detailed docstrings
+      - Proper error handling
+      - Efficient algorithms
+      - Good variable names
+  
+  reviewer:
+    model_id: "gpt-5-nano"
+    prompt: |
+      You are a senior code reviewer who evaluates code quality with high standards.
+      
+      Review the following Python code objectively and return your assessment as JSON.
+      Be thorough and critical - identify real issues even in otherwise good code.
+      
+      Required JSON format:
+      {
+        "score": <0-100>,
+        "issues": ["issue1", "issue2", ...],
+        "fixes": ["fix1", "fix2", ...]
+      }
+      
+      Score 0-100 based on production readiness:
+      1. Code correctness and logic
+      2. Type hints completeness and accuracy
+      3. Documentation quality (docstrings)
+      4. Error handling robustness
+      5. Code style and readability
+      6. Performance and efficiency
+      7. Edge case handling
+      
+      Be critical: most first implementations have room for improvement.
+      Only score above 85 if truly production-ready with comprehensive coverage.
+
+pattern:
+  type: evaluator_optimizer
+  config:
+    producer: coder
+    
+    evaluator:
+      agent: reviewer
+      input: |
+        Review this Python code for: binary search tree implementation
+        
+        === CODE ===
+        {{ draft }}
+        === END CODE ===
+        
+        Requirements to check:
+        type hints, docstrings, error handling
+        
+        Return JSON evaluation with score (0-100), issues array, and fixes array.
+    
+    accept:
+      min_score: 85
+      max_iters: 4
+    
+    revise_prompt: |
+      Code Review Results (Iteration {{ iteration }}):
+      Score: {{ evaluation.score }}/100 (minimum: 75)
+      
+      Issues Found:
+      {% for issue in evaluation.issues %}
+      {{ loop.index }}. {{ issue }}
+      {% endfor %}
+      
+      Recommended Fixes:
+      {% for fix in evaluation.fixes %}
+      {{ loop.index }}. {{ fix }}
+      {% endfor %}
+      
+      Task: binary search tree implementation
+      Language: Python
+      
+      Please revise the code to address ALL issues listed above.
+      Apply the recommended fixes and ensure all requirements are met: type hints, docstrings, error handling
+      
+      Return only the complete revised code.
+
+outputs:
+  artifacts:
+    - path: "./artifacts/reviewed-code.py"
+      from: "{{ last_response }}"
