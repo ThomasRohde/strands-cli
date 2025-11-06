@@ -1,0 +1,121 @@
+version: 0
+name: spec-verification-workflow
+description: |
+  Demonstrate the spec_verify native tool by validating multiple workflow specs.
+  This workflow validates both valid and invalid specs, reporting validation results.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+inputs:
+  values:
+    valid_spec: |
+      version: 0
+      name: valid-example
+      runtime:
+        provider: ollama
+        model_id: test-model
+        host: http://localhost:11434
+      agents:
+        analyzer:
+          prompt: "You are a data analyst"
+      pattern:
+        type: chain
+        config:
+          steps:
+            - agent: analyzer
+              input: "Analyze the data"
+    
+    invalid_spec_missing_version: |
+      name: missing-version
+      runtime:
+        provider: ollama
+        host: http://localhost:11434
+      agents:
+        test: {prompt: "test"}
+      pattern:
+        type: chain
+        config:
+          steps:
+            - agent: test
+              input: "test"
+    
+    invalid_spec_unsupported_pattern: |
+      version: 0
+      name: unsupported-pattern
+      runtime:
+        provider: ollama
+        model_id: test-model
+        host: http://localhost:11434
+      agents:
+        test: {prompt: "test"}
+      pattern:
+        type: graph
+        config: {}
+
+tools:
+  python:
+    - spec_verify
+
+agents:
+  validator:
+    prompt: |
+      You are a workflow specification validator. 
+      Your job is to validate workflow specs and report findings clearly.
+      
+      When you receive validation reports:
+      1. Summarize whether each spec is valid or invalid
+      2. For invalid specs, explain what's wrong
+      3. For capability issues, list what features are unsupported
+      4. Provide actionable recommendations
+      
+      Be concise and use bullet points.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: validator
+        input: |
+          Validate this valid workflow spec:
+          {{ valid_spec }}
+          
+          Use the spec_verify tool to check it.
+        tool_overrides:
+          - spec_verify
+      
+      - agent: validator
+        input: |
+          Now validate this spec that's missing the version field:
+          {{ invalid_spec_missing_version }}
+          
+          Use spec_verify and explain what's wrong.
+        tool_overrides:
+          - spec_verify
+      
+      - agent: validator
+        input: |
+          Finally, validate this spec with an unsupported pattern type:
+          {{ invalid_spec_unsupported_pattern }}
+          
+          Use spec_verify and report on capability issues.
+        tool_overrides:
+          - spec_verify
+      
+      - agent: validator
+        input: |
+          Review all previous validation results and create a summary report.
+          
+          Include:
+          - Total specs validated
+          - How many were schema-valid
+          - How many were capability-supported
+          - Key lessons learned about spec validation
+          
+          Make it actionable for developers creating workflow specs.
+
+outputs:
+  artifacts:
+    - path: ./spec-validation-report.md
+      from: "{{ last_response }}"
