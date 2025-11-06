@@ -483,3 +483,94 @@ async def test_run_evaluator_optimizer_agent_caching(
     # Verify agents were invoked correct number of times
     assert mock_producer.invoke_async.call_count == 2  # Initial + 1 revision
     assert mock_evaluator.invoke_async.call_count == 2  # 2 evaluations
+
+
+@pytest.mark.asyncio
+@patch("strands_cli.exec.evaluator_optimizer.AgentCache")
+async def test_default_revision_prompt_includes_context(mock_cache_class):
+    """Test that default revision prompt template includes draft and evaluation context.
+
+    Regression test for Phase 4 review finding: default revision prompt must include
+    template variables ({{ draft }}, {{ evaluation.score }}, {{ evaluation.issues }},
+    {{ evaluation.fixes }}) so the producer agent receives actual context for revision.
+    """
+    # Create spec WITHOUT revise_prompt to trigger default template
+    spec = Spec(
+        version=0,
+        name="test-default-revise-prompt",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={
+            "writer": Agent(prompt="You write drafts"),
+            "critic": Agent(prompt="You critique"),
+        },
+        pattern={
+            "type": PatternType.EVALUATOR_OPTIMIZER,
+            "config": PatternConfig(
+                producer="writer",
+                evaluator=EvaluatorConfig(
+                    agent="critic",
+                    input="Evaluate: {{ draft }}",
+                ),
+                accept=AcceptConfig(min_score=85, max_iters=2),
+                # NO revise_prompt specified - should use default template
+            ),
+        },
+    )
+
+    mock_cache = MagicMock()
+    mock_cache_class.return_value = mock_cache
+    mock_cache.close = AsyncMock()
+
+    mock_producer = MagicMock()
+    mock_evaluator = MagicMock()
+
+    # Track actual prompts sent to producer
+    producer_prompts = []
+
+    async def producer_invoke(prompt):
+        producer_prompts.append(prompt)
+        return f"Draft revision {len(producer_prompts)}"
+
+    mock_producer.invoke_async = AsyncMock(side_effect=producer_invoke)
+
+    # Evaluator returns low score first (trigger revision), then high score
+    mock_evaluator.invoke_async = AsyncMock(
+        side_effect=[
+            '{"score": 60, "issues": ["Needs more detail", "Grammar errors"], "fixes": ["Add examples", "Fix grammar"]}',
+            '{"score": 90, "issues": [], "fixes": []}',
+        ]
+    )
+
+    async def get_agent_side_effect(spec, agent_id, config, tool_overrides=None):
+        if agent_id == "writer":
+            return mock_producer
+        elif agent_id == "critic":
+            return mock_evaluator
+        raise ValueError(f"Unexpected agent: {agent_id}")
+
+    mock_cache.get_or_build_agent = AsyncMock(side_effect=get_agent_side_effect)
+
+    result = await run_evaluator_optimizer(spec)
+
+    assert result.success is True
+    assert len(producer_prompts) == 2  # Initial + 1 revision
+
+    # Verify the SECOND prompt (revision prompt) contains all context
+    revision_prompt = producer_prompts[1]
+
+    # Must contain the draft text
+    assert "Draft revision 1" in revision_prompt
+
+    # Must contain the evaluation score
+    assert "60" in revision_prompt or "Score: 60" in revision_prompt
+
+    # Must contain the issues
+    assert "Needs more detail" in revision_prompt
+    assert "Grammar errors" in revision_prompt
+
+    # Must contain the fixes
+    assert "Add examples" in revision_prompt
+    assert "Fix grammar" in revision_prompt
+
+    # Verify it's not just the hardcoded broken default
+    assert revision_prompt != "Revise the draft based on the evaluator feedback."

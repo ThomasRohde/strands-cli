@@ -78,6 +78,9 @@ pattern:
       min_score: 85
       max_iters: 4
     
+    # Optional: Custom revision prompt (if omitted, uses generic default template)
+    # Default template includes: {{ draft }}, {{ evaluation.score }}, {{ evaluation.issues }}, {{ evaluation.fixes }}
+    # Custom prompts enable domain-specific guidance and formatting
     revise_prompt: |
       Code Review Results (Iteration {{ iteration }}):
       Score: {{ evaluation.score }}/100 (minimum: 75)

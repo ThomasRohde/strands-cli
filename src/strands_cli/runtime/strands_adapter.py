@@ -172,7 +172,7 @@ def build_agent(
 
     # Determine which model_id to use (agent override takes precedence)
     effective_model_id = agent_config.model_id or spec.runtime.model_id
-    
+
     logger.debug(
         "building_agent",
         agent_id=agent_id,

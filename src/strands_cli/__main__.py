@@ -631,24 +631,24 @@ def list_supported() -> None:
     Displays a comprehensive table of currently supported workflow features,
     including agent limits, pattern types, providers, tools, and configuration options.
     """
-    console.print(Panel("[bold]Strands CLI Phase 1 — Supported Features[/bold]", style="green"))
+    console.print(Panel("[bold]Strands CLI Phase 4 — Supported Features[/bold]", style="green"))
 
     features = [
-        ("Agents", "Exactly 1 agent"),
-        ("Patterns", "chain (multi-step) OR workflow (multi-task DAG)"),
-        ("Providers", "bedrock, ollama"),
+        ("Agents", "Multiple agents supported"),
+        ("Patterns", "chain, workflow, routing, parallel, evaluator-optimizer"),
+        ("Providers", "bedrock, ollama, openai"),
         ("Python Tools", "strands_tools.http_request, strands_tools.file_read"),
         ("HTTP Executors", "Full support"),
         ("Secrets", "source: env only"),
         ("Skills", "Metadata injection (no code exec)"),
         ("Budgets", "Tracked with 80% warning threshold"),
         ("Retries", "Exponential backoff for transient errors"),
-        ("Artifacts", "{{ last_response }}, {{ steps[n].response }}, {{ tasks.<id>.response }}"),
-        ("Context", "Explicit step/task references in templates"),
+        ("Artifacts", "{{ last_response }}, {{ steps[n].response }}, {{ tasks.<id>.response }}, {{ branches.<id>.response }}, {{ execution.history }}"),
+        ("Context", "Explicit step/task/branch references, execution metadata"),
         ("OTEL", "Parsed (no-op; scaffolding ready)"),
     ]
 
-    table = Table(title="Phase 1 Features (v0.2.0)")
+    table = Table(title="Phase 4 Features (v0.5.0)")
     table.add_column("Feature", style="cyan", no_wrap=True)
     table.add_column("Support", style="green")
 

@@ -246,7 +246,18 @@ async def run_evaluator_optimizer(
     evaluator_agent_id = config.evaluator.agent  # type: ignore
     min_score = config.accept.min_score  # type: ignore
     max_iters = config.accept.max_iters  # type: ignore
-    revise_prompt_template = config.revise_prompt or "Revise the draft based on the evaluator feedback."
+    revise_prompt_template = config.revise_prompt or (
+        "Revise the following draft based on evaluator feedback.\n\n"
+        "Draft:\n{{ draft }}\n\n"
+        "Evaluation (Score: {{ evaluation.score }}/100):\n"
+        "{% if evaluation.issues %}Issues:\n"
+        "{% for issue in evaluation.issues %}- {{ issue }}\n{% endfor %}"
+        "{% endif %}"
+        "{% if evaluation.fixes %}Suggested fixes:\n"
+        "{% for fix in evaluation.fixes %}- {{ fix }}\n{% endfor %}"
+        "{% endif %}\n"
+        "Please provide an improved version."
+    )
 
     # Get agent configurations
     producer_config = spec.agents[producer_agent_id]  # type: ignore
@@ -353,12 +364,12 @@ async def run_evaluator_optimizer(
 
             final_score = evaluation.score
 
-            # Record iteration history
+            # Record iteration history with full evaluator feedback
             iteration_history.append({
                 "iteration": iteration,
                 "score": evaluation.score,
-                "issues_count": len(evaluation.issues) if evaluation.issues else 0,
-                "fixes_count": len(evaluation.fixes) if evaluation.fixes else 0,
+                "issues": evaluation.issues or [],
+                "fixes": evaluation.fixes or [],
                 "draft_preview": current_draft[:100],
             })
 
@@ -419,6 +430,25 @@ async def run_evaluator_optimizer(
             duration_seconds=duration,
         )
 
+        # Build execution context with full iteration history
+        execution_context = {
+            "iterations": len(iteration_history),
+            "final_score": final_score,
+            "min_score": min_score,
+            "max_iters": max_iters,
+            "history": iteration_history,
+            "cumulative_tokens": cumulative_tokens,
+        }
+
+        # Add last evaluation details if we have iteration history
+        if iteration_history:
+            last_iteration = iteration_history[-1]
+            execution_context["last_evaluation"] = {
+                "score": last_iteration["score"],
+                "issues": last_iteration["issues"],
+                "fixes": last_iteration["fixes"],
+            }
+
         return RunResult(
             success=True,
             last_response=current_draft,
@@ -427,14 +457,8 @@ async def run_evaluator_optimizer(
             started_at=started_at,
             completed_at=completed_at,
             duration_seconds=duration,
-            execution_context={
-                "iterations": len(iteration_history),
-                "final_score": final_score,
-                "min_score": min_score,
-                "max_iters": max_iters,
-                "history": iteration_history,
-                "cumulative_tokens": cumulative_tokens,
-            },
+            execution_context=execution_context,
+            context={"execution": execution_context},  # Add for artifact template access
         )
 
     finally:

@@ -60,9 +60,12 @@ pattern:
         Return your evaluation as JSON with score, issues, and fixes.
     
     accept:
-      min_score: 90
+      min_score: 85
       max_iters: 3
     
+    # Optional: Custom revision prompt (if omitted, uses generic default template)
+    # Default template includes: {{ draft }}, {{ evaluation.score }}, {{ evaluation.issues }}, {{ evaluation.fixes }}
+    # Custom prompts enable domain-specific guidance and formatting
     revise_prompt: |
       Your previous draft scored {{ evaluation.score }}/100.
       
