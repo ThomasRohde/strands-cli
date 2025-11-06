@@ -426,7 +426,19 @@ outputs:
         assert "strands_tools.file_write" in ALLOWED_PYTHON_CALLABLES
         assert "strands_tools.calculator" in ALLOWED_PYTHON_CALLABLES
         assert "strands_tools.current_time" in ALLOWED_PYTHON_CALLABLES
-        assert len(ALLOWED_PYTHON_CALLABLES) == 10  # 5 new format + 5 old format
+        # Hardcoded list should have exactly 10 entries (5 new + 5 old format)
+        assert len(ALLOWED_PYTHON_CALLABLES) == 10
+
+        # Test combined allowlist with registry (native tools)
+        from strands_cli.tools import get_registry
+
+        registry = get_registry()
+        combined_allowlist = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+
+        # Combined allowlist should include both legacy and native tools
+        assert "strands_tools.http_request.http_request" in combined_allowlist
+        # Should be at least the hardcoded ones (may have more from registry)
+        assert len(combined_allowlist) >= len(ALLOWED_PYTHON_CALLABLES)
 
     def test_empty_chain_steps_rejected(self, temp_output_dir: Path) -> None:
         """Test that chain with empty steps is rejected at schema validation."""

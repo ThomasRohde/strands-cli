@@ -35,6 +35,10 @@ src/strands_cli/
 │   ├── providers.py      # Bedrock/Ollama client adapters
 │   ├── strands_adapter.py # Map Spec → Strands Agent
 │   └── tools.py          # Safe tool adapters (allowlisted python, http_executors)
+├── tools/
+│   ├── __init__.py       # Exports get_registry()
+│   ├── registry.py       # Auto-discovery for native tools (TOOL_SPEC pattern)
+│   └── python_exec.py    # Native Python execution tool (MVP example)
 ├── exec/
 │   ├── single_agent.py   # Single-agent workflow executor (async)
 │   ├── chain.py          # Chain pattern executor (async)
@@ -285,6 +289,7 @@ async def test_agent_cache_reuses_agents(mocker: MockerFixture) -> None:
 - **PRD**: `PRD_SingleAgent_MVP.md` — full MVP requirements, scope, and acceptance criteria
 - **Stack**: `stack.md` — dependency choices and rationale
 - **Config**: `pyproject.toml` — all tool configs (ruff, mypy, pytest, coverage)
+- **Native Tools**: `docs/TOOL_DEVELOPMENT.md` — comprehensive guide for developing native tools with auto-discovery
 
 ## Common Tasks
 
@@ -317,18 +322,46 @@ def mycommand(
         sys.exit(EX_SCHEMA)
 ```
 
-### Adding Tool Support
-- **Python tools**: Add to `ALLOWED_PYTHON_CALLABLES` in `capability/checker.py`
-- **HTTP executors**: Already supported; just add config in spec
-- **Example adding Python callable**:
+### Adding Native Tools
+- **Create tool module**: Add `src/strands_cli/tools/<tool_name>.py` with `TOOL_SPEC` export
+- **Auto-discovery**: Tools are automatically discovered via registry (no manual registration)
+- **Hybrid allowlist**: Capability checker combines hardcoded legacy tools + registry allowlist
+- **Example pattern**:
 ```python
-# In capability/checker.py
+# In src/strands_cli/tools/my_tool.py
+TOOL_SPEC = {
+    "name": "my_tool",
+    "description": "What my tool does",
+    "inputSchema": {"json": {...}}
+}
+
+def my_tool(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    tool_use_id = tool.get("toolUseId", "")
+    tool_input = tool.get("input", {})
+    # Process and return ToolResult
+    return {
+        "toolUseId": tool_use_id,
+        "status": "success",
+        "content": [{"text": result}]
+    }
+```
+- **Capability checking**: Registry automatically generates allowlist via `get_registry().get_allowlist()`
+```python
+# In capability/checker.py (hybrid pattern)
+from strands_cli.tools import get_registry
+
+# Hardcoded legacy allowlist
 ALLOWED_PYTHON_CALLABLES = {
     "strands_tools.http_request",
     "strands_tools.file_read",
-    "my_new_module.my_tool",  # Add here
+    # ... legacy tools
 }
+
+# Combine with registry allowlist
+registry = get_registry()
+allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
 ```
+- **See**: `docs/TOOL_DEVELOPMENT.md` for complete guide with examples and testing patterns
 
 ### Writing Tests
 1. Create fixture in `tests/conftest.py` if reusable
@@ -365,6 +398,8 @@ ALLOWED_PYTHON_CALLABLES = {
 - ❌ Don't call `asyncio.run()` inside executors — maintain single event loop from CLI
 - ❌ Don't create agents directly with `build_agent()` — use `AgentCache.get_or_build_agent()`
 - ❌ Don't create new model clients repeatedly — rely on `@lru_cache` pooling via `create_model()`
+- ❌ Don't create tools without `TOOL_SPEC` export — registry auto-discovery requires it
+- ❌ Don't manually register tools — rely on auto-discovery from `TOOL_SPEC` pattern
 
 ## Questions to Clarify
 

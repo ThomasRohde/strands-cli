@@ -546,15 +546,26 @@ def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
         spec: Workflow spec
         issues: List to append issues to
     """
-    # Python tools must be in allowlist
+    # Python tools must be in allowlist (hardcoded + registry)
     if spec.tools and spec.tools.python:
+        # Import registry here to avoid circular imports
+        from strands_cli.tools import get_registry
+
+        registry = get_registry()
+        # Combine hardcoded allowlist (strands_tools.*) with native tools from registry
+        allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+
         for i, tool in enumerate(spec.tools.python):
-            if tool.callable not in ALLOWED_PYTHON_CALLABLES:
+            if tool.callable not in allowed:
+                # Build helpful remediation message
+                native_tools = ', '.join(sorted(t.id for t in registry.list_all()))
+                remediation = f"Use existing tools or native tools: {native_tools}" if native_tools else f"Use one of: {', '.join(sorted(ALLOWED_PYTHON_CALLABLES))}"
+
                 issues.append(
                     CapabilityIssue(
                         pointer=f"/tools/python/{i}/callable",
-                        reason=f"Python callable '{tool.callable}' not in MVP allowlist",
-                        remediation=f"Use one of: {', '.join(ALLOWED_PYTHON_CALLABLES)}",
+                        reason=f"Python callable '{tool.callable}' not in allowlist",
+                        remediation=remediation,
                     )
                 )
 

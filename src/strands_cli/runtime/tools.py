@@ -38,16 +38,17 @@ def load_python_callable(import_path: str) -> Any:
     1. @tool decorated functions: Returns the decorated function object
     2. Module-based tools: Returns the module itself (has TOOL_SPEC)
 
-    Security: Only loads from the ALLOWED_PYTHON_CALLABLES allowlist to prevent
-    arbitrary code execution.
+    Security: Only loads from the ALLOWED_PYTHON_CALLABLES allowlist and native
+    tools registry to prevent arbitrary code execution.
 
-    Supports both old and new path formats for backward compatibility:
-    - Old: "strands_tools.http_request" (infers function name from module)
-    - New: "strands_tools.http_request.http_request" (explicit function name)
+    Supports multiple path formats:
+    - Native short ID: "python_exec" (resolved via registry)
+    - Native full path: "strands_cli.tools.python_exec"
+    - Old format: "strands_tools.http_request" (infers function name)
+    - New format: "strands_tools.http_request.http_request" (explicit)
 
     Args:
-        import_path: Dotted import path like "strands_tools.calculator.calculator"
-                    or "strands_tools.calculator" (old format)
+        import_path: Dotted import path, short ID, or legacy format
 
     Returns:
         Either a decorated function tool or a module-based tool object
@@ -55,13 +56,36 @@ def load_python_callable(import_path: str) -> Any:
     Raises:
         ToolError: If tool is not in allowlist, cannot be loaded, or is invalid
     """
-    if import_path not in ALLOWED_PYTHON_CALLABLES:
+    # Import registry here to avoid circular imports
+    from strands_cli.tools import get_registry
+
+    registry = get_registry()
+    # Combine hardcoded allowlist (strands_tools.*) with native tools from registry
+    allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+
+    if import_path not in allowed:
         raise ToolError(
             f"Python callable '{import_path}' not in allowlist. "
-            f"Allowed: {', '.join(sorted(ALLOWED_PYTHON_CALLABLES))}"
+            f"Allowed: {', '.join(sorted(allowed))}"
         )
 
     try:
+        # Try native-first resolution for short IDs (e.g., "python_exec")
+        resolved_path = registry.resolve(import_path)
+        if resolved_path:
+            # Native tool found - load the module directly
+            module = importlib.import_module(resolved_path)
+            # Native tools always have TOOL_SPEC, return module
+            if hasattr(module, "TOOL_SPEC"):
+                return module
+
+        # Check if this is already a full native path (e.g., "strands_cli.tools.python_exec")
+        if import_path.startswith("strands_cli.tools."):
+            module = importlib.import_module(import_path)
+            if hasattr(module, "TOOL_SPEC"):
+                return module
+
+        # Handle legacy strands_tools.* paths
         # Normalize old format to new format for consistent handling
         # Old: "strands_tools.http_request" -> New: "strands_tools.http_request.http_request"
         if import_path.count(".") == 1:  # Old format (module.submodule)

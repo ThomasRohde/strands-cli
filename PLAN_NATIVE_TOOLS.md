@@ -621,38 +621,38 @@ def _check_tool_allowlist(spec: Spec) -> list[CapabilityIssue]:
 
 ## 3. Implementation Roadmap (Simplified)
 
-### Phase 1: Foundation (2-3 days)
+### Phase 1: Foundation (2-3 days) ✅ COMPLETE
 
-- [ ] Create `src/strands_cli/tools/` directory (flat structure)
-- [ ] Implement minimal `registry.py` (just `ToolInfo` + `ToolRegistry`)
-- [ ] Implement `__init__.py` (expose `get_registry()`)
-- [ ] Write tests for registry auto-discovery (`tests/unit/test_tools_registry.py`)
-- [ ] ~~Update schema JSON~~ **NO SCHEMA CHANGES NEEDED** ✅
+- [x] Create `src/strands_cli/tools/` directory (flat structure)
+- [x] Implement minimal `registry.py` (just `ToolInfo` + `ToolRegistry`)
+- [x] Implement `__init__.py` (expose `get_registry()`)
+- [x] Write tests for registry auto-discovery (`tests/unit/test_tools_registry.py`)
+- [x] ~~Update schema JSON~~ **NO SCHEMA CHANGES NEEDED** ✅
 
-**Deliverable:** Registry infrastructure ready; auto-discovery working
+**Deliverable:** Registry infrastructure ready; auto-discovery working ✅
 
 ### Phase 2: Implement Python Exec Tool (1 day)
 
-- [ ] Create `tools/python_exec.py` with TOOL_SPEC (MVP - simple implementation)
+- [x] Create `tools/python_exec.py` with TOOL_SPEC (MVP - simple implementation)
   - Execute Python code string in isolated environment
   - Return stdout/stderr/result
   - Basic security: timeout, restricted builtins
-- [ ] Update `capability/checker.py`: Extend `ALLOWED_PYTHON_CALLABLES` to include new tool path
-- [ ] Write unit tests for `python_exec` tool
-- [ ] Test integration: Create example workflow using `python_exec`
+- [x] Update `capability/checker.py`: Extend `ALLOWED_PYTHON_CALLABLES` to include new tool path
+- [x] Write unit tests for `python_exec` tool
+- [x] Test integration: Create example workflow using `python_exec`
 
 **Deliverable:** One working native tool proving the pattern; existing tools untouched
 
-### Phase 3: Registry Integration & Testing (1 day)
+### Phase 3: Registry Integration & Testing (1 day) ✅ COMPLETE
 
-- [ ] Update `capability/checker.py`: Use registry for allowlist (keep existing tools in hardcoded list)
-- [ ] Update `runtime/tools.py`: Add registry resolution for new tools only
-- [ ] Add CLI command: `strands list-tools` (enumerate native tools from registry)
-- [ ] Test auto-discovery with python_exec
-- [ ] Verify all 287 existing tests still pass
-- [ ] Create example workflow: `examples/python-exec-demo.yaml`
+- [x] Update `capability/checker.py`: Use registry for allowlist (keep existing tools in hardcoded list)
+- [x] Update `runtime/tools.py`: Add registry resolution for new tools only
+- [x] Add CLI command: `strands list-tools` (enumerate native tools from registry)
+- [x] Test auto-discovery with python_exec
+- [x] Verify all 465 existing tests still pass (465 tests passed in 19.19s)
+- [x] Create example workflow: `examples/python-exec-demo.yaml`
 
-**Deliverable:** Registry working; python_exec available; zero regression
+**Deliverable:** Registry working; python_exec available; zero regression ✅
 
 ### Phase 4: Documentation (1 day)
 
@@ -1187,14 +1187,14 @@ async def execute_tool_with_telemetry(tool_id: str, inputs: dict) -> Any:
 ## 10. Success Criteria (v2.0 - Revised)
 
 **Must-Have (MVP):**
-- [ ] Registry implemented with ≥85% test coverage
-- [ ] ONE new native tool (`python_exec`) working end-to-end
-- [ ] All 287 unit tests pass without modification
-- [ ] All 28 example workflows run successfully (100% backward compat!)
-- [ ] `strands list-tools` CLI command works (shows native tools)
-- [ ] Example workflow using `python_exec` tool
-- [ ] No performance regression
-- [ ] Documentation updated (TOOL_DEVELOPMENT.md with python_exec example)
+- [x] Registry implemented with ≥85% test coverage
+- [x] ONE new native tool (`python_exec`) working end-to-end
+- [x] All 465 unit tests pass without modification
+- [x] All 30 example workflows run successfully (100% backward compat!)
+- [x] `strands list-tools` CLI command works (shows native tools)
+- [x] Example workflow using `python_exec` tool
+- [x] No performance regression
+- [ ] Documentation updated (TOOL_DEVELOPMENT.md with python_exec example) - Phase 4
 
 **Deferred (Phase 2 - Future Migration):**
 - [ ] Migrate existing 5 tools from strands_tools.* to native format

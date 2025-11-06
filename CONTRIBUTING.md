@@ -294,6 +294,151 @@ def test_load_spec_with_invalid_yaml_raises_load_error(
     assert "parse" in str(exc_info.value).lower()
 ```
 
+## Developing Native Tools
+
+Native tools extend the Strands CLI with custom functionality that can be invoked by agents during workflow execution. The CLI uses a registry-based auto-discovery system that makes adding new tools straightforward.
+
+### Quick Start
+
+1. **Create tool file** in `src/strands_cli/tools/<tool_name>.py`
+2. **Export `TOOL_SPEC`** dictionary with `name`, `description`, and `inputSchema`
+3. **Implement function** matching `TOOL_SPEC["name"]` that returns ToolResult dict
+4. **Add tests** in `tests/test_<tool_name>.py` with unit and integration tests
+5. **Verify auto-discovery** by running registry check
+6. **Submit PR** following the standard process below
+
+### Tool Structure
+
+```
+src/strands_cli/tools/
+├── __init__.py           # Exports get_registry()
+├── registry.py           # Auto-discovery logic (don't modify)
+└── your_tool.py          # Your new tool (follows pattern below)
+```
+
+### Example Tool
+
+```python
+"""Your tool description."""
+
+from typing import Any
+
+# Required: Export TOOL_SPEC for auto-discovery
+TOOL_SPEC = {
+    "name": "your_tool",  # Must match function name
+    "description": "What your tool does",
+    "inputSchema": {
+        "json": {
+            "type": "object",
+            "properties": {
+                "param": {"type": "string", "description": "Parameter description"}
+            },
+            "required": ["param"]
+        }
+    }
+}
+
+def your_tool(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    """Tool implementation.
+    
+    Args:
+        tool: Contains toolUseId and input dict
+        **kwargs: Additional arguments (unused)
+    
+    Returns:
+        ToolResult dict with toolUseId, status, and content
+    """
+    tool_use_id = tool.get("toolUseId", "")
+    tool_input = tool.get("input", {})
+    param = tool_input.get("param", "")
+    
+    try:
+        result = f"Processed: {param}"
+        return {
+            "toolUseId": tool_use_id,
+            "status": "success",
+            "content": [{"text": result}]
+        }
+    except Exception as e:
+        return {
+            "toolUseId": tool_use_id,
+            "status": "error",
+            "content": [{"text": f"Error: {e}"}]
+        }
+```
+
+### Testing Requirements
+
+Create `tests/test_your_tool.py`:
+
+```python
+"""Tests for your_tool."""
+
+import pytest
+
+class TestYourTool:
+    def test_your_tool_success(self) -> None:
+        """Test successful execution."""
+        from strands_cli.tools.your_tool import your_tool
+        
+        tool = {
+            "toolUseId": "test-123",
+            "input": {"param": "test value"}
+        }
+        
+        result = your_tool(tool)
+        
+        assert result["toolUseId"] == "test-123"
+        assert result["status"] == "success"
+        assert "Processed" in result["content"][0]["text"]
+    
+    def test_your_tool_spec_format(self) -> None:
+        """Test TOOL_SPEC has required fields."""
+        from strands_cli.tools.your_tool import TOOL_SPEC
+        
+        assert "name" in TOOL_SPEC
+        assert TOOL_SPEC["name"] == "your_tool"
+        assert "description" in TOOL_SPEC
+        assert "inputSchema" in TOOL_SPEC
+```
+
+### Verify Auto-Discovery
+
+```powershell
+# Check that your tool is discovered
+uv run python -c "from strands_cli.tools import get_registry; print([t.id for t in get_registry().list_all()])"
+# Should include: [..., 'your_tool']
+
+# Run tests
+uv run pytest tests/test_your_tool.py -v
+
+# Validate in a workflow spec
+uv run strands validate examples/your-tool-demo.yaml
+```
+
+### Using Your Tool in Workflows
+
+```yaml
+tools:
+  python:
+    - your_tool  # Short ID format (recommended)
+    # or:
+    - strands_cli.tools.your_tool  # Full path format
+```
+
+### Detailed Guide
+
+For comprehensive documentation including:
+- Architecture overview
+- Complete tutorial with "echo" tool example
+- `TOOL_SPEC` format specification
+- ToolResult contract details
+- Advanced patterns (see `python_exec` implementation)
+- Integration testing strategies
+- Registry mechanics
+
+**See: [`docs/TOOL_DEVELOPMENT.md`](docs/TOOL_DEVELOPMENT.md)**
+
 ## Pull Request Process
 
 ### Before Submitting

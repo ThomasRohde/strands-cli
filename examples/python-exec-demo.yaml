@@ -1,0 +1,30 @@
+version: 0
+name: python-exec-demo
+description: Demonstrate python_exec native tool for executing Python code
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+agents:
+  calculator:
+    prompt: |
+      You are a helpful calculator assistant. When asked to perform calculations,
+      use the python_exec tool to execute Python code and return the result.
+      Always show your work and explain the calculation.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: calculator
+        input: "Write a python program to calculate the factorial of 15 and provide the result."
+
+tools:
+  python:
+    - python_exec  # Short ID format (native-first resolution)
+
+outputs:
+  artifacts:
+    - path: ./python-exec-result.txt
+      from: "{{ last_response }}"

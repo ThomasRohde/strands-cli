@@ -680,6 +680,57 @@ def list_supported() -> None:
     sys.exit(EX_OK)
 
 
+@app.command(name="list-tools")
+def list_tools() -> None:
+    """List all available native tools from the registry.
+
+    Displays native tools that can be used in workflow specifications.
+    These tools are auto-discovered from the src/strands_cli/tools/ directory.
+
+    Native tools can be referenced in workflow specs using:
+    - Short ID: "python_exec"
+    - Full path: "strands_cli.tools.python_exec"
+
+    Legacy strands_tools.* packages remain available for backward compatibility.
+    """
+    from strands_cli.tools import get_registry
+
+    registry = get_registry()
+    tools = registry.list_all()
+
+    if not tools:
+        console.print("[yellow]No native tools found in registry[/yellow]")
+        console.print()
+        console.print("[dim]Native tools are auto-discovered from:[/dim]")
+        console.print("[dim]  src/strands_cli/tools/<tool_name>.py[/dim]")
+        console.print()
+        console.print("[dim]Each tool must export a TOOL_SPEC dictionary.[/dim]")
+        sys.exit(EX_OK)
+
+    # Create table
+    table = Table(title="Native Tools", border_style="cyan")
+    table.add_column("Tool ID", style="cyan", no_wrap=True)
+    table.add_column("Module Path", style="dim")
+    table.add_column("Description")
+
+    # Add rows sorted by tool ID
+    for tool in sorted(tools, key=lambda t: t.id):
+        table.add_row(tool.id, tool.module_path, tool.description)
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(f"[dim]Found {len(tools)} native tool(s)[/dim]")
+    console.print()
+    console.print("[dim]Usage in workflow specs:[/dim]")
+    console.print("[dim]  tools:[/dim]")
+    console.print("[dim]    python:[/dim]")
+    console.print("[dim]      - python_exec  # Short ID[/dim]")
+    console.print()
+
+    sys.exit(EX_OK)
+
+
 @app.command()
 def doctor() -> None:
     """Run diagnostic checks on strands-cli installation.
