@@ -107,5 +107,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/reviewed-code.py"
+    - path: "./reviewed-code.py"
       from: "{{ last_response }}"
