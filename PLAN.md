@@ -280,60 +280,60 @@ Successfully implemented multi-step chain and workflow execution with DAG-based 
 
 ### Acceptance Criteria
 
-- [ ] Router agent classifies input into 3 routes correctly
-- [ ] Each route executes its `then` chain steps sequentially
-- [ ] Malformed router JSON triggers retry with success on 2nd attempt
-- [ ] Invalid route name fails with clear error message listing valid routes
-- [ ] `{{ router.chosen_route }}` accessible in route step templates
-- [ ] `max_retries` configuration controls retry attempts (test with 0, 1, 2)
-- [ ] Multiple agents supported (router + route agents)
-- [ ] Router decisions appear in traces with chosen_route and attempts attributes
-- [ ] Coverage ≥85%
-- [ ] New tests: `test_routing.py` (happy path, invalid route, retry with malformed JSON, multi-agent validation)
+- [x] Router agent classifies input into 3 routes correctly
+- [x] Each route executes its `then` chain steps sequentially
+- [x] Malformed router JSON triggers retry with success on 2nd attempt
+- [x] Invalid route name fails with clear error message listing valid routes
+- [x] `{{ router.chosen_route }}` accessible in route step templates
+- [x] `max_retries` configuration controls retry attempts (test with 0, 1, 2)
+- [x] Multiple agents supported (router + route agents)
+- [x] Router decisions appear in traces with chosen_route and attempts attributes
+- [x] Coverage ≥85%
+- [x] New tests: `test_routing.py` (happy path, invalid route, retry with malformed JSON, multi-agent validation)
 
 ### Implementation Checklist
 
-- [ ] **Consult `strands-workflow-manual.md`** section 12.2 (Routing) for router agent expectations
-- [ ] **Review schema** `routingConfig` definition for routes structure
-- [ ] **Extend schema** - Add `router.max_retries` (optional, default 2)
-- [ ] **Update `types.py`**:
-  - [ ] Create `RoutingConfig` Pydantic model with router + routes
-  - [ ] Create `RouterDecision` model with `route: str`
-  - [ ] Create `Route` model with `then: list[Step]`
-  - [ ] Add `RoutingConfig` to `PatternConfig` union
-- [ ] **Create `exec/routing.py`**:
-  - [ ] `run_routing(spec, variables)` - Main entry point
-  - [ ] `_execute_router(agent_config, router_input, max_retries)` - Execute router with retry
-  - [ ] `_parse_router_response(response)` - Extract and validate JSON
-  - [ ] `_validate_route_exists(route_name, routes)` - Check route validity
-  - [ ] Reuse `run_chain()` for selected route execution
-  - [ ] Inject `router.chosen_route` into route context
-- [ ] **Update `capability/checker.py`**:
-  - [ ] Remove routing pattern from unsupported list
-  - [ ] Change agent count constraint: `len(agents) >= 1` when `pattern.type == routing`
-  - [ ] Add validation: router agent exists in agents map
-  - [ ] Add validation: all route step agents exist in agents map
-- [ ] **Update `__main__.py`**:
-  - [ ] Import `run_routing` from `exec.routing`
-  - [ ] Add `elif spec.pattern.type == PatternType.ROUTING:` case
-  - [ ] Call `run_routing(spec, variables)`
-- [ ] **Create `tests/test_routing.py`**:
-  - [ ] Test valid routing with 3 routes
-  - [ ] Test invalid route name (expect ExecutionError)
-  - [ ] Test malformed JSON with retry success
-  - [ ] Test max_retries exhaustion
-  - [ ] Test multi-agent configuration
-  - [ ] Test `{{ router.chosen_route }}` in route templates
-  - [ ] Test budget tracking across router + route
-- [ ] **Create routing examples**:
-  - [ ] `examples/routing-customer-support.yaml` - FAQ/research/escalate routes
-  - [ ] `examples/routing-task-classification.yaml` - Coding/research/writing routes
-- [ ] **Documentation**:
-  - [ ] Add routing pattern section to user guide
-  - [ ] Document router JSON format requirements
-  - [ ] Document error behavior (no fallback, explicit failure)
-  - [ ] Document `max_retries` configuration
-- [ ] **Update CHANGELOG.md** - Document Phase 2 routing features
+- [x] **Consult `strands-workflow-manual.md`** section 12.2 (Routing) for router agent expectations
+- [x] **Review schema** `routingConfig` definition for routes structure
+- [x] **Extend schema** - Add `router.max_retries` (optional, default 2)
+- [x] **Update `types.py`**:
+  - [x] Create `RoutingConfig` Pydantic model with router + routes
+  - [x] Create `RouterDecision` model with `route: str`
+  - [x] Create `Route` model with `then: list[Step]`
+  - [x] Add `RoutingConfig` to `PatternConfig` union
+- [x] **Create `exec/routing.py`**:
+  - [x] `run_routing(spec, variables)` - Main entry point
+  - [x] `_execute_router(agent_config, router_input, max_retries)` - Execute router with retry
+  - [x] `_parse_router_response(response)` - Extract and validate JSON
+  - [x] `_validate_route_exists(route_name, routes)` - Check route validity
+  - [x] Reuse `run_chain()` for selected route execution
+  - [x] Inject `router.chosen_route` into route context
+- [x] **Update `capability/checker.py`**:
+  - [x] Remove routing pattern from unsupported list
+  - [x] Change agent count constraint: `len(agents) >= 1` when `pattern.type == routing`
+  - [x] Add validation: router agent exists in agents map
+  - [x] Add validation: all route step agents exist in agents map
+- [x] **Update `__main__.py`**:
+  - [x] Import `run_routing` from `exec.routing`
+  - [x] Add `elif spec.pattern.type == PatternType.ROUTING:` case
+  - [x] Call `run_routing(spec, variables)`
+- [x] **Create `tests/test_routing.py`**:
+  - [x] Test valid routing with 3 routes
+  - [x] Test invalid route name (expect ExecutionError)
+  - [x] Test malformed JSON with retry success
+  - [x] Test max_retries exhaustion
+  - [x] Test multi-agent configuration
+  - [x] Test `{{ router.chosen_route }}` in route templates
+  - [x] Test budget tracking across router + route
+- [x] **Create routing examples**:
+  - [x] `examples/routing-customer-support.yaml` - FAQ/research/escalate routes
+  - [x] `examples/routing-task-classification.yaml` - Coding/research/writing routes
+- [x] **Documentation**:
+  - [x] Add routing pattern section to user guide
+  - [x] Document router JSON format requirements
+  - [x] Document error behavior (no fallback, explicit failure)
+  - [x] Document `max_retries` configuration
+- [x] **Update CHANGELOG.md** - Document Phase 2 routing features
 
 ### Technical Notes
 
