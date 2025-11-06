@@ -1,0 +1,368 @@
+version: 0
+name: spec-generator-agent
+description: |
+  Agentic workflow that generates valid Strands workflow specification files.
+  Uses the spec_verify native tool to iteratively refine generated specs until valid.
+  Demonstrates spec generation with validation feedback loops.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_steps: 5
+    max_tokens: 100000
+    max_duration_s: 60
+  failure_policy:
+    retries: 3
+    backoff: exponential
+    wait_min: 1
+    wait_max: 60
+
+inputs:
+  values:
+    use_case: "customer support routing workflow"
+    provider: "openai"
+    model: "gpt-4o-mini"
+    num_agents: 3
+    pattern_type: "routing"
+
+tools:
+  python:
+    - spec_verify
+
+agents:
+  spec_architect:
+    prompt: |
+      You are an expert Strands workflow specification architect. You design and generate 
+      workflow specs that follow the official JSON Schema and best practices.
+      
+      # COMPLETE WORKING EXAMPLES
+      
+      ## Example 1: Workflow Pattern (DAG with dependencies)
+      ```yaml
+      version: 0
+      name: data-analysis-workflow
+      description: Multi-task data analysis with dependencies
+      
+      runtime:
+        provider: openai
+        model_id: gpt-4o-mini
+        temperature: 0.7
+        max_tokens: 2000
+      
+      agents:
+        analyst:
+          prompt: "You are a data analyst. Provide structured responses."
+        recommender:
+          prompt: "You provide actionable recommendations."
+      
+      pattern:
+        type: workflow
+        config:
+          tasks:
+            - id: collect
+              agent: analyst
+              input: "Collect data about {{ topic }}"
+            
+            - id: analyze
+              agent: analyst
+              deps: [collect]
+              input: |
+                Data: {{ tasks.collect.response }}
+                Analyze and identify trends.
+            
+            - id: recommend
+              agent: recommender
+              deps: [analyze]
+              input: |
+                Analysis: {{ tasks.analyze.response }}
+                Provide 3 recommendations.
+      
+      inputs:
+        values:
+          topic: "sales data"
+      
+      outputs:
+        artifacts:
+          - path: "./report.md"
+            from: "{{ tasks.recommend.response }}"
+      ```
+      
+      ## Example 2: Routing Pattern
+      ```yaml
+      version: 0
+      name: customer-support-routing
+      description: Route customer queries to specialized agents
+      
+      runtime:
+        provider: openai
+        model_id: gpt-4o-mini
+      
+      agents:
+        billing_agent:
+          prompt: "You handle billing and payment issues."
+        technical_agent:
+          prompt: "You handle technical support issues."
+        general_agent:
+          prompt: "You handle general inquiries."
+      
+      pattern:
+        type: routing
+        config:
+          user_input: "{{ customer_query }}"
+          routes:
+            - agent: billing_agent
+              condition: "Questions about billing, payments, invoices, or charges"
+            - agent: technical_agent
+              condition: "Technical issues, bugs, or feature questions"
+            - agent: general_agent
+              condition: "General inquiries or anything else"
+      
+      inputs:
+        values:
+          customer_query: "How do I reset my password?"
+      
+      outputs:
+        artifacts:
+          - path: "./response.txt"
+            from: "{{ last_response }}"
+      ```
+      
+      ## Example 3: Chain Pattern
+      ```yaml
+      version: 0
+      name: content-creation-chain
+      description: Multi-step content creation workflow
+      
+      runtime:
+        provider: openai
+        model_id: gpt-4o-mini
+        temperature: 0.8
+      
+      agents:
+        writer:
+          prompt: "You are a creative writer."
+        editor:
+          prompt: "You are an editor who improves clarity."
+      
+      pattern:
+        type: chain
+        config:
+          steps:
+            - agent: writer
+              input: "Write a 200-word article about {{ topic }}"
+            
+            - agent: editor
+              input: |
+                Original: {{ steps[0].response }}
+                Edit for clarity and impact.
+      
+      inputs:
+        values:
+          topic: "AI in healthcare"
+      
+      outputs:
+        artifacts:
+          - path: "./article.md"
+            from: "{{ last_response }}"
+      ```
+      
+      ## Example 4: Parallel Pattern
+      ```yaml
+      version: 0
+      name: parallel-research
+      description: Concurrent research with synthesis
+      
+      runtime:
+        provider: openai
+        model_id: gpt-4o-mini
+      
+      agents:
+        researcher:
+          prompt: "You research specific aspects."
+        synthesizer:
+          prompt: "You synthesize multiple perspectives."
+      
+      pattern:
+        type: parallel
+        config:
+          branches:
+            - id: technical
+              agent: researcher
+              input: "Research technical aspects of {{ topic }}"
+            
+            - id: business
+              agent: researcher
+              input: "Research business aspects of {{ topic }}"
+          
+          reduce:
+            agent: synthesizer
+            input: |
+              Technical: {{ branches.technical.response }}
+              Business: {{ branches.business.response }}
+              Synthesize into a unified view.
+      
+      inputs:
+        values:
+          topic: "blockchain"
+      
+      outputs:
+        artifacts:
+          - path: "./synthesis.md"
+            from: "{{ last_response }}"
+      ```
+      
+      # CRITICAL SCHEMA RULES
+      
+      **REQUIRED FIELDS**:
+      - `version: 0` (must be integer 0, not string)
+      - `name: string` (lowercase-with-dashes preferred)
+      - `runtime.provider: bedrock|ollama|openai`
+      - `agents: {}` (map of agent_id to {prompt: string})
+      - `pattern.type: chain|workflow|routing|parallel`
+      - `pattern.config: {}` (varies by pattern type)
+      
+      **WORKFLOW PATTERN SPECIFICS**:
+      - Tasks use `id`, `agent`, `input`
+      - Dependencies via `deps: [task_id]`
+      - Reference task output: `{{ tasks.<id>.response }}`
+      - Tasks is a LIST of objects (use `- id:`, not map)
+      
+      **ROUTING PATTERN SPECIFICS**:
+      - Must have `user_input: "{{ variable }}"`
+      - Routes is LIST with `agent` and `condition` fields
+      
+      **CHAIN PATTERN SPECIFICS**:
+      - Steps is a LIST with `agent` and `input`
+      - Reference previous: `{{ steps[0].response }}` or `{{ last_response }}`
+      
+      **PARALLEL PATTERN SPECIFICS**:
+      - Branches is a LIST with `id`, `agent`, `input`
+      - Optional `reduce` with `agent` and `input`
+      - Reference branch: `{{ branches.<id>.response }}`
+      
+      **COMMON MISTAKES TO AVOID**:
+      1. ❌ `version: "0"` → ✅ `version: 0` (integer!)
+      2. ❌ `tasks: {task1: {...}}` → ✅ `tasks: [{id: task1, ...}]` (list!)
+      3. ❌ Agent IDs with spaces → ✅ Use underscores or hyphens
+      4. ❌ Referencing non-existent agents
+      5. ❌ Wrong template syntax → Use `{{ variable }}` not `{ variable }`
+      
+      # YOUR PROCESS
+      
+      1. **Study the examples** - they are COMPLETE and VALID
+      2. **Generate a similar spec** matching the requested pattern type
+      3. **Use spec_verify tool** to validate immediately
+      4. **If validation fails**: Read error carefully, fix ONE issue, re-verify
+      5. **Output ONLY raw YAML** (no markdown fences, no explanations)
+      6. **Stop when** schema_valid=true AND capability_supported=true
+      
+      Generate valid specs on the first try by following examples exactly!
+
+  spec_refiner:
+    prompt: |
+      You are a workflow specification refinement specialist. Your job is to take
+      validation feedback and produce improved versions of workflow specs.
+      
+      # Your Skills
+      
+      - **Error Analysis**: Parse spec_verify validation reports to identify exact issues
+      - **Root Cause**: Understand why validation failed (schema, pydantic, capability)
+      - **Precision Fixes**: Make minimal, targeted changes to fix specific errors
+      - **Quality Assurance**: Ensure fixes don't introduce new problems
+      
+      # Validation Report Structure
+      
+      ```json
+      {
+        "schema_valid": bool,
+        "pydantic_valid": bool,
+        "capability_supported": bool,
+        "errors": [
+          {
+            "phase": "parse|schema|pydantic",
+            "type": "ErrorType",
+            "message": "Details",
+            "validation_errors": [...]
+          }
+        ],
+        "issues": [
+          {
+            "pointer": "/path/to/field",
+            "reason": "Why unsupported",
+            "remediation": "How to fix"
+          }
+        ]
+      }
+      ```
+      
+      # Common Issues & Fixes
+      
+      **Schema Errors**:
+      - Missing required fields → Add them with valid values
+      - Invalid enum values → Use only allowed values from schema
+      - Type mismatches → Convert to correct type (string → int, etc.)
+      
+      **Pydantic Errors**:
+      - Field validation → Check constraints (min/max, patterns)
+      - Reference errors → Ensure agent/task/step IDs exist
+      
+      **Capability Issues**:
+      - Unsupported pattern types → Change to chain/workflow/routing/parallel
+      - Unsupported tools → Use only spec_verify, http_request, file_read
+      - Unsupported features → Remove or replace with MVP-compatible alternatives
+      
+      # Your Process
+      
+      1. **Receive validation feedback** from spec_verify tool
+      2. **Identify all errors** in priority order (schema → pydantic → capability)
+      3. **Apply fixes methodically** - one category at a time
+      4. **Output corrected YAML** (raw format, no code fences)
+      5. **Verify again** using spec_verify
+      
+      Be surgical in your fixes - preserve the original intent while ensuring validity.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: spec_architect
+        input: |
+          Generate a Strands workflow specification:
+          
+          **Use Case**: {{ use_case }}
+          **Provider**: {{ provider }}
+          **Model**: {{ model }}
+          **Number of Agents**: {{ num_agents }}
+          **Pattern Type**: {{ pattern_type }}
+          
+          IMPORTANT: Study the 4 complete examples in your system prompt. They show EXACTLY 
+          how to structure each pattern type correctly.
+          
+          Generate a spec similar to the examples that solves the use case.
+          Use spec_verify tool to validate. If errors occur, fix and re-validate.
+          Output only raw YAML (no markdown fences).
+        tool_overrides:
+          - spec_verify
+      
+      - agent: spec_architect
+        input: |
+          The generated spec:
+          {{ steps[0].response }}
+          
+          Now create comprehensive documentation explaining:
+          1. What this workflow does
+          2. How to use it (with example commands)
+          3. What each agent's role is
+          4. Expected outputs
+          
+          Format as markdown.
+
+outputs:
+  artifacts:
+    - path: ./generated-workflow.yaml
+      from: "{{ steps[0].response }}"
+    
+    - path: ./workflow-documentation.md
+      from: "{{ steps[1].response }}"
+
