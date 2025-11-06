@@ -1,21 +1,87 @@
-# Plan: Incorporating Native Tools in Scalable Architecture
+# Plan: Native Tools Architecture (Simplified & Pragmatic)
 
 **Date:** 2025-11-06  
-**Status:** Draft  
-**Version:** 1.0
+**Status:** ✅ REVISED - Ready for Implementation  
+**Version:** 2.0 (Major Simplification from v1.0)
+
+---
+
+## 🎯 Executive Summary (TL;DR)
+
+**Goal:** Enable easy addition of native tools without modifying core code
+
+**Solution:** Minimal registry pattern with auto-discovery (one file per tool)
+
+**MVP Scope (Revised):**
+- ✅ Build registry infrastructure for auto-discovery
+- ✅ Keep existing `strands_tools.*` implementations as-is (no migration!)
+- ✅ Implement ONE new native tool: `python_exec` (execute Python code safely)
+- ✅ Prove the pattern works without disrupting existing functionality
+
+**Impact:**
+- 📁 Add tools by dropping `.py` files in `tools/` directory
+- 🔒 100% backward compatible - zero changes to existing tools or examples
+- ⚡ No schema changes, minimal runtime changes (~15 lines modified)
+- 🚀 Implementation time: **2-3 days** (even faster than v2.0!)
+- 📦 Code footprint: **~300 new lines** (registry + 1 tool + tests)
+
+**Key Insight from Code Audit:**
+> Current implementation already handles 80% of requirements! We just need:
+> 1. Auto-discovery mechanism (registry) → 100 lines
+> 2. Dynamic allowlist (replace hardcoded constant) → 5 lines
+> 3. Backward-compat path resolution → 10 lines
+> 4. ONE proof-of-concept tool (python_exec) → 100 lines
+
+---
+
+## Revision Summary (v2.0)
+
+**Critical Changes Based on Code Review:**
+
+1. ✅ **Schema Already Supports Free-Form Strings**: Current schema accepts any string in `tools.python[]` without strict patterns - **no schema changes needed**
+2. ✅ **TOOL_SPEC Support Already Implemented**: `tools.py:load_python_callable()` already checks for `TOOL_SPEC` and returns modules directly (lines 76-80)
+3. ⚠️ **Python Tool Config Uses Objects**: Schema uses `PythonTool` objects with `.callable` field, not bare strings
+4. 📦 **Simplified Registry Pattern**: Minimal `ToolInfo` dataclass (not heavy `ToolSpec`); focus on discovery + allowlist
+5. 🚀 **Performance Already Optimized**: Model clients use `@lru_cache` (providers.py), agents cached via `AgentCache` - no pooling changes needed
+6. ❌ **Remove Over-Engineering**: No `ToolCategory` enum, complex metadata tracking, base classes, or subdirectories per tool in MVP
+
+### What Changed from v1.0 → v2.0
+
+| Aspect | v1.0 (Over-Engineered) | v2.0 (Pragmatic) |
+|--------|----------------------|-----------------|
+| **Structure** | Subdirs per tool/family | Flat: one file per tool |
+| **ToolSpec** | Heavy dataclass with 10+ fields | Minimal `ToolInfo` (3 fields) |
+| **Base Classes** | Abstract `NativeTool` class | None (follow Strands SDK) |
+| **Schema Changes** | Add regex patterns | None needed ✅ |
+| **Complexity** | ~15 new files, 2000+ LOC | ~7 new files, ~800 LOC |
+| **Timeline** | 2-4 weeks | 6-9 days |
+
+### Key Insight from Code Audit
+
+**Current `tools.py` is already 80% there!** It:
+- ✅ Detects `TOOL_SPEC` and returns modules
+- ✅ Supports old/new format normalization
+- ✅ Validates against allowlist
+
+**We only need:**
+- Auto-discovery mechanism (registry)
+- Dynamic allowlist generation (replace hardcoded constant)
+- Backward-compat path resolution
+
+**Total code changes:** ~100 lines of new registry code + ~15 lines of modifications to existing files.
 
 ---
 
 ## Executive Summary
 
-This plan describes a scalable, modular architecture for incorporating native tools (strands-cli native tools) into the codebase. The design supports:
+This plan describes a **simplified, pragmatic architecture** for incorporating native tools into the codebase. The design supports:
 
-- **One tool or tool family per subdirectory** (e.g., `http_request`, `file_operations`, `calculator`)
-- **Schema support for `"native:"` prefix** in addition to current `"strands_tools"` format
-- **Backward compatibility** with existing `strands_tools.*` imports
-- **Lazy loading** and caching for performance
-- **Clear separation of concerns** between tool definition, execution, and validation
-- **Extensibility** for future tool families without modifying core runtime logic
+- **One tool per module file** with Strands SDK-compatible `TOOL_SPEC` exports (e.g., `tools/http_request.py`, `tools/calculator.py`)
+- **Backward compatibility** with existing `strands_tools.*` format
+- **Auto-discovery** via directory scanning (no manual registration)
+- **Registry-based allowlist** replacing hardcoded `ALLOWED_PYTHON_CALLABLES`
+- **Zero schema changes** (current schema already flexible enough)
+- **Minimal runtime changes** (leverage existing `TOOL_SPEC` detection)
 
 ---
 
@@ -122,341 +188,273 @@ The plan's use of `TOOL_SPEC` and module-based discovery is **officially sanctio
       "strands_tools.file_write.file_write",
       "strands_tools.calculator.calculator",
       "strands_tools.current_time.current_time",
+      # Also old format for backward compatibility:
+      "strands_tools.http_request",
+      "strands_tools.file_read",
+      # ...
   }
   ```
-- `HTTP_EXECUTORS`: Dynamic HTTP API configuration
+- `HTTP_EXECUTORS`: Dynamic HTTP API configuration (works fine)
 - `MCP`: Model Context Protocol (unsupported in MVP)
 
 **Current Load Mechanism:**
-1. `_load_python_tools()` in `strands_adapter.py` calls `load_python_callable()`
-2. `load_python_callable()` validates against allowlist and dynamically imports
-3. Tools are instantiated per agent/step (no pooling for Python tools currently)
+1. Spec contains `tools.python` array with objects: `[{callable: "strands_tools.http_request"}]`
+2. `_load_python_tools()` in `strands_adapter.py` iterates and calls `load_python_callable()`
+3. `load_python_callable()` validates against `ALLOWED_PYTHON_CALLABLES`
+4. If module has `TOOL_SPEC`, returns the module; otherwise returns the callable function
+5. Tools are cached per agent in `AgentCache`
 
-**Schema Definition:**
+**Schema Definition (Current):**
 ```json
 "tools": {
   "type": "object",
   "properties": {
     "python": {
       "type": "array",
-      "items": { "type": "string" }
-    },
-    "http_executors": { ... },
-    "mcp": { ... }
+      "description": "Fully qualified callables or module paths.",
+      "items": {
+        "type": "string"  // ✅ Already accepts any string - no pattern enforcement
+      }
+    }
   }
 }
 ```
 
-### 1.2 Pain Points with Current Approach
+**CRITICAL FINDING**: Schema is already permissive! No schema changes needed.
 
-1. **Allowlist is hardcoded** - Adding new tools requires modifying `capability/checker.py`
-2. **No clear tool organization** - All tools mixed into one flat `strands_tools` namespace
-3. **Scaling concerns** - Growing allowlist becomes unmaintainable
-4. **No tool metadata** - Each tool needs its own discovery/documentation mechanism
-5. **Schema inflexibility** - Prefix is hardcoded to `strands_tools`; no `native:` prefix support
-6. **Duplicate validation** - Tools validated in both schema and runtime checkers
+### 1.2 What Already Works
+
+✅ **TOOL_SPEC detection implemented** (`tools.py` lines 76-80)  
+✅ **Schema accepts any string** (no regex pattern restriction)  
+✅ **Model client pooling** (`providers.py` uses `@lru_cache`)  
+✅ **Agent caching** (`AgentCache` in executors)  
+✅ **HTTP executors fully functional**  
+
+### 1.3 Pain Points Requiring Refactor
+
+❌ **Hardcoded allowlist** - Adding tools requires editing `capability/checker.py`  
+❌ **No tool organization** - All tools conceptually in `strands_tools.*` namespace  
+❌ **Allowlist duplication** - Both old/new formats manually tracked  
+❌ **No discovery mechanism** - Can't enumerate available tools for `strands list-tools`  
+❌ **Tight coupling** - Allowlist is in `capability/` but tools conceptually belong elsewhere  
+
+### 1.4 Key Insights from Code Review
+
+1. **Python tools config uses objects**: `spec.tools.python` is `list[PythonTool]` where each has a `callable` field
+2. **Loader already handles TOOL_SPEC**: No changes needed to `load_python_callable()` core logic
+3. **Tool resolution is simple**: Just need to map user input → allowlisted import path
+4. **Performance is good**: Existing caching sufficient; no pooling issues observed
 
 ---
 
-## 2. Proposed Architecture
+## 2. Proposed Architecture (Simplified)
 
 ### 2.1 Directory Structure
 
 ```
 src/strands_cli/
 ├── tools/                           # NEW: Native tools root
-│   ├── __init__.py
-│   ├── registry.py                  # NEW: Tool registry & discovery
-│   ├── base.py                      # NEW: Abstract base classes
-│   ├── http_request/
-│   │   ├── __init__.py
-│   │   ├── tool.py                  # Tool implementation
-│   │   ├── schema.py                # JSON schema for inputs
-│   │   └── tests.py                 # Optional: unit tests
-│   ├── file_operations/
-│   │   ├── __init__.py
-│   │   ├── file_read.py             # file_read implementation
-│   │   ├── file_write.py            # file_write implementation
-│   │   ├── schema.py
-│   │   └── tests.py
-│   ├── data_tools/                  # New tool family
-│   │   ├── __init__.py
-│   │   ├── calculator.py
-│   │   ├── current_time.py
-│   │   ├── schema.py
-│   │   └── tests.py
-│   └── ... (future tool families)
+│   ├── __init__.py                  # Auto-discovery + registry singleton
+│   ├── registry.py                  # NEW: Simple registry (allowlist + metadata)
+│   │
+│   ├── http_request.py              # One file per tool (Strands SDK pattern)
+│   ├── file_read.py
+│   ├── file_write.py
+│   ├── calculator.py
+│   ├── current_time.py
+│   └── ... (future tools)
 │
 ├── runtime/
-│   ├── tools.py                     # UPDATED: Generic tool adapter
-│   ├── strands_adapter.py           # UPDATED: Use registry
+│   ├── tools.py                     # UPDATED: Use registry for allowlist
+│   ├── strands_adapter.py           # NO CHANGES (already generic)
 │   └── ...
 │
 ├── capability/
-│   ├── checker.py                   # UPDATED: Use registry
+│   ├── checker.py                   # UPDATED: Get allowlist from registry
 │   └── ...
 │
 ├── schema/
-│   └── strands-workflow.schema.json # UPDATED: Support "native:" prefix
+│   └── strands-workflow.schema.json # NO CHANGES (already flexible)
 ```
 
-### 2.2 Tool Registry Design
+**Key Simplifications from v1.0:**
+- ❌ No subdirectories per tool family (flat structure)
+- ❌ No `ToolCategory` enum (not needed for MVP)
+- ❌ No `base.py` abstract classes (tools are self-contained modules)
+- ❌ No complex `ToolSpec` with versioning/deprecation (defer to phase 2)
+- ✅ One file = one tool (clean, simple, Strands SDK compatible)
+
+### 2.2 Tool Registry Design (Minimal)
 
 **File:** `src/strands_cli/tools/registry.py`
 
-The registry serves as the **single source of truth** for available tools:
+The registry serves as a **simple allowlist generator** and **metadata provider**:
 
 ```python
-from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Callable
-from abc import ABC, abstractmethod
+"""Minimal tool registry for native tools."""
 
-class ToolCategory(str, Enum):
-    """Tool categories for organization."""
-    HTTP = "http"
-    FILE_OPS = "file_ops"
-    DATA = "data"
-    SYSTEM = "system"
-    COMPUTE = "compute"
+from dataclasses import dataclass
+from typing import Any
+
 
 @dataclass
-class ToolSpec:
-    """Tool specification and metadata."""
-    # Identity
-    id: str                           # e.g., "http_request", "file_read"
-    module_path: str                  # e.g., "strands_cli.tools.http_request.tool"
-    callable_name: str                # e.g., "http_request" (function/class name)
-    family: str                       # e.g., "http_request" (for grouping)
+class ToolInfo:
+    """Minimal tool metadata for discovery."""
     
-    # Metadata
-    category: ToolCategory
-    description: str
-    version: str
+    id: str                           # e.g., "http_request"
+    module_path: str                  # e.g., "strands_cli.tools.http_request"
+    description: str                  # From TOOL_SPEC["description"]
     
-    # Configuration
-    deprecated: bool = False
-    requires_consent: bool = False    # e.g., file_write
-    timeout_ms: int | None = None
-    
-    # Schema (optional)
-    input_schema: dict[str, Any] | None = None
-    output_schema: dict[str, Any] | None = None
-    
-    # Full import path for backward compatibility
     @property
-    def full_import_path(self) -> str:
-        """Return 'module_path.callable_name' for dynamic loading."""
-        return f"{self.module_path}.{self.callable_name}"
+    def import_path(self) -> str:
+        """Full import path for loading."""
+        return self.module_path
     
     @property
     def legacy_path(self) -> str:
-        """Return backward-compatible 'strands_tools.*' path."""
-        # e.g., "strands_tools.http_request.http_request"
-        return f"strands_tools.{self.family}.{self.callable_name}"
+        """Backward-compatible 'strands_tools.*' path."""
+        return f"strands_tools.{self.id}.{self.id}"
+    
+    @property
+    def legacy_short(self) -> str:
+        """Old short format."""
+        return f"strands_tools.{self.id}"
+
 
 class ToolRegistry:
-    """Central registry for native tools."""
+    """Simple singleton registry for native tools."""
     
     _instance: "ToolRegistry | None" = None
-    _registry: dict[str, ToolSpec] = {}
+    _tools: dict[str, ToolInfo] = {}
     
     def __new__(cls) -> "ToolRegistry":
-        """Singleton pattern for registry."""
+        """Singleton pattern."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._initialize()
+            cls._instance._discover_tools()
         return cls._instance
     
-    def _initialize(self) -> None:
-        """Load all available tools from subdirectories."""
-        # Dynamically discover and register tools
-        # See section 2.3 for discovery mechanism
-        pass
+    def _discover_tools(self) -> None:
+        """Auto-discover tools from strands_cli.tools module.
+        
+        Scans for Python files in tools/ directory, imports them,
+        and checks for TOOL_SPEC export.
+        """
+        import importlib
+        import pkgutil
+        from pathlib import Path
+        
+        tools_dir = Path(__file__).parent
+        
+        # Scan all .py files (skip __init__, registry, etc.)
+        for importer, module_name, is_pkg in pkgutil.iter_modules([str(tools_dir)]):
+            if module_name.startswith("_") or module_name == "registry":
+                continue
+            
+            try:
+                module = importlib.import_module(f"strands_cli.tools.{module_name}")
+                
+                # Check for TOOL_SPEC (Strands SDK pattern)
+                if hasattr(module, "TOOL_SPEC"):
+                    spec = module.TOOL_SPEC
+                    tool_info = ToolInfo(
+                        id=spec["name"],
+                        module_path=f"strands_cli.tools.{module_name}",
+                        description=spec.get("description", ""),
+                    )
+                    self._tools[tool_info.id] = tool_info
+            
+            except Exception:
+                # Silently skip malformed modules during discovery
+                pass
     
-    def register(self, spec: ToolSpec) -> None:
-        """Register a tool specification."""
-        self._registry[spec.id] = spec
+    def get(self, tool_id: str) -> ToolInfo | None:
+        """Get tool by ID."""
+        return self._tools.get(tool_id)
     
-    def get(self, tool_id: str) -> ToolSpec | None:
-        """Retrieve tool spec by ID (e.g., 'http_request')."""
-        return self._registry.get(tool_id)
-    
-    def get_by_import_path(self, import_path: str) -> ToolSpec | None:
-        """Lookup tool by 'strands_tools.*' or 'native:*' path."""
-        # Strip prefix
-        if import_path.startswith("native:"):
-            tool_id = import_path[7:]  # Remove "native:" prefix
-        elif import_path.startswith("strands_tools."):
-            tool_id = import_path.split(".")[1]  # Extract family from "strands_tools.family.*"
-        else:
-            return None
-        return self.get(tool_id)
-    
-    def list_all(self) -> list[ToolSpec]:
+    def list_all(self) -> list[ToolInfo]:
         """List all registered tools."""
-        return list(self._registry.values())
+        return list(self._tools.values())
     
-    def list_by_category(self, category: ToolCategory) -> list[ToolSpec]:
-        """Filter tools by category."""
-        return [t for t in self._registry.values() if t.category == category]
-    
-    def validate_tool_path(self, tool_path: str) -> tuple[bool, str | None]:
-        """Validate tool import path.
+    def resolve(self, user_input: str) -> str | None:
+        """Resolve user input to canonical import path.
+        
+        Supports:
+        - "http_request" → "strands_cli.tools.http_request"
+        - "strands_tools.http_request" → "strands_cli.tools.http_request"
+        - "strands_tools.http_request.http_request" → "strands_cli.tools.http_request"
         
         Returns:
-            (is_valid, error_message)
+            Canonical import path or None if not found
         """
-        spec = self.get_by_import_path(tool_path)
-        if spec is None:
-            return False, f"Unknown tool: {tool_path}"
-        if spec.deprecated:
-            return False, f"Tool {tool_path} is deprecated as of v{spec.version}"
-        return True, None
+        # Direct ID lookup
+        if user_input in self._tools:
+            return self._tools[user_input].import_path
+        
+        # Legacy format: "strands_tools.X" or "strands_tools.X.X"
+        if user_input.startswith("strands_tools."):
+            parts = user_input.split(".")
+            tool_id = parts[1] if len(parts) >= 2 else None
+            if tool_id and tool_id in self._tools:
+                return self._tools[tool_id].import_path
+        
+        return None
     
     def get_allowlist(self) -> set[str]:
-        """Return complete allowlist for capability checker.
+        """Generate complete allowlist for capability checker.
         
-        Includes both new 'native:*' and legacy 'strands_tools.*' formats.
+        Returns all valid import formats for all tools.
         """
         allowlist = set()
-        for spec in self._registry.values():
-            allowlist.add(f"native:{spec.id}")           # New format
-            allowlist.add(spec.full_import_path)         # Full path
-            allowlist.add(spec.legacy_path)              # Legacy path
+        for tool in self._tools.values():
+            allowlist.add(tool.import_path)       # New: "strands_cli.tools.http_request"
+            allowlist.add(tool.legacy_path)       # Legacy: "strands_tools.http_request.http_request"
+            allowlist.add(tool.legacy_short)      # Legacy: "strands_tools.http_request"
         return allowlist
+
+
+def get_registry() -> ToolRegistry:
+    """Get the global tool registry singleton."""
+    return ToolRegistry()
 ```
+
+**Key Features:**
+- ✅ Auto-discovery on first import (singleton pattern)
+- ✅ No manual registration needed
+- ✅ Backward compat for `strands_tools.*` paths
+- ✅ Generates allowlist dynamically
+- ✅ Simple metadata extraction from `TOOL_SPEC`
+- ❌ No versioning (defer to phase 2)
+- ❌ No deprecation tracking (defer to phase 2)
+- ❌ No complex validation (just presence check)
 
 ### 2.3 Tool Discovery & Registration
 
 **File:** `src/strands_cli/tools/__init__.py`
 
-Tools are auto-discovered from the `tools/` subdirectory using Python's entry points or manual registration:
+Tools are auto-discovered on module import:
 
 ```python
 """Native tools registry and discovery."""
 
-from strands_cli.tools.registry import ToolRegistry, ToolSpec, ToolCategory
+from strands_cli.tools.registry import get_registry
 
-def _discover_and_register_tools() -> None:
-    """Auto-discover tools from subdirectories.
-    
-    Each subdirectory in tools/ should have:
-    - __init__.py with TOOL_SPECS exported
-    - Concrete implementations
-    
-    Example (tools/http_request/__init__.py):
-        TOOL_SPECS = [
-            ToolSpec(
-                id="http_request",
-                module_path="strands_cli.tools.http_request.tool",
-                callable_name="http_request",
-                family="http_request",
-                category=ToolCategory.HTTP,
-                ...
-            )
-        ]
-    """
-    import importlib
-    import pkgutil
-    from pathlib import Path
-    
-    registry = ToolRegistry()
-    tools_dir = Path(__file__).parent
-    
-    # Scan subdirectories (skip private/special dirs)
-    for importer, module_name, is_pkg in pkgutil.iter_modules([str(tools_dir)]):
-        if module_name.startswith("_") or module_name in ("registry", "base"):
-            continue
-        
-        try:
-            module = importlib.import_module(f"strands_cli.tools.{module_name}")
-            
-            # Check for TOOL_SPECS export
-            if hasattr(module, "TOOL_SPECS"):
-                specs = module.TOOL_SPECS
-                for spec in specs if isinstance(specs, list) else [specs]:
-                    registry.register(spec)
-        
-        except Exception as e:
-            logger.warning(f"Failed to discover tools in {module_name}: {e}")
+# Auto-discover happens on first get_registry() call (singleton pattern)
+# No explicit initialization needed
 
-# Auto-discover on import
-_discover_and_register_tools()
-
-# Expose registry
-def get_registry() -> ToolRegistry:
-    """Get the global tool registry."""
-    return ToolRegistry()
+__all__ = ["get_registry"]
 ```
 
-### 2.4 Base Tool Class (Optional, Strands SDK Compatible)
+**That's it!** No complex entry points, no manual registration.
 
-**File:** `src/strands_cli/tools/base.py`
+### 2.4 Example Tool Implementation (Strands SDK-Compatible)
 
-Note: This is **optional** for strands-cli tooling. The Strands SDK doesn't require base classes; module-based tools are self-contained. However, for consistency within strands-cli, a base class can guide development:
-
-```python
-"""Abstract base classes for native tools (optional strands-cli helper).
-
-Tools can be implemented as:
-1. Module-based with TOOL_SPEC (official Strands SDK pattern) - RECOMMENDED
-2. Class-based with @tool decorator (Strands SDK pattern)
-3. Decorated functions (Strands SDK pattern)
-
-This file provides optional guidance for strands-cli developers.
-All are compatible with the Strands SDK.
-"""
-
-from abc import ABC, abstractmethod
-from typing import Any
-
-class NativeTool(ABC):
-    """Optional base class for strands-cli native tools.
-    
-    Note: NOT required by Strands SDK. Tools can be simple functions.
-    This is provided for consistency within strands-cli codebase.
-    """
-    
-    def validate_inputs(self, inputs: dict[str, Any]) -> tuple[bool, str | None]:
-        """Optional input validation.
-        
-        Returns:
-            (is_valid, error_message)
-        """
-        return True, None
-    
-    @abstractmethod
-    def execute(self, tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
-        """Execute tool and return Strands-compatible ToolResult.
-        
-        Args:
-            tool: Tool invocation dict with toolUseId and input
-            **kwargs: Additional context
-        
-        Returns:
-            ToolResult: {"toolUseId": str, "status": str, "content": list}
-        """
-        pass
-
-# Strands SDK tool result format (for reference)
-ToolResult = dict[str, Any]  # {"toolUseId", "status", "content"}
-```
-
-### 2.5 Example Tool Implementation (Strands SDK-Compatible)
-
-**File:** `src/strands_cli/tools/http_request/tool.py`
-
-This example follows the **official Strands SDK pattern** for module-based tools with explicit `TOOL_SPEC`:
+**File:** `src/strands_cli/tools/http_request.py`
 
 ```python
-"""HTTP request tool implementation.
+"""HTTP request tool (Strands SDK module-based pattern).
 
-This module-based tool follows the official Strands SDK pattern with explicit
-TOOL_SPEC definition and matching function. Compatible with both strands-cli
-and direct Strands Agent usage.
-
-Reference: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/tools/python-tools/
+Official Pattern: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/tools/python-tools/
 """
 
 from typing import Any
@@ -470,30 +468,15 @@ TOOL_SPEC = {
         "json": {
             "type": "object",
             "properties": {
-                "url": {
-                    "type": "string",
-                    "format": "uri",
-                    "description": "The URL to request"
-                },
+                "url": {"type": "string", "format": "uri"},
                 "method": {
                     "type": "string",
                     "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
-                    "description": "HTTP method",
                     "default": "GET"
                 },
-                "headers": {
-                    "type": "object",
-                    "description": "Optional HTTP headers"
-                },
-                "json_data": {
-                    "type": "object",
-                    "description": "Optional JSON body"
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "description": "Request timeout in milliseconds",
-                    "default": 30000
-                }
+                "headers": {"type": "object"},
+                "json_data": {"type": "object"},
+                "timeout_ms": {"type": "integer", "default": 30000}
             },
             "required": ["url"]
         }
@@ -506,16 +489,14 @@ def http_request(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
     
     Args:
         tool: Tool invocation object with toolUseId and input
-        **kwargs: Additional context (unused in module tools)
     
     Returns:
-        ToolResult dict with status, content, and optional toolUseId
+        ToolResult dict with status and content
     """
     try:
         tool_use_id = tool.get("toolUseId", "")
         tool_input = tool.get("input", {})
         
-        # Extract parameters
         url = tool_input.get("url")
         method = tool_input.get("method", "GET").upper()
         headers = tool_input.get("headers", {})
@@ -530,15 +511,8 @@ def http_request(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
                 "content": [{"text": "Missing required 'url' parameter"}]
             }
         
-        if method not in ("GET", "POST", "PUT", "DELETE", "PATCH"):
-            return {
-                "toolUseId": tool_use_id,
-                "status": "error",
-                "content": [{"text": f"Unsupported HTTP method: {method}"}]
-            }
-        
         # Execute
-        timeout = timeout_ms / 1000  # Convert to seconds
+        timeout = timeout_ms / 1000
         with httpx.Client(timeout=timeout) as client:
             response = client.request(
                 method=method,
@@ -547,19 +521,16 @@ def http_request(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
                 json=json_data
             )
         
-        # Return success with response details
         return {
             "toolUseId": tool_use_id,
             "status": "success",
-            "content": [
-                {
-                    "json": {
-                        "status_code": response.status_code,
-                        "headers": dict(response.headers),
-                        "body": response.text,
-                    }
+            "content": [{
+                "json": {
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": response.text,
                 }
-            ]
+            }]
         }
     
     except Exception as e:
@@ -568,68 +539,11 @@ def http_request(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
             "status": "error",
             "content": [{"text": f"HTTP request failed: {str(e)}"}]
         }
-
-# 3. Registry Metadata (strands-cli specific)
-from strands_cli.tools.registry import ToolSpec, ToolCategory
-
-TOOL_SPECS = ToolSpec(
-    id="http_request",
-    module_path="strands_cli.tools.http_request.tool",
-    callable_name="http_request",
-    family="http_request",
-    category=ToolCategory.HTTP,
-    description="Execute HTTP requests with timeout and retry.",
-    version="1.0.0",
-    requires_consent=False,
-    input_schema=TOOL_SPEC["inputSchema"],
-)
 ```
 
-**Key Points:**
+**No extra exports needed!** The registry scans for `TOOL_SPEC` automatically.
 
-1. **Strands SDK Compatibility:** The `TOOL_SPEC` and `http_request` function follow the official SDK pattern
-2. **Module-Based:** Self-contained module with no external imports except the tool itself
-3. **Explicit Response Format:** Returns Strands-compatible `ToolResult` dict
-4. **Registry Metadata:** Additional `TOOL_SPECS` object for strands-cli discovery (doesn't interfere with SDK)
-5. **Error Handling:** Proper error responses with toolUseId
-6. **No Decorator Dependency:** Works with or without `@tool` decorator (more portable)
-
-**File:** `src/strands_cli/tools/http_request/__init__.py`
-
-```python
-"""HTTP request tool module."""
-
-from strands_cli.tools.http_request.tool import http_request, TOOL_SPECS
-
-__all__ = ["http_request", "TOOL_SPECS"]
-```
-
-### 2.6 Schema Updates
-
-**File:** `src/strands_cli/schema/strands-workflow.schema.json`
-
-Update the `tools.python` schema to support the new prefix:
-
-```json
-"tools": {
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "python": {
-      "type": "array",
-      "description": "Fully qualified callables or module paths. Supports:\n  - 'native:http_request' (new format)\n  - 'strands_tools.http_request' (legacy format)\n  - 'native:<family>.<function>' for specific functions",
-      "items": {
-        "type": "string",
-        "pattern": "^(native:[A-Za-z0-9._-]+|strands_tools\\.[A-Za-z0-9._-]+)$"
-      }
-    },
-    "mcp": { ... },
-    "http_executors": { ... }
-  }
-}
-```
-
-### 2.7 Runtime Integration
+### 2.5 Runtime Integration
 
 **File:** `src/strands_cli/runtime/tools.py` (UPDATED)
 
@@ -705,187 +619,394 @@ def _check_tool_allowlist(spec: Spec) -> list[CapabilityIssue]:
 
 ---
 
-## 3. Implementation Roadmap
+## 3. Implementation Roadmap (Simplified)
 
-### Phase 1: Foundation (Week 1)
+### Phase 1: Foundation (2-3 days)
 
-- [ ] Create `src/strands_cli/tools/` directory structure
-- [ ] Implement `registry.py` and `base.py`
-- [ ] Create tool discovery mechanism in `__init__.py`
-- [ ] Write tests for registry (test_registry.py)
-- [ ] Update schema JSON with `native:` prefix support
-- [ ] Add 5-10 test cases for schema validation
+- [ ] Create `src/strands_cli/tools/` directory (flat structure)
+- [ ] Implement minimal `registry.py` (just `ToolInfo` + `ToolRegistry`)
+- [ ] Implement `__init__.py` (expose `get_registry()`)
+- [ ] Write tests for registry auto-discovery (`tests/unit/test_tools_registry.py`)
+- [ ] ~~Update schema JSON~~ **NO SCHEMA CHANGES NEEDED** ✅
 
-**Deliverable:** Registry infrastructure ready; schema supports `native:` prefix
+**Deliverable:** Registry infrastructure ready; auto-discovery working
 
-### Phase 2: Refactor Existing Tools (Week 2)
+### Phase 2: Implement Python Exec Tool (1 day)
 
-- [ ] Move `http_request` implementation to `tools/http_request/`
-- [ ] Move `file_read`, `file_write` to `tools/file_operations/`
-- [ ] Move `calculator`, `current_time` to `tools/data_tools/`
-- [ ] Export `TOOL_SPECS` from each module
-- [ ] Update capability checker to use registry
-- [ ] Update runtime loader to use registry
-- [ ] Run full test suite; verify backward compatibility
+- [ ] Create `tools/python_exec.py` with TOOL_SPEC (MVP - simple implementation)
+  - Execute Python code string in isolated environment
+  - Return stdout/stderr/result
+  - Basic security: timeout, restricted builtins
+- [ ] Update `capability/checker.py`: Extend `ALLOWED_PYTHON_CALLABLES` to include new tool path
+- [ ] Write unit tests for `python_exec` tool
+- [ ] Test integration: Create example workflow using `python_exec`
 
-**Deliverable:** All existing tools migrated; backward compat confirmed; ~287 tests pass
+**Deliverable:** One working native tool proving the pattern; existing tools untouched
 
-### Phase 3: Integration & Testing (Week 3)
+### Phase 3: Registry Integration & Testing (1 day)
 
-- [ ] Update `_load_python_tools()` in `strands_adapter.py` to use registry
-- [ ] Add integration tests for both `native:` and `strands_tools:` paths
-- [ ] Test with example workflows using both old and new prefixes
-- [ ] Add e2e tests for tool discovery and loading
-- [ ] Update README and manual with new tool format
-- [ ] Add CLI command: `strands list-tools` (show all available tools)
+- [ ] Update `capability/checker.py`: Use registry for allowlist (keep existing tools in hardcoded list)
+- [ ] Update `runtime/tools.py`: Add registry resolution for new tools only
+- [ ] Add CLI command: `strands list-tools` (enumerate native tools from registry)
+- [ ] Test auto-discovery with python_exec
+- [ ] Verify all 287 existing tests still pass
+- [ ] Create example workflow: `examples/python-exec-demo.yaml`
 
-**Deliverable:** Full integration working; examples updated; CLI enhancements
+**Deliverable:** Registry working; python_exec available; zero regression
 
-### Phase 4: Documentation & Examples (Week 4)
+### Phase 4: Documentation (1 day)
 
-- [ ] Create tool developer guide (TOOL_DEVELOPMENT.md)
-- [ ] Document tool registration process
-- [ ] Add examples for adding custom tool families
-- [ ] Update CONTRIBUTING.md with tool contribution guidelines
-- [ ] Create example workflows using `native:` prefix
-- [ ] Update copilot-instructions.md
+- [ ] Create `docs/TOOL_DEVELOPMENT.md` (simple guide for adding tools)
+- [ ] Update CONTRIBUTING.md (mention tools/ directory)
+- [ ] Update `.github/copilot-instructions.md` (new tool architecture)
+- [ ] Add inline comments to `registry.py` for clarity
 
-**Deliverable:** Complete documentation; developer experience polished
+**Deliverable:** Complete documentation
+
+**Total Estimated Time:** 6-9 days (vs 2 weeks in v1.0)
 
 ---
 
-## 4. Key Design Principles
+## 4. Key Design Principles (Updated for v2.0)
 
 ### 4.1 Backward Compatibility
 
 **Requirement:** All existing `strands_tools.*` imports continue to work
 
 **Implementation:**
-- Registry supports both `native:` and `strands_tools:` prefixes
-- `load_python_callable()` tries registry first, then fallback
-- Legacy paths mapped to new implementations via `TOOL_SPECS`
+- Registry's `resolve()` method translates legacy paths to new paths
+- `get_allowlist()` includes both old and new formats
+- No breaking changes to workflow specs
+- Examples using old format continue to work
 
-**Testing:** Run all existing examples; verify both paths work
+**Testing:** Run all 28 existing examples; all must pass
 
-### 4.2 Single Source of Truth
+### 4.2 Minimal Changes Principle
 
-**Requirement:** Tool allowlist defined in one place (registry)
-
-**Benefits:**
-- Easier to add/update tools
-- No duplication between schema, checker, and runtime
-- Clear tool metadata centralized
-
-### 4.3 Scalability
-
-**Requirement:** Adding a new tool requires no changes to core runtime code
+**Requirement:** Leverage existing infrastructure; avoid over-engineering
 
 **Implementation:**
-- Tools auto-discovered from subdirectories
-- Each tool family isolated in own module
-- Registry auto-populated on import
-- No hardcoded paths or allowlists in runtime
+- ✅ Schema already flexible - no changes needed
+- ✅ `TOOL_SPEC` detection already implemented - reuse it
+- ✅ Agent caching already works - no pooling changes
+- ✅ Model client pooling already exists - no changes
+- ➕ Only add: Registry for discovery + allowlist generation
 
-### 4.4 Clear Separation of Concerns
+### 4.3 Scalability via Auto-Discovery
 
-| Module | Responsibility |
-|--------|---|
-| `tools/registry.py` | Tool discovery, metadata, allowlist |
-| `tools/<family>/` | Tool implementation, schema, tests |
-| `runtime/tools.py` | Generic tool loading and adaptation |
-| `capability/checker.py` | Validation using registry |
-| `schema/strands-workflow.schema.json` | JSON schema (no hardcoded tool names) |
+**Requirement:** Adding a new tool = creating a single .py file
 
-### 4.5 Tool Families vs Individual Tools
+**Implementation:**
+- Drop tool file (e.g., `tools/new_tool.py`) with `TOOL_SPEC`
+- Registry auto-discovers on next import
+- Immediately available in allowlist
+- No code changes in `checker.py`, `tools.py`, or executors
 
-**Principle:** Group related tools into families; use directories to organize
-
-**Examples:**
-- `http_request/` - Single tool (HTTP requests)
-- `file_operations/` - Family: `file_read`, `file_write`, `file_list`
-- `data_tools/` - Family: `calculator`, `current_time`, `parse_json`
-- `ml_tools/` (future) - Family: `embeddings`, `classify`, `cluster`
-
-**Each family module exports:**
+**Example:**
 ```python
-TOOL_SPECS = [
-    ToolSpec(id="tool1", ...),
-    ToolSpec(id="tool2", ...),
-]
+# tools/web_scraper.py
+TOOL_SPEC = {
+    "name": "web_scraper",
+    "description": "Scrape web pages",
+    "inputSchema": {...}
+}
+
+def web_scraper(tool, **kwargs):
+    # Implementation
+    return {"toolUseId": ..., "status": "success", ...}
 ```
+
+That's it! Tool is now available.
+
+### 4.4 Single Responsibility Per Module
+
+| Module | Responsibility | Lines of Code (est.) |
+|--------|---|---|
+| `tools/registry.py` | Discovery, resolution, allowlist | ~100 |
+| `tools/<tool>.py` | Tool implementation (one per file) | ~50-150 each |
+| `runtime/tools.py` | Tool loading (add ~10 lines) | ~140 → 150 |
+| `capability/checker.py` | Validation (modify ~5 lines) | ~450 → 455 |
+
+**Total new code:** ~200 lines (registry) + 5 tool files × ~100 lines = ~700 lines
+**Modified code:** ~15 lines across 2 files
+
+### 4.5 No Premature Abstraction
+
+**Deferred to Phase 2 (post-MVP):**
+- ❌ `ToolCategory` enum (not needed yet)
+- ❌ Base classes / abstract interfaces (tools are simple functions)
+- ❌ Versioning / deprecation tracking (no use case yet)
+- ❌ Complex metadata (description from TOOL_SPEC is sufficient)
+- ❌ Tool-specific configuration beyond TOOL_SPEC
 
 ---
 
-## 5. Schema Changes
+## 5. Critical Fixes & Changes from v1.0
 
-### 5.1 Current Schema (tools.python)
+### 5.1 ❌ Remove: Schema Changes
 
-```json
-"python": {
-  "type": "array",
-  "description": "Fully qualified callables or module paths.",
-  "items": {
-    "type": "string"
-  }
-}
-```
+**v1.0 Proposed:** Add regex pattern to enforce `native:` prefix in schema
 
-### 5.2 Updated Schema
+**v2.0 Reality:** Schema already accepts any string! No changes needed.
 
 ```json
-"python": {
-  "type": "array",
-  "description": "Fully qualified callables or module paths. Supports:\n  • 'native:tool_id' (new native tool)\n  • 'strands_tools.family.function' (legacy, still supported)\n  • 'package.module.function' (custom, requires allowlist entry)",
-  "items": {
-    "type": "string",
-    "examples": [
-      "native:http_request",
-      "native:file_read",
-      "native:calculator",
-      "strands_tools.http_request.http_request",
-      "strands_tools.file_read.file_read"
-    ]
-  }
-}
+// Current schema (sufficient!)
+"items": { "type": "string" }
 ```
 
-### 5.3 Example Workflows
+### 5.2 ❌ Remove: Complex ToolSpec Dataclass
 
-**Old format (still works):**
-```yaml
-tools:
-  python:
-    - strands_tools.http_request
-    - strands_tools.file_read
-```
+**v1.0 Proposed:** Heavy `ToolSpec` with category, version, deprecation, timeout, consent, input/output schemas
 
-**New format (preferred):**
-```yaml
-tools:
-  python:
-    - native:http_request
-    - native:file_read
-    - native:calculator
-```
+**v2.0 Reality:** Simple `ToolInfo` with just `id`, `module_path`, `description`
+
+**Rationale:** YAGNI - Add complexity when needed, not speculatively
+
+### 5.3 ❌ Remove: Base Classes and Abstractions
+
+**v1.0 Proposed:** `NativeTool` abstract base class in `base.py`
+
+**v2.0 Reality:** Tools are Strands SDK-compatible modules with `TOOL_SPEC` - no inheritance needed
+
+**Rationale:** Follow Strands SDK patterns; don't invent new ones
+
+### 5.4 ❌ Remove: Subdirectories Per Tool
+
+**v1.0 Proposed:** `tools/http_request/tool.py`, `tools/file_operations/file_read.py`
+
+**v2.0 Reality:** Flat structure - `tools/http_request.py`, `tools/file_read.py`
+
+**Rationale:** Simpler discovery; each tool is self-contained; no need for `__init__.py` exports
+
+### 5.5 ✅ Keep: Auto-Discovery Pattern
+
+**Both versions:** Use `pkgutil.iter_modules()` to scan for tools
+
+**v2.0 Enhancement:** Scan for `.py` files (not subdirectories), check for `TOOL_SPEC` attribute
+
+### 5.6 ✅ Keep: Backward Compatibility
+
+**Both versions:** Support `strands_tools.*` legacy format
+
+**v2.0 Implementation:** Via `resolve()` method in registry
+
+### 5.7 ⚠️ Caution: Don't Break Existing Tools.py Logic
+
+**Current `tools.py` already handles:**
+- Old format: `strands_tools.http_request` (infers function name)
+- New format: `strands_tools.http_request.http_request` (explicit)
+- Module-based tools: Returns module if `TOOL_SPEC` present
+
+**v2.0 Change:** Add registry resolution BEFORE existing logic (graceful enhancement)
 
 ---
 
-## 6. Extensibility Examples
+## 6. Example Workflows (Backward Compatible)
 
-### 6.1 Adding a New Tool Family (ML Tools)
-
-Create `src/strands_cli/tools/ml_tools/`:
-
-```
-ml_tools/
-├── __init__.py
-├── embeddings.py
-├── classifier.py
-├── schema.py
-└── tests.py
+**Old format (all 28 examples use this - must keep working!):**
+```yaml
+tools:
+  python:
+    - callable: strands_tools.http_request
+    - callable: strands_tools.file_read.file_read
 ```
 
-**File:** `src/strands_cli/tools/ml_tools/__init__.py`
+**Registry handles both via `resolve()`:**
+- `strands_tools.http_request` → `strands_cli.tools.http_request`
+- `strands_tools.file_read.file_read` → `strands_cli.tools.file_read`
+
+**No breaking changes to existing workflows!**
+
+---
+
+## 7. Simplified Implementation Steps
+
+### Step 1: Create Registry (90 minutes)
+
+1. Create `src/strands_cli/tools/registry.py` (copy code from section 2.2)
+2. Create `src/strands_cli/tools/__init__.py`:
+   ```python
+   from strands_cli.tools.registry import get_registry
+   __all__ = ["get_registry"]
+   ```
+3. Write `tests/unit/test_tools_registry.py`:
+   - Test auto-discovery
+   - Test `resolve()` method
+   - Test `get_allowlist()` output
+
+### Step 2: Create Python Exec Tool (1 hour)
+
+Create ONE new native tool to prove the pattern:
+
+```python
+# tools/python_exec.py
+TOOL_SPEC = {
+    "name": "python_exec",
+    "description": "Execute Python code and return results (MVP - simple version)",
+    "inputSchema": {
+        "json": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python code to execute"},
+                "timeout": {"type": "integer", "default": 5, "description": "Timeout in seconds"}
+            },
+            "required": ["code"]
+        }
+    }
+}
+
+def python_exec(tool, **kwargs):
+    """Execute Python code with timeout.
+    
+    MVP Implementation:
+    - Uses exec() with restricted globals
+    - Captures stdout via StringIO
+    - Basic timeout via signal (Unix) or threading (Windows)
+    - Returns result or error
+    """
+    import io
+    import sys
+    from contextlib import redirect_stdout
+    
+    tool_use_id = tool.get("toolUseId", "")
+    tool_input = tool.get("input", {})
+    code = tool_input.get("code", "")
+    
+    try:
+        # Capture stdout
+        output = io.StringIO()
+        with redirect_stdout(output):
+            # Restricted globals (no file I/O, imports, etc.)
+            restricted_globals = {
+                "__builtins__": {
+                    "print": print,
+                    "len": len,
+                    "str": str,
+                    "int": int,
+                    "float": float,
+                    "list": list,
+                    "dict": dict,
+                    # Add more safe builtins as needed
+                }
+            }
+            exec(code, restricted_globals)
+        
+        return {
+            "toolUseId": tool_use_id,
+            "status": "success",
+            "content": [{"text": output.getvalue() or "Code executed successfully"}]
+        }
+    
+    except Exception as e:
+        return {
+            "toolUseId": tool_use_id,
+            "status": "error",
+            "content": [{"text": f"Execution failed: {str(e)}"}]
+        }
+```
+
+**Note:** This is MVP - a production version would add:
+- Proper sandboxing (subprocess, docker, etc.)
+- Resource limits (memory, CPU)
+- Better timeout handling
+- Allowlist of safe modules
+- AST parsing for dangerous operations
+
+### Step 3: Update Capability Checker (15 minutes)
+
+In `capability/checker.py` - **hybrid approach** (keep existing + add registry):
+
+```python
+# KEEP existing hardcoded allowlist for strands_tools.*
+ALLOWED_PYTHON_CALLABLES = {
+    "strands_tools.http_request.http_request",
+    "strands_tools.file_read.file_read",
+    "strands_tools.file_write.file_write",
+    "strands_tools.calculator.calculator",
+    "strands_tools.current_time.current_time",
+    # Old format
+    "strands_tools.http_request",
+    "strands_tools.file_read",
+    "strands_tools.file_write",
+    "strands_tools.calculator",
+    "strands_tools.current_time",
+}
+
+def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
+    from strands_cli.tools import get_registry
+    
+    registry = get_registry()
+    # Combine existing allowlist + registry allowlist
+    allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+    
+    if spec.tools and spec.tools.python:
+        for i, tool in enumerate(spec.tools.python):
+            if tool.callable not in allowed:
+                available = ', '.join(sorted(t.id for t in registry.list_all()))
+                issues.append(
+                    CapabilityIssue(
+                        pointer=f"/tools/python/{i}/callable",
+                        reason=f"Tool '{tool.callable}' not in allowlist",
+                        remediation=f"Use existing tools or native tools: {available}",
+                    )
+                )
+```
+
+**Key:** Hybrid approach! Existing tools stay in hardcoded list; new native tools come from registry.
+
+### Step 4: Update Runtime Tools (15 minutes)
+
+In `runtime/tools.py`, update `load_python_callable()`:
+
+```python
+def load_python_callable(import_path: str) -> Any:
+    from strands_cli.tools import get_registry
+    
+    registry = get_registry()
+    
+    # New: Check allowlist from registry
+    if import_path not in registry.get_allowlist():
+        raise ToolError(...)
+    
+    # New: Try to resolve via registry
+    resolved_path = registry.resolve(import_path)
+    if resolved_path:
+        import_path = resolved_path
+    
+    # Rest of function UNCHANGED (existing TOOL_SPEC logic)
+    ...
+```
+
+### Step 5: Test Everything (1 hour)
+
+```powershell
+.\scripts\dev.ps1 test          # All 287 tests must pass
+.\scripts\dev.ps1 validate-examples  # All 28 examples must validate
+
+# Test specific patterns
+uv run strands run examples/chain-calculator-openai.yaml --var operation="2+2"
+uv run strands run examples/simple-file-read-openai.yaml
+```
+
+### Step 6: Add CLI Command (30 minutes)
+
+In `__main__.py`:
+
+```python
+@app.command()
+def list_tools() -> None:
+    """List all available native tools."""
+    from strands_cli.tools import get_registry
+    
+    registry = get_registry()
+    tools = registry.list_all()
+    
+    console.print("[bold]Available Tools:[/bold]\n")
+    for tool in sorted(tools, key=lambda t: t.id):
+        console.print(f"  • [cyan]{tool.id}[/cyan] - {tool.description}")
+```
+
+**Total Implementation Time: ~3-4 hours** (even faster - no migration!)
 
 ```python
 """ML tools module."""
@@ -1047,86 +1168,91 @@ async def execute_tool_with_telemetry(tool_id: str, inputs: dict) -> Any:
 
 ---
 
-## 9. Risks & Mitigation
+## 9. Risks & Mitigation (v2.0 Updated)
 
-| Risk | Probability | Severity | Mitigation |
-|------|-------------|----------|-----------|
-| Breaking backward compat | Low | High | Comprehensive testing of old/new paths; deprecation warnings |
-| Registry discovery failures | Medium | Medium | Graceful error handling; fallback to manual registration |
-| Performance regression | Low | Medium | Lazy loading; caching; benchmarking before/after |
-| Schema validation too strict | Low | Medium | Extensive testing; schema versioning for future changes |
+| Risk | v1.0 Assessment | v2.0 Reality | Mitigation |
+|------|----------------|-------------|-----------|
+| Breaking backward compat | Low / High | **Very Low / High** | All 28 examples must pass; `resolve()` handles legacy paths |
+| Registry discovery failures | Medium / Medium | **Low / Low** | Simple scan logic; graceful skip on malformed modules |
+| Performance regression | Low / Medium | **Very Low / Low** | No new caching needed; registry singleton cached |
+| Schema validation too strict | Low / Medium | **N/A** | No schema changes! ✅ |
+| Import order dependencies | **New** | **Low / Medium** | Registry lazy-loads on first access; singleton pattern prevents double-init |
 
----
-
-## 10. Success Criteria
-
-- [x] Registry implemented with full test coverage (>85%)
-- [x] All existing tools migrated to new structure
-- [x] Both `native:` and `strands_tools:` paths work
-- [x] All 287 tests pass
-- [x] No performance degradation (<5% overhead)
-- [x] CLI `strands list-tools` works
-- [x] Example workflows provided for new format
-- [x] Documentation complete
+**New Risk in v2.0:**
+- **Tool name conflicts**: What if two tools have same `TOOL_SPEC["name"]`?
+  - **Mitigation**: Last-wins during discovery + warning log; future: enforce uniqueness
 
 ---
 
-## 11. Appendix: Directory Tree (Final State)
+## 10. Success Criteria (v2.0 - Revised)
+
+**Must-Have (MVP):**
+- [ ] Registry implemented with ≥85% test coverage
+- [ ] ONE new native tool (`python_exec`) working end-to-end
+- [ ] All 287 unit tests pass without modification
+- [ ] All 28 example workflows run successfully (100% backward compat!)
+- [ ] `strands list-tools` CLI command works (shows native tools)
+- [ ] Example workflow using `python_exec` tool
+- [ ] No performance regression
+- [ ] Documentation updated (TOOL_DEVELOPMENT.md with python_exec example)
+
+**Deferred (Phase 2 - Future Migration):**
+- [ ] Migrate existing 5 tools from strands_tools.* to native format
+- [ ] Remove hardcoded ALLOWED_PYTHON_CALLABLES
+- [ ] Full registry-based validation
+
+**Nice-to-Have (Future Phases):**
+- [ ] Better python_exec: sandboxing, resource limits, safe imports
+- [ ] Tool versioning support
+- [ ] Deprecation warnings
+- [ ] Tool input validation via JSON schema
+- [ ] OTEL spans per tool invocation
+
+---
+
+## 11. Appendix: Directory Tree (Final State - v2.0 Revised)
 
 ```
 src/strands_cli/
-├── tools/
-│   ├── __init__.py                    # Auto-discovery
-│   ├── base.py                        # Abstract base classes
-│   ├── registry.py                    # Central registry
-│   │
-│   ├── http_request/
-│   │   ├── __init__.py
-│   │   ├── tool.py
-│   │   ├── schema.py
-│   │   └── tests.py
-│   │
-│   ├── file_operations/
-│   │   ├── __init__.py
-│   │   ├── file_read.py
-│   │   ├── file_write.py
-│   │   ├── schema.py
-│   │   └── tests.py
-│   │
-│   ├── data_tools/
-│   │   ├── __init__.py
-│   │   ├── calculator.py
-│   │   ├── current_time.py
-│   │   ├── schema.py
-│   │   └── tests.py
-│   │
-│   └── ml_tools/ (future)
-│       ├── __init__.py
-│       ├── embeddings.py
-│       ├── classifier.py
-│       └── tests.py
+├── tools/                           # NEW
+│   ├── __init__.py                  # Expose get_registry()
+│   ├── registry.py                  # ~100 lines (ToolInfo + ToolRegistry)
+│   └── python_exec.py               # ~100 lines (TOOL_SPEC + function) - ONLY NEW TOOL
 │
 ├── runtime/
-│   ├── tools.py                       # Updated: Use registry
-│   ├── strands_adapter.py
-│   ├── providers.py
+│   ├── tools.py                     # MODIFIED: +10 lines (registry integration)
+│   ├── strands_adapter.py           # NO CHANGES
+│   ├── providers.py                 # NO CHANGES
 │   └── __init__.py
 │
 ├── capability/
-│   ├── checker.py                     # Updated: Use registry
-│   ├── reporter.py
+│   ├── checker.py                   # MODIFIED: -10 lines (remove constant), +5 lines (use registry)
+│   ├── reporter.py                  # NO CHANGES
 │   └── __init__.py
 │
 ├── schema/
-│   ├── strands-workflow.schema.json   # Updated: Support native: prefix
-│   └── validator.py
+│   └── strands-workflow.schema.json # NO CHANGES ✅
 │
 └── ... (other modules unchanged)
 
 tests/
 ├── unit/
-│   └── test_tools_registry.py         # NEW: Registry tests
-├── integration/
+│   └── test_tools_registry.py       # NEW: ~100 lines (discovery, resolve, allowlist)
+└── integration/
+    └── test_backward_compat.py      # NEW: ~80 lines (old format still works)
+```
+
+**Code Stats:**
+- **New code**: ~300 lines (registry + 1 tool + tests)
+- **Modified code**: ~10 lines (2 files - hybrid approach)
+- **Removed code**: 0 lines (keeping existing tools as-is!)
+- **Net addition**: ~310 lines
+- **Files touched**: 6 (vs 30+ in v1.0, vs 9 in v2.0-migration)
+- **Risk**: Minimal (new code path only; existing tools untouched)
+
+---
+
+## 12. Timeline Estimate (v2.0 - Revised with python_exec)
 │   └── test_tools_integration.py      # NEW: Integration tests
 └── fixtures/
     └── tools/
@@ -1136,15 +1262,80 @@ tests/
 
 ---
 
-## 12. Timeline Estimate
+## 12. Timeline Estimate (v2.0 Realistic)
 
-| Phase | Duration | Team Size | Deps |
-|-------|----------|-----------|------|
-| Phase 1 (Foundation) | 3-4 days | 1 | None |
-| Phase 2 (Refactor) | 4-5 days | 1 | Phase 1 ✓ |
-| Phase 3 (Integration) | 3-4 days | 1-2 | Phase 2 ✓ |
-| Phase 4 (Docs) | 2-3 days | 1 | Phase 3 ✓ |
-| **Total** | **~2 weeks** | **1-2** | - |
+| Phase | Duration | Effort | Dependencies |
+|-------|----------|--------|--------------|
+| Phase 1: Registry Foundation | 0.5 days | Registry code + discovery | None |
+| Phase 2: Tool Migration | 1 day | Create 5 tool files | Phase 1 ✓ |
+| Phase 3: Integration | 0.5 days | Update checker + tools.py | Phase 2 ✓ |
+| Phase 4: Testing | 1 day | Unit + integration tests | Phase 3 ✓ |
+| Phase 5: CLI & Docs | 1 day | list-tools cmd + docs | Phase 4 ✓ |
+| **Total** | **~4 days** | **1 developer** | - |
+
+**vs v1.0 Estimate:** 2-4 weeks → **5-10x faster!**
+
+**Breakdown by Activity:**
+- Writing code: 2 days
+- Testing: 1 day
+- Documentation: 1 day
+- Contingency: Included in estimates
+
+---
+
+## 13. Decision Log
+
+| # | Question | v1.0 Decision | v2.0 Decision | Rationale |
+|---|----------|--------------|--------------|-----------|
+| 1 | Auto-discovery vs manual registration? | Auto-discovery | ✅ **Same** | Simpler DX |
+| 2 | Singleton vs instance registry? | Singleton | ✅ **Same** | Global truth |
+| 3 | Subdirectories vs flat structure? | Subdirectories | ❌ **Flat** | Simpler; fewer files |
+| 4 | Schema changes needed? | Yes (regex) | ❌ **No** | Already flexible |
+| 5 | Base classes for tools? | Yes (NativeTool) | ❌ **No** | Follow Strands SDK |
+| 6 | Tool versioning in MVP? | Deferred | ✅ **Same** | YAGNI |
+| 7 | ToolSpec complexity? | 10+ fields | ❌ **3 fields** | Minimal viable |
+| 8 | Support native: prefix? | Yes | ⚠️ **Later** | Not needed for discovery |
+
+---
+
+## 14. Critique of v1.0 Plan
+
+### What v1.0 Got Right ✅
+
+1. **Auto-discovery pattern** - Correct approach for scalability
+2. **Backward compatibility** - Critical for production systems
+3. **Strands SDK alignment** - Using TOOL_SPEC is official pattern
+4. **Single source of truth** - Registry is the right abstraction
+5. **Documentation emphasis** - Developer experience matters
+
+### What v1.0 Over-Engineered ❌
+
+1. **Subdirectories per tool** - Unnecessary complexity for 5-10 tools
+2. **Heavy ToolSpec dataclass** - 10+ fields when only 3 needed
+3. **ToolCategory enum** - No use case in MVP
+4. **Base classes** - Strands SDK doesn't require them
+5. **Schema regex patterns** - Current schema already permissive
+6. **Model client pooling** - Already implemented via @lru_cache!
+7. **Agent caching strategy** - Already implemented via AgentCache!
+
+### What v1.0 Missed 🔍
+
+1. **Code already 80% there** - Didn't audit existing `tools.py` implementation
+2. **TOOL_SPEC detection exists** - Lines 76-80 already handle module-based tools
+3. **PythonTool uses .callable** - v1.0 assumed bare strings in schema
+4. **Performance already optimized** - Assumed caching needed implementation
+
+### Lessons Learned 📚
+
+1. **Audit before architecting** - Review existing code first
+2. **YAGNI principle** - Don't add features without concrete use cases
+3. **Leverage SDK patterns** - Follow official docs, don't invent abstractions
+4. **Minimal viable changes** - Smallest change that solves the problem
+5. **Test-driven estimates** - Count existing tests as constraints
+
+---
+
+**End of Plan (v2.0)**
 
 ---
 
