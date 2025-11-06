@@ -14,10 +14,29 @@ Key Models:
     RunResult: Execution outcome with timing and artifacts
 """
 
+import re
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+import structlog
+from pydantic import BaseModel, Field, field_validator
+
+logger = structlog.get_logger(__name__)
+
+# Default blocked URL patterns for HTTP executors (SSRF prevention)
+# Blocks localhost, private IPs (RFC1918), AWS metadata, and non-HTTP protocols
+DEFAULT_BLOCKED_URL_PATTERNS = [
+    r"^https?://127\.0\.0\.1.*$",  # Localhost IPv4
+    r"^https?://localhost.*$",  # Localhost hostname
+    r"^https?://\[::1\].*$",  # Localhost IPv6
+    r"^https?://169\.254\.169\.254.*$",  # AWS/Azure metadata
+    r"^https?://10\..*$",  # RFC1918 private (10.0.0.0/8)
+    r"^https?://172\.(1[6-9]|2\d|3[01])\..*$",  # RFC1918 private (172.16.0.0/12)
+    r"^https?://192\.168\..*$",  # RFC1918 private (192.168.0.0/16)
+    r"^file:///.*$",  # File protocol
+    r"^ftp://.*$",  # FTP protocol
+    r"^gopher://.*$",  # Gopher protocol
+]
 
 
 class ProviderType(str, Enum):
@@ -123,6 +142,63 @@ class HttpExecutor(BaseModel):
     base_url: str
     headers: dict[str, str] | None = None
     timeout: int = 30
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        """Validate base_url to prevent SSRF attacks.
+
+        Blocks localhost, private IPs, AWS metadata endpoint, and non-HTTP protocols.
+        Additional patterns can be configured via STRANDS_HTTP_BLOCKED_PATTERNS env var.
+
+        Args:
+            v: The base_url value to validate
+
+        Returns:
+            The validated base_url
+
+        Raises:
+            ValueError: If base_url matches a blocked pattern
+        """
+        from strands_cli.config import StrandsConfig
+
+        config = StrandsConfig()
+
+        # Combine default blocked patterns with user-configured ones
+        blocked_patterns = DEFAULT_BLOCKED_URL_PATTERNS + config.http_blocked_patterns
+
+        # Check against blocked patterns
+        for pattern in blocked_patterns:
+            if re.match(pattern, v, re.IGNORECASE):
+                logger.warning(
+                    "http_url_blocked",
+                    violation_type="ssrf_attempt",
+                    blocked_url=v,
+                    matched_pattern=pattern,
+                )
+                raise ValueError(
+                    f"base_url '{v}' matches blocked pattern (potential SSRF): {pattern}"
+                )
+
+        # If allowed domains are configured, enforce allowlist
+        if config.http_allowed_domains:
+            allowed = False
+            for pattern in config.http_allowed_domains:
+                if re.match(pattern, v, re.IGNORECASE):
+                    allowed = True
+                    break
+            if not allowed:
+                logger.warning(
+                    "http_url_not_allowed",
+                    violation_type="domain_not_in_allowlist",
+                    url=v,
+                )
+                raise ValueError(
+                    f"base_url '{v}' not in allowed domains. "
+                    f"Configure STRANDS_HTTP_ALLOWED_DOMAINS to allow this domain."
+                )
+
+        return v
 
 
 class McpServer(BaseModel):

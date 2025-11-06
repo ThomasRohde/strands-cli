@@ -20,7 +20,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from strands_cli.loader import render_template
+
+logger = structlog.get_logger(__name__)
 
 
 class ArtifactError(Exception):
@@ -123,11 +127,70 @@ def write_artifacts(
         except Exception as e:
             raise ArtifactError(f"Failed to render artifact path '{artifact.path}': {e}") from e
 
-        artifact_path = Path(rendered_path)
+        # Sanitize each path component after rendering to prevent traversal
+        # This protects against templates like {{ "../../etc/passwd" }}
+        path_obj = Path(rendered_path)
 
-        # Make relative paths relative to output_dir
-        if not artifact_path.is_absolute():
-            artifact_path = output_dir / artifact_path
+        # Block absolute paths (security: prevent writing outside project)
+        if path_obj.is_absolute():
+            logger.warning(
+                "artifact_path_blocked",
+                violation_type="absolute_path",
+                attempted_path=rendered_path,
+                artifact_template=artifact.path,
+            )
+            raise ArtifactError(
+                f"Absolute paths not allowed in artifacts: {rendered_path}. "
+                "Use relative paths only."
+            )
+
+        # Check for path traversal attempts BEFORE sanitizing (to catch "..")
+        if ".." in path_obj.parts:
+            logger.warning(
+                "artifact_path_blocked",
+                violation_type="path_traversal_attempt",
+                attempted_path=rendered_path,
+                artifact_template=artifact.path,
+            )
+            raise ArtifactError(
+                f"Path traversal not allowed in artifacts: {rendered_path}. "
+                "Paths cannot contain '..' components."
+            )
+
+        # Sanitize each path component to prevent other attacks
+        sanitized_parts = [sanitize_filename(part) for part in path_obj.parts]
+        safe_path = Path(*sanitized_parts)
+
+        # Construct final path relative to output_dir
+        artifact_path = (output_dir / safe_path).resolve()
+
+        # Validate resolved path stays within output_dir (final defense)
+        try:
+            artifact_path.relative_to(output_dir.resolve())
+        except ValueError:
+            logger.warning(
+                "artifact_path_blocked",
+                violation_type="path_escape",
+                attempted_path=str(artifact_path),
+                artifact_template=artifact.path,
+                output_dir=str(output_dir),
+            )
+            raise ArtifactError(
+                f"Artifact path escapes output directory: {artifact_path}. "
+                f"Paths must stay within {output_dir}."
+            )
+
+        # Block symlinks (security: prevent following links outside output_dir)
+        if artifact_path.exists() and artifact_path.is_symlink():
+            logger.warning(
+                "artifact_path_blocked",
+                violation_type="symlink_detected",
+                attempted_path=str(artifact_path),
+            )
+            raise ArtifactError(
+                f"Artifact path is a symlink: {artifact_path}. "
+                "Symlinks are not allowed for security reasons."
+            )
 
         # Check if file exists
         if artifact_path.exists() and not force:

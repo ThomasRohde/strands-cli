@@ -927,3 +927,172 @@ class TestHttpExecutorAdapter:
 
         # Explicitly delete and verify cleanup
         del adapter
+
+
+# ============================================================================
+# HTTP Executor Security Tests (SSRF Prevention)
+# ============================================================================
+
+
+class TestHttpExecutorSecurity:
+    """Test that HttpExecutor blocks SSRF attack vectors."""
+
+    def test_blocks_localhost_ipv4(self):
+        """Test that localhost IPv4 (127.0.0.1) is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://127.0.0.1:8080",
+            )
+
+    def test_blocks_localhost_hostname(self):
+        """Test that localhost hostname is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://localhost:8080",
+            )
+
+    def test_blocks_localhost_ipv6(self):
+        """Test that localhost IPv6 (::1) is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://[::1]:8080",
+            )
+
+    def test_blocks_aws_metadata_endpoint(self):
+        """Test that AWS metadata endpoint is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://169.254.169.254/latest/meta-data/",
+            )
+
+    def test_blocks_rfc1918_10_network(self):
+        """Test that RFC1918 10.0.0.0/8 network is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://10.0.0.1:8080",
+            )
+
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://10.255.255.255:8080",
+            )
+
+    def test_blocks_rfc1918_172_network(self):
+        """Test that RFC1918 172.16.0.0/12 network is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://172.16.0.1:8080",
+            )
+
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://172.31.255.255:8080",
+            )
+
+    def test_blocks_rfc1918_192_network(self):
+        """Test that RFC1918 192.168.0.0/16 network is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern.*SSRF"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://192.168.1.1:8080",
+            )
+
+    def test_blocks_file_protocol(self):
+        """Test that file:// protocol is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern"):
+            HttpExecutor(
+                id="malicious",
+                base_url="file:///etc/passwd",
+            )
+
+    def test_blocks_ftp_protocol(self):
+        """Test that ftp:// protocol is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern"):
+            HttpExecutor(
+                id="malicious",
+                base_url="ftp://internal-server/data",
+            )
+
+    def test_blocks_gopher_protocol(self):
+        """Test that gopher:// protocol is blocked."""
+        with pytest.raises(ValueError, match="blocked pattern"):
+            HttpExecutor(
+                id="malicious",
+                base_url="gopher://internal-server:70",
+            )
+
+    def test_allows_public_https_urls(self):
+        """Test that public HTTPS URLs are allowed."""
+        # These should NOT raise ValueError
+        executor1 = HttpExecutor(
+            id="safe",
+            base_url="https://api.openai.com",
+        )
+        assert executor1.base_url == "https://api.openai.com"
+
+        executor2 = HttpExecutor(
+            id="safe",
+            base_url="https://api.example.com",
+        )
+        assert executor2.base_url == "https://api.example.com"
+
+    def test_allows_public_http_urls(self):
+        """Test that public HTTP URLs are allowed (blocklist, not allowlist by default)."""
+        executor = HttpExecutor(
+            id="safe",
+            base_url="http://api.example.com",
+        )
+        assert executor.base_url == "http://api.example.com"
+
+    def test_env_var_custom_blocked_patterns(self, monkeypatch):
+        """Test that STRANDS_HTTP_BLOCKED_PATTERNS env var adds custom blocks."""
+        # Add custom blocked pattern via env var (use simple pattern without regex escapes)
+        monkeypatch.setenv("STRANDS_HTTP_BLOCKED_PATTERNS", '["^https://evil.com"]')
+
+        # Need to reload config to pick up env var
+        from strands_cli.config import StrandsConfig
+
+        config = StrandsConfig()
+
+        # Verify custom pattern is loaded
+        assert "^https://evil.com" in config.http_blocked_patterns
+
+        # Test that it blocks the custom pattern
+        with pytest.raises(ValueError, match="blocked pattern"):
+            HttpExecutor(
+                id="test",
+                base_url="https://evil.com/api",
+            )
+
+    def test_env_var_allowed_domains_enforces_allowlist(self, monkeypatch):
+        """Test that STRANDS_HTTP_ALLOWED_DOMAINS env var enforces allowlist."""
+        # Set allowed domains (use simple pattern)
+        monkeypatch.setenv(
+            "STRANDS_HTTP_ALLOWED_DOMAINS", '["^https://api.trusted.com"]'
+        )
+
+        from strands_cli.config import StrandsConfig
+
+        config = StrandsConfig()
+
+        # Should allow URLs matching the pattern
+        executor = HttpExecutor(
+            id="safe",
+            base_url="https://api.trusted.com/v1",
+        )
+        assert executor.base_url == "https://api.trusted.com/v1"
+
+        # Should block URLs not matching the pattern
+        with pytest.raises(ValueError, match="not in allowed domains"):
+            HttpExecutor(
+                id="blocked",
+                base_url="https://untrusted.com",
+            )

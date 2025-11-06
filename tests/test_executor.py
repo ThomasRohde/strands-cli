@@ -13,8 +13,8 @@ import pytest
 
 from strands_cli.artifacts.io import ArtifactError, sanitize_filename, write_artifacts
 from strands_cli.exec.single_agent import ExecutionError, run_single_agent
-from strands_cli.loader.template import TemplateError, render_template
-from strands_cli.types import PatternType, Spec
+from strands_cli.loader.template import TemplateError, TemplateSecurityError, render_template
+from strands_cli.types import Artifact, PatternType, Spec
 
 # ============================================================================
 # Template Rendering Tests
@@ -75,6 +75,83 @@ class TestTemplateRendering:
         long_text = "x" * 1000
         result = render_template(template, {"long_text": long_text}, max_output_chars=100)
         assert len(result) == 100
+
+
+# ============================================================================
+# Template Security Tests (Sandboxed Jinja2)
+# ============================================================================
+
+
+class TestTemplateSecurity:
+    """Test that SandboxedEnvironment blocks malicious template operations."""
+
+    def test_blocks_class_attribute_access(self):
+        """Test that accessing __class__ is blocked."""
+        template = "{{ ''.__class__ }}"
+        with pytest.raises(TemplateSecurityError, match="unsafe operation"):
+            render_template(template, {})
+
+    def test_blocks_mro_access(self):
+        """Test that accessing __mro__ is blocked."""
+        template = "{{ ''.__class__.__mro__ }}"
+        with pytest.raises(TemplateSecurityError, match="unsafe operation"):
+            render_template(template, {})
+
+    def test_blocks_subclasses_introspection(self):
+        """Test that __subclasses__() introspection is blocked."""
+        template = "{{ ''.__class__.__mro__[1].__subclasses__() }}"
+        with pytest.raises(TemplateSecurityError, match="unsafe operation"):
+            render_template(template, {})
+
+    def test_blocks_globals_access(self):
+        """Test that accessing __globals__ is blocked."""
+        template = "{{ ''.__class__.__init__.__globals__ }}"
+        with pytest.raises(TemplateSecurityError, match="unsafe operation"):
+            render_template(template, {})
+
+    def test_blocks_builtins_access(self):
+        """Test that accessing __builtins__ is blocked."""
+        template = "{{ ''.__class__.__bases__[0].__subclasses__()[104].__init__.__globals__['__builtins__'] }}"
+        with pytest.raises(TemplateSecurityError, match="unsafe operation"):
+            render_template(template, {})
+
+    def test_blocks_import_function(self):
+        """Test that __import__ function is not available."""
+        template = "{{ __import__('os').system('whoami') }}"
+        with pytest.raises((TemplateError, TemplateSecurityError)):
+            render_template(template, {})
+
+    def test_blocks_eval_function(self):
+        """Test that eval function is not available."""
+        template = "{{ eval('1+1') }}"
+        with pytest.raises((TemplateError, TemplateSecurityError)):
+            render_template(template, {})
+
+    def test_allows_safe_filters(self):
+        """Test that whitelisted filters (truncate, tojson, title) work."""
+        # tojson filter should work
+        template = "{{ data | tojson }}"
+        result = render_template(template, {"data": {"key": "value"}})
+        assert '"key": "value"' in result
+
+        # truncate filter should work
+        template = "{{ text | truncate(10) }}"
+        result = render_template(template, {"text": "This is a long text"})
+        assert len(result) <= 10
+        assert result.endswith("...")
+
+        # title filter should work
+        template = "{{ text | title }}"
+        result = render_template(template, {"text": "hello world"})
+        assert result == "Hello World"
+
+    def test_blocks_unauthorized_filters(self):
+        """Test that non-whitelisted filters are not available."""
+        # Standard Jinja2 filters like 'upper' should not be available
+        # since we cleared env.filters and only added truncate/tojson
+        template = "{{ text | upper }}"
+        with pytest.raises(TemplateError, match="No filter named 'upper'"):
+            render_template(template, {"text": "hello"})
 
 
 # ============================================================================
@@ -389,17 +466,17 @@ class TestArtifactWriting:
         assert content == "# Results\n\nAgent output here\n\n---\nEnd"
 
     def test_absolute_and_relative_paths(self, temp_artifacts_dir: Path):
-        """Test that both absolute and relative paths work."""
-        # Relative path
+        """Test that relative paths work and absolute paths are blocked for security."""
+        # Relative path - should work
         artifacts_rel = [MagicMock(path="relative.txt", from_="{{ last_response }}")]
         write_artifacts(artifacts_rel, "Relative", output_dir=temp_artifacts_dir)
         assert (temp_artifacts_dir / "relative.txt").exists()
 
-        # Absolute path
+        # Absolute path - should be blocked for security
         absolute_path = temp_artifacts_dir / "absolute.txt"
         artifacts_abs = [MagicMock(path=str(absolute_path), from_="{{ last_response }}")]
-        write_artifacts(artifacts_abs, "Absolute", output_dir=temp_artifacts_dir)
-        assert absolute_path.exists()
+        with pytest.raises(ArtifactError, match="Absolute paths not allowed"):
+            write_artifacts(artifacts_abs, "Absolute", output_dir=temp_artifacts_dir)
 
     def test_nested_directory_creation(self, temp_artifacts_dir: Path):
         """Test that nested directories are created automatically."""
@@ -603,4 +680,183 @@ class TestPathSanitization:
 
         # Ensure it didn't escape the artifacts directory
         assert str(temp_artifacts_dir) in str(report_path.resolve())
+
+
+# ============================================================================
+# Artifact Path Security Tests (Path Traversal Prevention)
+# ============================================================================
+
+
+class TestArtifactPathSecurity:
+    """Test that artifact path handling prevents path traversal and other attacks."""
+
+    def test_blocks_path_traversal_via_template(self, temp_artifacts_dir: Path):
+        """Test that path traversal via template is blocked."""
+        artifacts = [
+            Artifact.model_validate({
+                "path": "{{ malicious_path }}",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        variables = {"malicious_path": "../../etc/passwd"}
+
+        with pytest.raises(ArtifactError, match="Path traversal not allowed"):
+            write_artifacts(
+                artifacts,
+                "content",
+                output_dir=temp_artifacts_dir,
+                variables=variables,
+            )
+
+    def test_blocks_absolute_path_in_template(self, temp_artifacts_dir: Path):
+        """Test that absolute paths in templates are blocked."""
+        import platform
+
+        artifacts = [
+            Artifact.model_validate({
+                "path": "{{ abs_path }}",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        # Use platform-appropriate absolute path
+        if platform.system() == "Windows":
+            abs_path = "C:\\Windows\\System32\\config"
+        else:
+            abs_path = "/etc/passwd"
+
+        variables = {"abs_path": abs_path}
+
+        with pytest.raises(ArtifactError, match="Absolute paths not allowed"):
+            write_artifacts(
+                artifacts,
+                "content",
+                output_dir=temp_artifacts_dir,
+                variables=variables,
+            )
+
+    def test_blocks_windows_absolute_path(self, temp_artifacts_dir: Path):
+        """Test that Windows absolute paths are blocked."""
+        artifacts = [
+            Artifact.model_validate({
+                "path": "{{ win_path }}",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        variables = {"win_path": "C:\\Windows\\System32\\config"}
+
+        with pytest.raises(ArtifactError, match="Absolute paths not allowed"):
+            write_artifacts(
+                artifacts,
+                "content",
+                output_dir=temp_artifacts_dir,
+                variables=variables,
+            )
+
+    def test_blocks_symlink_writing(self, temp_artifacts_dir: Path):
+        """Test that writing to symlinks is blocked."""
+        # Create a symlink to a file outside artifacts dir
+        target_file = temp_artifacts_dir.parent / "target.txt"
+        target_file.write_text("original", encoding="utf-8")
+
+        symlink_path = temp_artifacts_dir / "symlink.txt"
+        try:
+            symlink_path.symlink_to(target_file)
+        except OSError:
+            # Symlinks may not be supported on this platform
+            pytest.skip("Symlinks not supported on this platform")
+
+        artifacts = [
+            Artifact.model_validate({
+                "path": "symlink.txt",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        with pytest.raises(ArtifactError, match="(symlink|escapes output directory)"):
+            write_artifacts(
+                artifacts,
+                "content",
+                output_dir=temp_artifacts_dir,
+                force=True,  # File exists, so force needed
+            )
+
+    def test_sanitizes_path_components_after_rendering(self, temp_artifacts_dir: Path):
+        """Test that each path component is sanitized after template rendering."""
+        artifacts = [
+            Artifact.model_validate({
+                "path": "{{ subdir }}/{{ filename }}",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        variables = {
+            "subdir": "..escape",  # Changed from "../escape" to avoid .. blocking
+            "filename": "file.txt",
+        }
+
+        # Should sanitize '..escape' (no slash, just dots) and create ..escape/file.txt
+        written = write_artifacts(
+            artifacts,
+            "content",
+            output_dir=temp_artifacts_dir,
+            variables=variables,
+        )
+
+        assert len(written) == 1
+        written_path = Path(written[0])
+
+        # Verify file was created within artifacts dir
+        assert written_path.is_relative_to(temp_artifacts_dir.resolve())
+
+        # Verify path components were sanitized (leading dots stripped)
+        assert "escape" in str(written_path)
+
+    def test_nested_path_stays_within_output_dir(self, temp_artifacts_dir: Path):
+        """Test that nested paths stay within output directory."""
+        artifacts = [
+            Artifact.model_validate({
+                "path": "reports/analysis/summary.txt",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        written = write_artifacts(
+            artifacts,
+            "Final summary",
+            output_dir=temp_artifacts_dir,
+        )
+
+        assert len(written) == 1
+        written_path = Path(written[0])
+
+        # Verify within output_dir
+        assert written_path.is_relative_to(temp_artifacts_dir.resolve())
+
+        # Verify nested structure created
+        assert written_path.name == "summary.txt"
+        assert "reports" in str(written_path)
+        assert "analysis" in str(written_path)
+
+    def test_complex_traversal_attempt_blocked(self, temp_artifacts_dir: Path):
+        """Test that complex multi-level traversal is blocked."""
+        artifacts = [
+            Artifact.model_validate({
+                "path": "{{ path }}",
+                "from": "{{ last_response }}",
+            })
+        ]
+
+        # Multiple traversal attempts
+        variables = {"path": "../../../../../../../etc/passwd"}
+
+        with pytest.raises(ArtifactError, match="Path traversal not allowed"):
+            write_artifacts(
+                artifacts,
+                "content",
+                output_dir=temp_artifacts_dir,
+                variables=variables,
+            )
 

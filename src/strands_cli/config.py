@@ -66,3 +66,13 @@ class StrandsConfig(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(default="json", description="Log format (json or console)")
+
+    # HTTP Security
+    http_allowed_domains: list[str] = Field(
+        default_factory=list,
+        description="Allowed domain patterns for HTTP executors (regex)",
+    )
+    http_blocked_patterns: list[str] = Field(
+        default_factory=list,
+        description="Additional blocked URL patterns for HTTP executors (regex)",
+    )

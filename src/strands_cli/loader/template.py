@@ -25,11 +25,21 @@ import re
 import unicodedata
 from typing import Any
 
-from jinja2 import BaseLoader, Environment, StrictUndefined, TemplateSyntaxError, UndefinedError
+import structlog
+from jinja2 import BaseLoader, StrictUndefined, TemplateSyntaxError, UndefinedError
+from jinja2.sandbox import SandboxedEnvironment, SecurityError
+
+logger = structlog.get_logger(__name__)
 
 
 class TemplateError(Exception):
     """Raised when template rendering fails."""
+
+    pass
+
+
+class TemplateSecurityError(TemplateError):
+    """Raised when template attempts unsafe operations."""
 
     pass
 
@@ -91,6 +101,20 @@ def _filter_tojson(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False)
 
 
+def _filter_title(text: str) -> str:
+    """Convert text to title case.
+
+    Custom Jinja2 filter for formatting text.
+
+    Args:
+        text: Text to convert
+
+    Returns:
+        Text with title case formatting
+    """
+    return text.title()
+
+
 def render_template(
     template_str: str,
     variables: dict[str, Any],
@@ -115,27 +139,47 @@ def render_template(
         TemplateError: If template syntax is invalid, variable is undefined,
                       or rendering fails for any reason
     """
-    # Create a simple Jinja2 environment with custom filters
-    # (no file system access, only string templates)
-    env = Environment(
+    # Create a sandboxed Jinja2 environment to prevent code execution
+    # SandboxedEnvironment blocks access to Python internals (__class__, __mro__, etc.)
+    env = SandboxedEnvironment(
         loader=BaseLoader(),
         autoescape=False,  # We're generating prompts, not HTML
         undefined=StrictUndefined,  # Raise on undefined variables
     )
 
-    # Register custom filters
+    # Explicitly whitelist only safe filters (clear defaults, add only approved)
+    env.filters.clear()
     env.filters["truncate"] = _filter_truncate
     env.filters["tojson"] = _filter_tojson
+    env.filters["title"] = _filter_title
+
+    # Clear globals to prevent access to builtins
+    env.globals.clear()
 
     try:
         template = env.from_string(template_str)
     except TemplateSyntaxError as e:
+        logger.warning(
+            "template_syntax_error",
+            violation_type="invalid_syntax",
+            error=str(e),
+            template_preview=template_str[:100],
+        )
         raise TemplateError(f"Invalid template syntax: {e}") from e
 
     try:
         rendered = template.render(**variables)
     except UndefinedError as e:
         raise TemplateError(f"Undefined variable in template: {e}") from e
+    except SecurityError as e:
+        # SandboxedEnvironment raises SecurityError on unsafe operations
+        logger.warning(
+            "template_security_violation",
+            violation_type="unsafe_operation",
+            error=str(e),
+            template_preview=template_str[:100],
+        )
+        raise TemplateSecurityError(f"Template attempted unsafe operation: {e}") from e
     except Exception as e:
         raise TemplateError(f"Template rendering failed: {e}") from e
 
@@ -163,14 +207,18 @@ class TemplateRenderer:
             max_output_chars: Optional max output length for all renders
         """
         self.max_output_chars = max_output_chars
-        self.env = Environment(
+        self.env = SandboxedEnvironment(
             loader=BaseLoader(),
             autoescape=False,
             undefined=StrictUndefined,
         )
-        # Register custom filters
+        # Explicitly whitelist only safe filters
+        self.env.filters.clear()
         self.env.filters["truncate"] = _filter_truncate
         self.env.filters["tojson"] = _filter_tojson
+        self.env.filters["title"] = _filter_title
+        # Clear globals to prevent access to builtins
+        self.env.globals.clear()
 
     def render(self, template_str: str, variables: dict[str, Any]) -> str:
         """Render a template.

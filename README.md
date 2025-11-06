@@ -182,6 +182,55 @@ uv run strands run workflow.yaml --force
 uv run strands run workflow.yaml --verbose
 ```
 
+## Security Considerations
+
+Strands CLI implements defense-in-depth security for user-editable workflow specs. All user-controlled inputs (YAML specs, templates, variables) are treated as potentially malicious.
+
+### Key Security Features
+
+**🔒 Template Sandboxing** - Jinja2 templates use `SandboxedEnvironment` to prevent code execution
+```yaml
+# ❌ BLOCKED: Python introspection attacks
+outputs:
+  artifacts:
+    - path: "{{ ''.__class__.__mro__ }}"  # Sandbox blocks this
+```
+
+**🔒 SSRF Prevention** - HTTP executors validate URLs against blocklist
+```yaml
+# ❌ BLOCKED: Internal network access
+tools:
+  http_executors:
+    - base_url: "http://169.254.169.254"  # AWS metadata endpoint blocked
+```
+
+**🔒 Path Traversal Protection** - Artifact paths validated and sanitized
+```bash
+# ❌ BLOCKED: Directory escape attempts
+strands run spec.yaml --var path="../../etc/passwd"
+```
+
+### Security Controls
+
+1. **Sandboxed Jinja2 Templates**: Blocks `__class__`, `__mro__`, `eval`, `__import__`, etc.
+2. **HTTP URL Validation**: Blocks localhost, private IPs (RFC1918), cloud metadata endpoints, file:// protocol
+3. **Artifact Path Validation**: Rejects absolute paths, blocks `..` traversal, sanitizes components, prevents symlink following
+4. **Audit Logging**: All security violations logged at WARNING level with structured fields
+
+### Configuration
+
+**Block additional HTTP endpoints** (production):
+```bash
+export STRANDS_HTTP_BLOCKED_PATTERNS='["^https://internal\\.company\\.com"]'
+```
+
+**Enforce HTTP allowlist** (CI/CD):
+```bash
+export STRANDS_HTTP_ALLOWED_DOMAINS='["^https://api\\.openai\\.com", "^https://api\\.anthropic\\.com"]'
+```
+
+**📖 Full Documentation**: See [`docs/security.md`](docs/security.md) for comprehensive threat model, attack examples, and configuration details.
+
 ## Development
 
 ### Prerequisites
