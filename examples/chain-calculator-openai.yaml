@@ -77,7 +77,7 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/math-solution.md
+    - path: ./math-solution.md
       from: |
         # Mathematical Problem Solution
         

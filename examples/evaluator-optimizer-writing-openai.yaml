@@ -84,5 +84,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/refined-content.md"
+    - path: "./refined-content.md"
       from: "{{ last_response }}"

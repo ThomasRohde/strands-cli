@@ -128,7 +128,7 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/routing-result.md
+    - path: ./routing-result.md
       from: |
         # Multi-Tool Routing Result
         

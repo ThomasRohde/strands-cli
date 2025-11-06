@@ -285,12 +285,17 @@ def _write_and_report_artifacts(
         return []
 
     try:
+        # Extract merged variables from spec.inputs.values (includes YAML defaults + CLI overrides)
+        merged_vars = {}
+        if spec.inputs and isinstance(spec.inputs, dict) and "values" in spec.inputs:
+            merged_vars = spec.inputs["values"] or {}
+
         return write_artifacts(
             spec.outputs.artifacts,
             result.last_response or "",
             out,
             force,
-            variables=variables,
+            variables=merged_vars,
             execution_context=result.execution_context,
         )
     except ArtifactError as e:

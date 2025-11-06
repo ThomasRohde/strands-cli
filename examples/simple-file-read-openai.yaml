@@ -56,7 +56,7 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/file-summary.md
+    - path: ./file-summary.md
       from: |
         # File Summary
         

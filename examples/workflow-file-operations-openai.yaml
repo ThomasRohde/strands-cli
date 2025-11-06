@@ -106,7 +106,7 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/file-ops-report.md
+    - path: ./file-ops-report.md
       from: |
         # File Operations Workflow Report
         
