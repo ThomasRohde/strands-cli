@@ -25,7 +25,7 @@ class TestCreateFromPolicy:
 
     def test_returns_none_when_compaction_disabled(self) -> None:
         """Test that None is returned when compaction is disabled."""
-        from strands_cli.types import Spec, Agent, PatternType
+        from strands_cli.types import Agent, PatternType, Spec
 
         policy = ContextPolicy(compaction=Compaction(enabled=False))
         spec = Spec(
@@ -41,7 +41,7 @@ class TestCreateFromPolicy:
 
     def test_returns_none_when_no_compaction_config(self) -> None:
         """Test that None is returned when compaction config is missing."""
-        from strands_cli.types import Spec, Agent, PatternType
+        from strands_cli.types import Agent, PatternType, Spec
 
         policy = ContextPolicy()  # No compaction field
         spec = Spec(
@@ -60,7 +60,7 @@ class TestCreateFromPolicy:
         self, mock_create_agent: MagicMock
     ) -> None:
         """Test SummarizingConversationManager created with default settings."""
-        from strands_cli.types import Spec, Agent, PatternType
+        from strands_cli.types import Agent, PatternType, Spec
 
         # Don't need to mock since no custom model specified
         policy = ContextPolicy(
@@ -94,7 +94,7 @@ class TestCreateFromPolicy:
         self, mock_create_agent: MagicMock
     ) -> None:
         """Test SummarizingConversationManager created with custom summarization model."""
-        from strands_cli.types import Spec, Agent, PatternType
+        from strands_cli.types import Agent, PatternType, Spec
 
         mock_agent = MagicMock()
         mock_create_agent.return_value = mock_agent
@@ -129,7 +129,7 @@ class TestCreateFromPolicy:
     @patch("strands_cli.runtime.context_manager.create_model")
     def test_summarization_agent_uses_model_pooling(self, mock_create_model: MagicMock) -> None:
         """Test that summarization agent creation uses model pooling."""
-        from strands_cli.types import Spec, Agent, PatternType
+        from strands_cli.types import Agent, PatternType, Spec
 
         # Note: Without custom summarization_model, create_model won't be called for summarization
         # This test would need a custom model to trigger the pooling path

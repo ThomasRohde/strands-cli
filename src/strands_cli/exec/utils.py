@@ -255,6 +255,7 @@ class AgentCache:
         tool_overrides: list[str] | None = None,
         conversation_manager: Any | None = None,
         hooks: list[Any] | None = None,
+        injected_notes: str | None = None,
     ) -> Agent:
         """Get cached agent or build new one.
 
@@ -262,13 +263,17 @@ class AgentCache:
         If found, returns cached instance (cache hit). Otherwise, builds
         new agent and caches it (cache miss).
 
+        Note: injected_notes is passed through to build_agent but NOT included in cache key,
+        as notes change per step. Agents are cached by identity and tools only.
+
         Args:
             spec: Full workflow spec for agent construction
             agent_id: Agent identifier from spec.agents
             agent_config: Agent configuration
             tool_overrides: Optional tool ID list (overrides agent_config.tools)
             conversation_manager: Optional conversation manager for context compaction
-            hooks: Optional list of hooks (e.g., ProactiveCompactionHook)
+            hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
+            injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
 
         Returns:
             Cached or newly-built Agent instance
@@ -311,6 +316,7 @@ class AgentCache:
             tool_overrides=tool_overrides,
             conversation_manager=conversation_manager,
             hooks=hooks,
+            injected_notes=injected_notes,
         )
 
         # Cache the agent

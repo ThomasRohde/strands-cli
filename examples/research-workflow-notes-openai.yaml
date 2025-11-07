@@ -1,0 +1,155 @@
+version: 0
+name: "Research Workflow with Notes"
+description: "Multi-step research workflow demonstrating structured notes with tools and cross-step continuity"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 100000
+
+context_policy:
+  notes:
+    file: "./artifacts/research-notes.md"
+    include_last: 3
+
+agents:
+  web_researcher:
+    prompt: |
+      You are a web research assistant. Use the http_request tool to fetch information from APIs.
+      Always check the "Previous Workflow Steps" section to understand what research has been done.
+      Be thorough but concise in your analysis.
+    tools:
+      - strands_tools.http_request
+
+  data_analyzer:
+    prompt: |
+      You are a data analyst. Analyze the information provided and extract key insights.
+      Review the "Previous Workflow Steps" to understand the context and build upon previous findings.
+      Focus on quantitative metrics and patterns.
+    tools: []
+
+  file_manager:
+    prompt: |
+      You are a file management assistant. Use file_read to access data and organize information.
+      Check "Previous Workflow Steps" to understand what data has been collected.
+      Summarize findings clearly.
+    tools:
+      - strands_tools.file_read
+
+  report_writer:
+    prompt: |
+      You are a technical report writer. Synthesize all previous findings into a coherent report.
+      Use the "Previous Workflow Steps" to gather all research, analysis, and data.
+      Create a well-structured, professional report with clear sections.
+    tools: []
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: web_researcher
+        input: |
+          Fetch information about the GitHub repository: {{ repo_name }}
+          
+          Use the http_request tool to call the GitHub API:
+          https://api.github.com/repos/{{ repo_name }}
+          
+          Extract and report:
+          1. Repository description
+          2. Star count
+          3. Fork count
+          4. Primary language
+          5. Last update date
+
+      - agent: data_analyzer
+        input: |
+          Analyze the GitHub repository data from the previous step:
+          
+          {{ steps[0].response }}
+          
+          Provide insights on:
+          1. Repository popularity (based on stars and forks)
+          2. Activity level (based on last update)
+          3. Technology stack implications
+          4. Community engagement indicators
+
+      - agent: web_researcher
+        input: |
+          Now fetch the README content for {{ repo_name }} using:
+          https://api.github.com/repos/{{ repo_name }}/readme
+          
+          Note: The API returns base64 encoded content in the "content" field.
+          Extract key information about:
+          1. Project purpose
+          2. Main features mentioned
+          3. Any badges or statistics shown
+
+      - agent: file_manager
+        input: |
+          The README data is in the previous response. 
+          
+          {{ steps[2].response }}
+          
+          Summarize:
+          1. Project's main value proposition
+          2. Key features and capabilities
+          3. Target audience or use cases
+
+      - agent: report_writer
+        input: |
+          Create a comprehensive research report on {{ repo_name }}.
+          
+          Synthesize all information from previous steps:
+          - Repository metrics (step 1)
+          - Data analysis insights (step 2)
+          - README information (step 3)
+          - Feature summary (step 4)
+          
+          Structure the report with:
+          # Repository Analysis: {{ repo_name }}
+          
+          ## Executive Summary
+          [2-3 sentences overview]
+          
+          ## Repository Metrics
+          [Key statistics]
+          
+          ## Technical Analysis
+          [Technology and activity insights]
+          
+          ## Project Overview
+          [Purpose and features from README]
+          
+          ## Conclusion
+          [Overall assessment and recommendations]
+
+tools:
+  python:
+    - strands_tools.http_request
+    - strands_tools.file_read
+
+inputs:
+  values:
+    repo_name: "openai/openai-python"
+
+outputs:
+  artifacts:
+    - path: "./repository-report.md"
+      from: "{{ last_response }}"
+    
+    - path: "./raw-repo-data.md"
+      from: |
+        # Raw Research Data
+        
+        ## Step 1: Repository Info
+        {{ steps[0].response }}
+        
+        ## Step 2: Analysis
+        {{ steps[1].response }}
+        
+        ## Step 3: README Fetch
+        {{ steps[2].response }}
+        
+        ## Step 4: Feature Summary
+        {{ steps[3].response }}

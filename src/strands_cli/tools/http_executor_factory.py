@@ -279,8 +279,8 @@ def create_http_executor_tool(config: HttpExecutor, spec: Spec | None = None) ->
     # Set __file__ to indicate this is a dynamically generated tool module
     module.__file__ = f"<dynamic:http_executor_{config.id}>"
 
-    # Set TOOL_SPEC
-    module.TOOL_SPEC = tool_spec
+    # Set TOOL_SPEC (dynamic attribute on ModuleType)
+    module.TOOL_SPEC = tool_spec  # type: ignore[attr-defined]
 
     # Set function name to match TOOL_SPEC name and module name
     tool_function.__name__ = config.id
@@ -289,9 +289,9 @@ def create_http_executor_tool(config: HttpExecutor, spec: Spec | None = None) ->
     # Set the function as a module attribute with the same name
     setattr(module, config.id, tool_function)
 
-    # Store client and config for cleanup
-    module._http_client = client
-    module._http_config = config
+    # Store client and config for cleanup (dynamic attributes)
+    module._http_client = client  # type: ignore[attr-defined]
+    module._http_config = config  # type: ignore[attr-defined]
 
     return module
 

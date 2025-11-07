@@ -22,7 +22,6 @@ from strands_cli.runtime.tools import (
     ToolError,
     load_python_callable,
 )
-from strands_cli.tools.http_executor_factory import create_http_executor_tool
 from strands_cli.types import (
     Agent as AgentConfig,
 )
@@ -649,7 +648,9 @@ class TestBuildAgent:
 
         assert tools is not None
         assert len(tools) == 1
-        assert isinstance(tools[0], HttpExecutorAdapter)
+        # HTTP executors are now modules with TOOL_SPEC (not HttpExecutorAdapter class)
+        assert hasattr(tools[0], "TOOL_SPEC")
+        assert tools[0].TOOL_SPEC["name"] == "api-call"
 
     def test_builds_agent_with_python_tools(self, sample_ollama_spec, mocker):
         """Should register Python callable tools."""
@@ -847,160 +848,6 @@ class TestLoadPythonCallable:
         assert callable(result)
         # Module itself should not have been returned (it doesn't have TOOL_SPEC)
         assert result is not mock_module
-
-
-class TestHttpExecutorAdapter:
-    """Tests for HttpExecutorAdapter."""
-
-    def test_creates_adapter_with_config(self):
-        """Should initialize adapter with HTTP executor config."""
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=30,
-            headers={"Authorization": "Bearer token"},
-        )
-
-        adapter = HttpExecutorAdapter(config)
-
-        assert adapter.config == config
-        assert adapter.client.base_url == "https://api.example.com"
-
-    def test_executes_http_request_successfully(self, mocker):
-        """Should make HTTP request and return response dict."""
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=30,
-        )
-
-        adapter = HttpExecutorAdapter(config)
-
-        # Mock httpx.Client.request
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.headers = {"content-type": "application/json"}
-        mock_response.text = '{"result": "success"}'
-
-        mocker.patch.object(adapter.client, "request", return_value=mock_response)
-
-        result = adapter(
-            method="POST",
-            path="/api/endpoint",
-            json_data={"key": "value"},
-        )
-
-        # Verify response format
-        assert result["status"] == 200
-        assert result["headers"]["content-type"] == "application/json"
-        assert result["body"] == '{"result": "success"}'
-
-        # Verify request was made correctly
-        adapter.client.request.assert_called_once_with(
-            method="POST",
-            url="/api/endpoint",
-            json={"key": "value"},
-            headers=None,
-        )
-
-    def test_merges_headers_override(self, mocker):
-        """Should merge headers_override with config headers."""
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=30,
-            headers={"Authorization": "Bearer token"},
-        )
-
-        adapter = HttpExecutorAdapter(config)
-
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.headers = {}
-        mock_response.text = ""
-
-        mocker.patch.object(adapter.client, "request", return_value=mock_response)
-
-        adapter(
-            method="GET",
-            path="/test",
-            headers_override={"X-Custom": "value"},
-        )
-
-        # Verify merged headers
-        call_kwargs = adapter.client.request.call_args[1]
-        assert call_kwargs["headers"]["Authorization"] == "Bearer token"
-        assert call_kwargs["headers"]["X-Custom"] == "value"
-
-    def test_raises_tool_error_on_timeout(self, mocker):
-        """Should raise ToolError on timeout."""
-        import httpx
-
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=1,
-        )
-
-        adapter = HttpExecutorAdapter(config)
-
-        mocker.patch.object(
-            adapter.client,
-            "request",
-            side_effect=httpx.TimeoutException("Timeout"),
-        )
-
-        with pytest.raises(ToolError, match="HTTP request timed out"):
-            adapter(method="GET", path="/slow")
-
-    def test_raises_tool_error_on_http_error(self, mocker):
-        """Should raise ToolError on HTTP errors."""
-        import httpx
-
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=30,
-        )
-
-        adapter = HttpExecutorAdapter(config)
-
-        mocker.patch.object(
-            adapter.client,
-            "request",
-            side_effect=httpx.HTTPError("Connection failed"),
-        )
-
-        with pytest.raises(ToolError, match="HTTP request failed"):
-            adapter(method="GET", path="/error")
-
-    def test_context_manager_closes_client(self):
-        """Should close client on context manager exit."""
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=30,
-        )
-
-        with HttpExecutorAdapter(config) as adapter:
-            assert adapter.client is not None
-
-        # Client should be closed after exit
-        assert adapter.client.is_closed
-
-    def test_destructor_closes_client(self):
-        """Should close client when adapter is deleted."""
-        config = HttpExecutor(
-            id="test-api",
-            base_url="https://api.example.com",
-            timeout=30,
-        )
-
-        adapter = HttpExecutorAdapter(config)
-        assert not adapter.client.is_closed
-
-        # Explicitly delete and verify cleanup
-        del adapter
 
 
 # ============================================================================

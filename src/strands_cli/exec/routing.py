@@ -32,7 +32,7 @@ from pydantic import ValidationError
 
 from strands_cli.exec.chain import run_chain
 from strands_cli.exec.hooks import ProactiveCompactionHook
-from strands_cli.exec.utils import AgentCache, get_retry_config, invoke_agent_with_retry
+from strands_cli.exec.utils import AgentCache
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.types import PatternType, RouterDecision, RunResult, Spec

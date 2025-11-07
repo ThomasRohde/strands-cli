@@ -250,7 +250,7 @@ def mock_strands_agent(mocker: Any) -> Mock:
 @pytest.fixture
 def mock_agent_result_with_usage() -> MagicMock:
     """Mock Strands Agent result with realistic usage metrics.
-    
+
     Returns a mock result object that simulates Strands SDK's AfterInvocationEvent
     with accumulated usage data for context compaction testing.
     """

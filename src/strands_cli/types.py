@@ -489,20 +489,79 @@ class Compaction(BaseModel):
     summarization_model: str | None = None  # Optional cheaper model
 
 
+class Notes(BaseModel):
+    """Structured notes configuration.
+
+    Enables persistent note-taking across workflow execution steps for
+    cross-step continuity and multi-session workflow resumption.
+
+    Attributes:
+        file: Path to notes file (e.g., "artifacts/notes.md")
+        include_last: Number of recent notes to inject into agent context (default: 12)
+        format: Output format for notes (default: "markdown")
+    """
+
+    file: str  # Path to notes file
+    include_last: int = Field(12, ge=1)  # At least 1 note
+    format: str = "markdown"  # Future: support JSON
+
+
+class Retrieval(BaseModel):
+    """JIT retrieval configuration.
+
+    Enables just-in-time context retrieval tools for workflows to access
+    file and shell operations without loading entire files into context.
+    Tools are explicitly enabled via jit_tools list for security.
+
+    Attributes:
+        jit_tools: List of JIT tool IDs to enable (e.g., ["grep", "head", "tail", "search"])
+        mcp_servers: List of MCP server IDs from tools.mcp (Phase 9 - not yet implemented)
+    """
+
+    jit_tools: list[str] | None = Field(
+        None,
+        description="JIT tool IDs to enable (grep, head, tail, search)"
+    )
+    mcp_servers: list[str] | None = Field(
+        None,
+        description="MCP server IDs (Phase 9 - not yet implemented)"
+    )
+
+    @field_validator("jit_tools")
+    @classmethod
+    def validate_jit_tools(cls, v: list[str] | None) -> list[str] | None:
+        """Validate JIT tool names to prevent injection attacks."""
+        if v is None:
+            return None
+
+        # Allowed tool IDs (alphanumeric, underscore, hyphen only)
+        import re
+        valid_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+        for tool_id in v:
+            if not valid_pattern.match(tool_id):
+                raise ValueError(
+                    f"Invalid JIT tool ID '{tool_id}': must contain only "
+                    "alphanumeric characters, underscores, or hyphens"
+                )
+
+        return v
+
+
 class ContextPolicy(BaseModel):
     """Context management policy.
 
     Configures intelligent context management for long-running workflows:
     - Compaction: Automatic context compression when token thresholds are reached
-    - Notes: Structured note-taking for cross-step continuity (future)
-    - Retrieval: JIT context retrieval tools (future)
+    - Notes: Structured note-taking for cross-step continuity
+    - Retrieval: JIT context retrieval tools for on-demand file access
 
-    Phase 6.1 implements compaction; notes and retrieval remain as dict for future work.
+    Phase 6.1 implements compaction; Phase 6.2 implements notes; Phase 6.3 implements retrieval.
     """
 
     compaction: Compaction | None = None
-    notes: dict[str, Any] | None = None
-    retrieval: dict[str, Any] | None = None
+    notes: Notes | None = None
+    retrieval: Retrieval | None = None
 
 
 class Environment(BaseModel):

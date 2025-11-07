@@ -28,7 +28,7 @@ Key Design:
 import asyncio
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -286,7 +286,7 @@ def _write_and_report_artifacts(
 
     try:
         # Extract merged variables from spec.inputs.values (includes YAML defaults + CLI overrides)
-        merged_vars = {}
+        merged_vars: dict[str, Any] = {}
         if spec.inputs and isinstance(spec.inputs, dict) and "values" in spec.inputs:
             merged_vars = spec.inputs["values"] or {}
 

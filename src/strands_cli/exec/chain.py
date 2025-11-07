@@ -31,7 +31,7 @@ from typing import Any
 
 import structlog
 
-from strands_cli.exec.hooks import ProactiveCompactionHook
+from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
     check_budget_threshold,
@@ -41,6 +41,7 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
 
@@ -93,7 +94,7 @@ def _build_step_context(
     return context
 
 
-async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
     """Execute a multi-step chain workflow.
 
     Executes steps sequentially with context passing. Each step receives
@@ -131,13 +132,28 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
     started_at = datetime.now(UTC).isoformat()
 
-    # Phase 6: Create context manager and hooks for compaction
+    # Phase 6.1: Create context manager and hooks for compaction
     context_manager = create_from_policy(spec.context_policy, spec)
     hooks: list[Any] = []
     if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
         threshold = spec.context_policy.compaction.when_tokens_over or 60000
         hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
         logger.info("compaction_enabled", threshold_tokens=threshold)
+
+    # Phase 6.2: Initialize notes manager and hook for structured notes
+    notes_manager = None
+    step_counter = [0]  # Mutable container for hook to track step count
+    if spec.context_policy and spec.context_policy.notes:
+        notes_manager = NotesManager(spec.context_policy.notes.file)
+
+        # Build agent_id → tools mapping for notes hook
+        agent_tools: dict[str, list[str]] = {}
+        for agent_id, agent_config in spec.agents.items():
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+        hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
 
     # Phase 4: Create AgentCache for agent reuse across steps
     cache = AgentCache()
@@ -169,7 +185,19 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Phase 4: Use cached agent instead of rebuilding per step
             # Use step's tool_overrides if provided, else use agent's tools
             tools_for_step = step.tool_overrides if step.tool_overrides else None
-            # Phase 6: Pass conversation manager and hooks for context compaction
+
+            # Phase 6.2: Inject last N notes into agent context
+            injected_notes = None
+            if notes_manager and spec.context_policy and spec.context_policy.notes:
+                injected_notes = notes_manager.read_last_n(spec.context_policy.notes.include_last)
+                if injected_notes:
+                    logger.debug(
+                        "notes_injected",
+                        step=step_index,
+                        notes_length=len(injected_notes),
+                    )
+
+            # Phase 6: Pass conversation manager, hooks, and notes for context management
             agent = await cache.get_or_build_agent(
                 spec,
                 step_agent_id,
@@ -177,6 +205,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 tool_overrides=tools_for_step,
                 conversation_manager=context_manager,
                 hooks=hooks if hooks else None,
+                injected_notes=injected_notes,
             )
 
             # Phase 4: Direct await instead of asyncio.run() per step

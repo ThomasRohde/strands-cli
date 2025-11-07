@@ -1,0 +1,38 @@
+version: 0
+name: "JIT Tools Test"
+description: "Test JIT retrieval tools auto-injection"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+context_policy:
+  retrieval:
+    jit_tools:
+      - grep
+      - head
+      - tail
+      - search
+
+agents:
+  file_analyst:
+    prompt: |
+      You are a file analysis assistant. Use the available tools to analyze files:
+      - Use 'grep' to search for patterns with context
+      - Use 'head' to read the first lines
+      - Use 'tail' to read the last lines
+      - Use 'search' to find specific keywords
+      
+      Provide concise analysis based on the file contents.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: file_analyst
+        input: "Use the head tool to read the first 5 lines of README.md"
+
+outputs:
+  artifacts:
+    - path: "./artifacts/jit-test-result.txt"
+      from: "{{ last_response }}"

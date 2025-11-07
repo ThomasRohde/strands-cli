@@ -1,0 +1,61 @@
+version: 0
+name: "JIT Configuration Audit - OpenAI"
+description: "Audit configuration files using JIT tools to check security and best practices"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+context_policy:
+  retrieval:
+    jit_tools:
+      - grep
+      - head
+      - search
+
+agents:
+  config_auditor:
+    prompt: |
+      You are a configuration security auditor. Use JIT retrieval tools to inspect config files efficiently:
+      
+      **Tool Selection Guide:**
+      - Use 'head' for file headers and initial configuration blocks
+      - Use 'grep' when you need surrounding context (for understanding config relationships)
+      - Use 'search' for quick keyword checks (secrets, passwords, tokens)
+      
+      **Security Checklist:**
+      - Look for hardcoded secrets/credentials
+      - Check for insecure settings (http vs https, weak ciphers, etc.)
+      - Verify proper access controls
+      - Note any TODOs or FIXMEs indicating incomplete security
+      
+      Provide clear, prioritized findings with severity levels (Critical/High/Medium/Low).
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: config_auditor
+        input: |
+          Task: Audit pyproject.toml configuration
+          
+          1. Use 'head' to read the first 30 lines of pyproject.toml to check:
+             - Project metadata
+             - Version information
+             - Basic configuration structure
+          
+          2. Use 'search' to find any occurrences of:
+             - "password" or "secret" or "token" (potential hardcoded secrets)
+             - "http://" (insecure protocols)
+          
+          3. Use 'grep' to search for "[tool" patterns to list all tool configurations
+          
+          Provide a security audit report with:
+          - Security findings (if any)
+          - Configuration overview
+          - Recommendations for improvement
+
+outputs:
+  artifacts:
+    - path: "./artifacts/config-audit-report-openai.txt"
+      from: "{{ last_response }}"

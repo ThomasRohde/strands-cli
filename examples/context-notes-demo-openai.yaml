@@ -1,0 +1,55 @@
+version: 0
+name: "Notes Demo Chain"
+description: "3-step chain with structured notes for cross-step continuity"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 50000
+
+context_policy:
+  notes:
+    file: "./artifacts/demo-notes.md"
+    include_last: 3
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant. Analyze the given topic and provide key findings.
+      Consider any previous work shown in the "Previous Workflow Steps" section.
+    tools: []
+
+  summarizer:
+    prompt: |
+      You are a summarizer. Create a concise summary based on the research findings.
+      Review the "Previous Workflow Steps" to maintain continuity.
+    tools: []
+
+  recommender:
+    prompt: |
+      You are a recommendation engine. Provide actionable recommendations based on the research and summary.
+      Use the "Previous Workflow Steps" to ensure your recommendations align with previous findings.
+    tools: []
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research the topic: {{ topic }}"
+      
+      - agent: summarizer
+        input: "Summarize the research findings from step 1: {{ steps[0].response }}"
+      
+      - agent: recommender
+        input: "Provide 3 actionable recommendations based on the summary: {{ steps[1].response }}"
+
+inputs:
+  values:
+    topic: "Best practices for remote team collaboration"
+
+outputs:
+  artifacts:
+    - path: "./recommendations.md"
+      from: "{{ last_response }}"
