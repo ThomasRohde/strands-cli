@@ -1,6 +1,6 @@
 version: 0
 name: github-api-example
-description: Fetch GitHub data with authenticated HTTP executor
+description: Fetch GitHub data with authenticated HTTP executor (enhanced with metadata)
 
 # 1. Define secrets from environment variables
 env:
@@ -9,7 +9,7 @@ env:
       source: env
       key: MY_GITHUB_PAT
 
-# 2. Configure HTTP executor with secret in headers
+# 2. Configure HTTP executor with rich metadata for better agent guidance
 tools:
   http_executors:
     - id: gh
@@ -17,6 +17,59 @@ tools:
       headers:
         Authorization: "Bearer ${GITHUB_TOKEN}"  # Reference the secret
         Accept: "application/vnd.github+json"
+      
+      # Rich metadata to guide agent tool usage
+      description: |
+        GitHub REST API client for fetching repository information, user profiles, 
+        issues, pull requests, and other GitHub data. Use this tool to interact 
+        with any public or accessible private repositories.
+      
+      response_format: JSON
+      
+      authentication_info: |
+        Requires GitHub Personal Access Token (PAT) in Authorization header. 
+        Token must have appropriate scopes for the requested resources 
+        (e.g., 'repo' for private repositories, 'public_repo' for public repos).
+      
+      # Common endpoints to guide the agent
+      common_endpoints:
+        - method: GET
+          path: /repos/{owner}/{repo}
+          description: Get repository information (name, description, stars, forks, etc.)
+        
+        - method: GET
+          path: /repos/{owner}/{repo}/issues
+          description: List repository issues
+        
+        - method: GET
+          path: /repos/{owner}/{repo}/pulls
+          description: List pull requests
+        
+        - method: GET
+          path: /users/{username}
+          description: Get user profile information
+        
+        - method: GET
+          path: /repos/{owner}/{repo}/contributors
+          description: List repository contributors
+        
+        - method: GET
+          path: /repos/{owner}/{repo}/languages
+          description: Get programming languages used in repository
+      
+      # Usage examples to help agent understand request format
+      examples:
+        - description: Fetch repository information
+          method: GET
+          path: /repos/octocat/Hello-World
+        
+        - description: List repository issues with filters
+          method: GET
+          path: /repos/octocat/Hello-World/issues?state=open&labels=bug
+        
+        - description: Get user profile
+          method: GET
+          path: /users/octocat
 
 runtime:
   provider: openai
@@ -25,17 +78,25 @@ runtime:
 agents:
   api_researcher:
     prompt: |
-      You can fetch GitHub repository data using the gh tool.
-      Make GET requests to paths like /repos/owner/name.
+      You are a GitHub API researcher. Use the 'gh' tool to fetch repository data.
+      
+      The tool provides detailed endpoint documentation including common endpoints 
+      and examples. Review the tool description to understand available endpoints.
+      
+      When constructing requests:
+      - Use GET method for reading data
+      - Paths are relative to the base URL (https://api.github.com)
+      - Replace {owner} and {repo} with actual values
+      - Use query parameters for filtering (e.g., ?state=open&labels=bug)
     tools:
-      - gh  # Give agent access to the HTTP executor
+      - gh
 
 pattern:
   type: chain
   config:
     steps:
       - agent: api_researcher
-        input: "Fetch info about {{repo_name}} repository"
+        input: "Fetch comprehensive info about {{repo_name}} repository"
 
 outputs:
   artifacts:

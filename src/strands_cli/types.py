@@ -136,12 +136,42 @@ class PythonTool(BaseModel):
 
 
 class HttpExecutor(BaseModel):
-    """HTTP executor configuration."""
+    """HTTP executor configuration with agent guidance metadata.
+
+    Metadata fields (description, examples, common_endpoints) are used to generate
+    richer TOOL_SPEC descriptions that help LLM agents understand:
+    - What the API does and when to use it
+    - How to construct valid requests with examples
+    - Which endpoints are available and what they return
+    - Expected response formats and authentication requirements
+    """
 
     id: str
     base_url: str
     headers: dict[str, str] | None = None
     timeout: int = 30
+
+    # Agent guidance metadata (optional)
+    description: str | None = Field(
+        None,
+        description="Human-readable description of what this HTTP executor does and when to use it",
+    )
+    examples: list[dict[str, Any]] | None = Field(
+        None,
+        description="Example requests showing how to use this executor (method, path, json_data)",
+    )
+    common_endpoints: list[dict[str, str]] | None = Field(
+        None,
+        description="List of common endpoints with path and description for agent guidance",
+    )
+    response_format: str | None = Field(
+        None,
+        description="Expected response format (e.g., 'JSON', 'XML', 'plain text')",
+    )
+    authentication_info: str | None = Field(
+        None,
+        description="Information about authentication requirements (for documentation, not credentials)",
+    )
 
     @field_validator("base_url")
     @classmethod

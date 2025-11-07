@@ -477,6 +477,58 @@
               "timeout_ms": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description of what this HTTP executor does and when to use it"
+              },
+              "examples": {
+                "type": "array",
+                "description": "Example requests showing how to use this executor",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "description": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "json_data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "common_endpoints": {
+                "type": "array",
+                "description": "List of common endpoints with descriptions for agent guidance",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "description"],
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "response_format": {
+                "type": "string",
+                "description": "Expected response format (e.g., 'JSON', 'XML', 'plain text')"
+              },
+              "authentication_info": {
+                "type": "string",
+                "description": "Information about authentication requirements (for documentation, not credentials)"
               }
             }
           }

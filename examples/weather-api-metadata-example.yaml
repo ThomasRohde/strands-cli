@@ -1,0 +1,106 @@
+version: 0
+name: weather-api-example
+description: Demonstrate HTTP executor with rich metadata using OpenWeather API
+
+# Environment setup for API key
+env:
+  secrets:
+    - name: WEATHER_API_KEY
+      source: env
+      key: OPENWEATHER_API_KEY
+
+# HTTP executor with comprehensive metadata
+tools:
+  http_executors:
+    - id: weather
+      base_url: https://api.openweathermap.org/data/2.5
+      
+      # Rich metadata for better agent understanding
+      description: |
+        OpenWeather API for fetching current weather, forecasts, and historical data.
+        Supports global coverage with data for 200,000+ cities. Use this tool for:
+        - Current weather conditions by city name or coordinates
+        - 5-day/3-hour weather forecasts
+        - Air pollution data
+        - Geographic weather data lookup
+      
+      response_format: JSON
+      
+      authentication_info: |
+        Requires API key in query parameter 'appid'. Free tier includes:
+        - 60 calls/minute
+        - 1,000,000 calls/month
+        - Current weather and 5-day forecast
+      
+      # Guide agent to available endpoints
+      common_endpoints:
+        - method: GET
+          path: /weather
+          description: Current weather data by city name or coordinates (lat, lon)
+        
+        - method: GET
+          path: /forecast
+          description: 5-day forecast with 3-hour step
+        
+        - method: GET
+          path: /air_pollution
+          description: Current air pollution data by coordinates
+        
+        - method: GET
+          path: /onecall
+          description: Comprehensive weather data (current, forecast, historical)
+      
+      # Show concrete usage examples
+      examples:
+        - description: Get current weather for London
+          method: GET
+          path: /weather?q=London&appid=${WEATHER_API_KEY}&units=metric
+        
+        - description: Get 5-day forecast for New York
+          method: GET
+          path: /forecast?q=New York&appid=${WEATHER_API_KEY}&units=imperial
+        
+        - description: Get weather by coordinates (Paris)
+          method: GET
+          path: /weather?lat=48.8566&lon=2.3522&appid=${WEATHER_API_KEY}&units=metric
+        
+        - description: Get air pollution data
+          method: GET
+          path: /air_pollution?lat=51.5074&lon=0.1278&appid=${WEATHER_API_KEY}
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+agents:
+  weather_analyst:
+    prompt: |
+      You are a weather analysis assistant with access to the OpenWeather API.
+      
+      The 'weather' tool provides detailed endpoint documentation including:
+      - Available endpoints and their purposes
+      - Example requests with proper parameter formatting
+      - Authentication and rate limit information
+      
+      When users ask about weather:
+      1. Review the tool's common_endpoints to find the right API call
+      2. Use the examples to understand parameter formatting
+      3. Remember to include the API key using ${WEATHER_API_KEY}
+      4. Use metric units for most locations (units=metric)
+      5. Provide clear, user-friendly weather summaries
+      
+      You can fetch current conditions, forecasts, and air quality data.
+    tools:
+      - weather
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: weather_analyst
+        input: "{{user_query}}"
+
+outputs:
+  artifacts:
+    - path: ./weather-report.md
+      from: "{{ last_response }}"

@@ -68,6 +68,55 @@ def _resolve_secret_placeholders(text: str, spec: Spec | None) -> str:
     return re.sub(r"\$\{([^}]+)\}", replace_placeholder, text)
 
 
+def _build_tool_description(config: HttpExecutor) -> str:
+    """Build rich tool description from HTTP executor metadata.
+
+    Args:
+        config: HTTP executor configuration with optional metadata
+
+    Returns:
+        Formatted description string for TOOL_SPEC
+    """
+    description_parts = []
+
+    # Start with custom description or default
+    if config.description:
+        description_parts.append(config.description)
+    else:
+        description_parts.append(f"HTTP executor for {config.base_url}")
+
+    # Add authentication info if provided
+    if config.authentication_info:
+        description_parts.append(f"\n\nAuthentication: {config.authentication_info}")
+
+    # Add response format if provided
+    if config.response_format:
+        description_parts.append(f"\nResponse format: {config.response_format}")
+
+    # Add common endpoints if provided
+    if config.common_endpoints:
+        description_parts.append("\n\nCommon endpoints:")
+        for endpoint in config.common_endpoints:
+            method = endpoint.get("method", "GET")
+            path = endpoint.get("path", "")
+            desc = endpoint.get("description", "")
+            description_parts.append(f"\n- {method} {path}: {desc}")
+
+    # Add examples if provided
+    if config.examples:
+        description_parts.append("\n\nExamples:")
+        for i, example in enumerate(config.examples, 1):
+            example_desc = example.get("description", f"Example {i}")
+            method = example.get("method", "GET")
+            path = example.get("path", "")
+            description_parts.append(f"\n{i}. {example_desc}")
+            description_parts.append(f"   Method: {method}, Path: {path}")
+            if "json_data" in example:
+                description_parts.append(f"   Body: {example['json_data']}")
+
+    return "".join(description_parts)
+
+
 def create_http_executor_tool(config: HttpExecutor, spec: Spec | None = None) -> ModuleType:
     """Create a native tool module for an HTTP executor configuration.
 
@@ -109,10 +158,13 @@ def create_http_executor_tool(config: HttpExecutor, spec: Spec | None = None) ->
         headers=resolved_headers,
     )
 
+    # Build rich description with metadata
+    full_description = _build_tool_description(config)
+
     # Define TOOL_SPEC for this HTTP executor
     tool_spec = {
         "name": config.id,
-        "description": f"HTTP executor for {config.base_url}",
+        "description": full_description,
         "inputSchema": {
             "json": {
                 "type": "object",
