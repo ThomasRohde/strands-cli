@@ -145,6 +145,8 @@ def build_agent(
     agent_id: str,
     agent_config: AgentConfig,
     tool_overrides: list[str] | None = None,
+    conversation_manager: Any | None = None,
+    hooks: list[Any] | None = None,
 ) -> Agent:
     """Build a Strands Agent from a spec.
 
@@ -154,6 +156,7 @@ def build_agent(
     3. Load and validate Python callable tools (allowlist check)
     4. Create HTTP executor adapters
     5. Assemble Strands Agent with all components
+    6. Attach conversation manager and hooks (for context management)
 
     Args:
         spec: Full workflow spec (used for runtime, tools, skills)
@@ -161,6 +164,8 @@ def build_agent(
         agent_config: Configuration for this agent
         tool_overrides: Optional list of tool IDs to use instead of agent's default tools
                        (used for per-step tool_overrides in chain pattern)
+        conversation_manager: Optional conversation manager for context compaction
+        hooks: Optional list of hooks (e.g., ProactiveCompactionHook)
 
     Returns:
         Configured Strands Agent ready for invoke_async()
@@ -214,6 +219,8 @@ def build_agent(
             model=model,
             system_prompt=system_prompt,
             tools=tools if tools else None,
+            conversation_manager=conversation_manager,
+            hooks=hooks,
         )
     except Exception as e:
         raise AdapterError(f"Failed to create Strands Agent: {e}") from e

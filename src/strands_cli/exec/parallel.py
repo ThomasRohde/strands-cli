@@ -36,6 +36,7 @@ from typing import Any
 
 import structlog
 
+from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
     check_budget_threshold,
@@ -44,6 +45,7 @@ from strands_cli.exec.utils import (
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
 
 try:
@@ -108,6 +110,8 @@ async def _execute_branch(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
 ) -> tuple[str, int]:
     """Execute all steps in a branch sequentially.
 
@@ -167,6 +171,8 @@ async def _execute_branch(
             agent_id=step.agent,
             agent_config=agent_config,
             tool_overrides=step.tool_overrides,
+            conversation_manager=context_manager,
+            hooks=hooks,
         )
 
         # Execute with retry logic
@@ -229,6 +235,8 @@ async def _execute_reduce_step(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
 ) -> tuple[str, int]:
     """Execute reduce step to aggregate branch results.
 
@@ -271,6 +279,8 @@ async def _execute_reduce_step(
         agent_id=reduce_config.agent,
         agent_config=reduce_agent_config,
         tool_overrides=reduce_config.tool_overrides,
+        conversation_manager=context_manager,
+        hooks=hooks,
     )
 
     # Execute reduce with retry
@@ -307,6 +317,8 @@ async def _execute_all_branches_async(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
 ) -> list[tuple[str, int]]:
     """Execute all branches with semaphore control.
 
@@ -333,11 +345,27 @@ async def _execute_all_branches_async(
         if semaphore:
             async with semaphore:
                 return await _execute_branch(
-                    spec, branch, user_vars, cache, max_attempts, wait_min, wait_max
+                    spec,
+                    branch,
+                    user_vars,
+                    cache,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                    context_manager,
+                    hooks,
                 )
         else:
             return await _execute_branch(
-                spec, branch, user_vars, cache, max_attempts, wait_min, wait_max
+                spec,
+                branch,
+                user_vars,
+                cache,
+                max_attempts,
+                wait_min,
+                wait_max,
+                context_manager,
+                hooks,
             )
 
     # Execute all branches in parallel (fail-fast with return_exceptions=False)
@@ -400,6 +428,14 @@ async def run_parallel(
         max_tokens=max_tokens,
     )
 
+    # Phase 6: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    hooks: list[Any] = []
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
+        logger.info("compaction_enabled", threshold_tokens=threshold)
+
     # Create AgentCache for this execution
     cache = AgentCache()
 
@@ -415,6 +451,8 @@ async def run_parallel(
                 max_attempts,
                 wait_min,
                 wait_max,
+                context_manager,
+                hooks,
             )
         except Exception as e:
             end_time = datetime.now(UTC)
@@ -473,6 +511,8 @@ async def run_parallel(
                 max_attempts,
                 wait_min,
                 wait_max,
+                context_manager,
+                hooks,
             )
             final_response = reduce_response
             final_agent_id = spec.pattern.config.reduce.agent

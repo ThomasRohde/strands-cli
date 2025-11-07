@@ -248,6 +248,25 @@ def mock_strands_agent(mocker: Any) -> Mock:
 
 
 @pytest.fixture
+def mock_agent_result_with_usage() -> MagicMock:
+    """Mock Strands Agent result with realistic usage metrics.
+    
+    Returns a mock result object that simulates Strands SDK's AfterInvocationEvent
+    with accumulated usage data for context compaction testing.
+    """
+    mock_result = MagicMock()
+    mock_result.output = "Mocked agent response"
+    mock_result.accumulated_usage = {
+        "totalTokens": 1500,
+        "inputTokens": 1000,
+        "outputTokens": 500,
+    }
+    mock_result.tool_results = []
+    mock_result.input_summary = "Test input"
+    return mock_result
+
+
+@pytest.fixture
 def mock_create_model(mocker: Any) -> Mock:
     """Mock the create_model function to avoid actual provider connections."""
     # Mock create_model to return a mock model object

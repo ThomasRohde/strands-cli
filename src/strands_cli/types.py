@@ -468,10 +468,39 @@ class Security(BaseModel):
     guardrails: dict[str, Any] | None = None
 
 
-class ContextPolicy(BaseModel):
-    """Context management policy (parsed but no-op in MVP)."""
+class Compaction(BaseModel):
+    """Context compaction configuration.
 
-    compaction: dict[str, Any] | None = None
+    Controls when and how conversation context is compressed using
+    SummarizingConversationManager to prevent token overflow.
+
+    Attributes:
+        enabled: Enable proactive context compaction (default: True)
+        when_tokens_over: Trigger compaction before reaching this token threshold
+        summary_ratio: Proportion of older messages to summarize (0.0-1.0, default: 0.35)
+        preserve_recent_messages: Number of recent messages to keep intact (default: 12)
+        summarization_model: Optional cheaper model for summarization (e.g., "gpt-4o-mini")
+    """
+
+    enabled: bool = True
+    when_tokens_over: int | None = Field(None, ge=1000)  # Minimum 1K tokens
+    summary_ratio: float = Field(0.35, ge=0.0, le=1.0)  # 0-100% of context
+    preserve_recent_messages: int = Field(12, ge=1)  # At least 1 message
+    summarization_model: str | None = None  # Optional cheaper model
+
+
+class ContextPolicy(BaseModel):
+    """Context management policy.
+
+    Configures intelligent context management for long-running workflows:
+    - Compaction: Automatic context compression when token thresholds are reached
+    - Notes: Structured note-taking for cross-step continuity (future)
+    - Retrieval: JIT context retrieval tools (future)
+
+    Phase 6.1 implements compaction; notes and retrieval remain as dict for future work.
+    """
+
+    compaction: Compaction | None = None
     notes: dict[str, Any] | None = None
     retrieval: dict[str, Any] | None = None
 

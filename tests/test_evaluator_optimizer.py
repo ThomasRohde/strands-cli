@@ -464,7 +464,7 @@ async def test_run_evaluator_optimizer_agent_caching(
     )
 
     # Return different agents for producer vs evaluator
-    async def get_agent_side_effect(spec, agent_id, config, tool_overrides=None):
+    async def get_agent_side_effect(spec, agent_id, config, tool_overrides=None, **kwargs):
         if agent_id == "writer":
             return mock_producer
         elif agent_id == "critic":
@@ -541,7 +541,7 @@ async def test_default_revision_prompt_includes_context(mock_cache_class):
         ]
     )
 
-    async def get_agent_side_effect(spec, agent_id, config, tool_overrides=None):
+    async def get_agent_side_effect(spec, agent_id, config, tool_overrides=None, **kwargs):
         if agent_id == "writer":
             return mock_producer
         elif agent_id == "critic":

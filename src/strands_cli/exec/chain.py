@@ -31,6 +31,7 @@ from typing import Any
 
 import structlog
 
+from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
     check_budget_threshold,
@@ -39,6 +40,7 @@ from strands_cli.exec.utils import (
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.types import PatternType, RunResult, Spec
 
 
@@ -129,6 +131,14 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
     started_at = datetime.now(UTC).isoformat()
 
+    # Phase 6: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    hooks: list[Any] = []
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
+        logger.info("compaction_enabled", threshold_tokens=threshold)
+
     # Phase 4: Create AgentCache for agent reuse across steps
     cache = AgentCache()
     try:
@@ -159,8 +169,14 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Phase 4: Use cached agent instead of rebuilding per step
             # Use step's tool_overrides if provided, else use agent's tools
             tools_for_step = step.tool_overrides if step.tool_overrides else None
+            # Phase 6: Pass conversation manager and hooks for context compaction
             agent = await cache.get_or_build_agent(
-                spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
+                spec,
+                step_agent_id,
+                step_agent_config,
+                tool_overrides=tools_for_step,
+                conversation_manager=context_manager,
+                hooks=hooks if hooks else None,
             )
 
             # Phase 4: Direct await instead of asyncio.run() per step

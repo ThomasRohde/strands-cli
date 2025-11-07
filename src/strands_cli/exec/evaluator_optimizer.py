@@ -41,6 +41,7 @@ from typing import Any
 import structlog
 from pydantic import ValidationError
 
+from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
     check_budget_threshold,
@@ -49,6 +50,7 @@ from strands_cli.exec.utils import (
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.types import EvaluatorDecision, PatternType, RunResult, Spec
 
 
@@ -342,12 +344,32 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
     current_draft = ""
     final_score = 0
 
+    # Phase 6: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    hooks: list[Any] = []
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
+        logger.info("compaction_enabled", threshold_tokens=threshold)
+
     # Create AgentCache
     cache = AgentCache()
     try:
         # Get or build agents (reuse cached agents)
-        producer_agent = await cache.get_or_build_agent(spec, producer_agent_id, producer_config)
-        evaluator_agent = await cache.get_or_build_agent(spec, evaluator_agent_id, evaluator_config)
+        producer_agent = await cache.get_or_build_agent(
+            spec,
+            producer_agent_id,
+            producer_config,
+            conversation_manager=context_manager,
+            hooks=hooks,
+        )
+        evaluator_agent = await cache.get_or_build_agent(
+            spec,
+            evaluator_agent_id,
+            evaluator_config,
+            conversation_manager=context_manager,
+            hooks=hooks,
+        )
 
         # Iteration 1: Initial production
         current_draft, estimated_tokens = await _run_initial_production(
