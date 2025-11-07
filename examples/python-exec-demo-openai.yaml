@@ -4,7 +4,7 @@ description: Demonstrate python_exec native tool for executing Python code
 
 runtime:
   provider: openai
-  model_id: gpt-4o-mini
+  model_id: gpt-5-nano
 
 agents:
   calculator:

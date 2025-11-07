@@ -17,7 +17,8 @@ from typing import Any
 from strands.agent import Agent
 
 from strands_cli.runtime.providers import create_model
-from strands_cli.runtime.tools import HttpExecutorAdapter, load_python_callable
+from strands_cli.runtime.tools import load_python_callable
+from strands_cli.tools.http_executor_factory import create_http_executor_tool
 from strands_cli.types import Agent as AgentConfig
 from strands_cli.types import Spec
 
@@ -111,7 +112,7 @@ def _load_python_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
     return tools
 
 
-def _load_http_executors(spec: Spec, tools_to_use: list[str] | None) -> list[HttpExecutorAdapter]:
+def _load_http_executors(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
     """Load HTTP executor tools based on spec and filter.
 
     Args:
@@ -119,7 +120,7 @@ def _load_http_executors(spec: Spec, tools_to_use: list[str] | None) -> list[Htt
         tools_to_use: Optional list of tool IDs to filter by
 
     Returns:
-        List of HTTP executor adapter objects
+        List of Strands SDK-compatible HTTP executor tool modules
 
     Raises:
         AdapterError: If executor creation fails
@@ -129,8 +130,9 @@ def _load_http_executors(spec: Spec, tools_to_use: list[str] | None) -> list[Htt
         for http_exec in spec.tools.http_executors:
             if tools_to_use is None or http_exec.id in tools_to_use:
                 try:
-                    adapter = HttpExecutorAdapter(http_exec)
-                    tools.append(adapter)
+                    # Create Strands SDK-compatible module-based tool with secret resolution
+                    tool_module = create_http_executor_tool(http_exec, spec)
+                    tools.append(tool_module)
                 except Exception as e:
                     raise AdapterError(
                         f"Failed to create HTTP executor '{http_exec.id}': {e}"

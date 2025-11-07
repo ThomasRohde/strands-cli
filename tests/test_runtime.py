@@ -19,10 +19,10 @@ from strands_cli.runtime.strands_adapter import (
     build_system_prompt,
 )
 from strands_cli.runtime.tools import (
-    HttpExecutorAdapter,
     ToolError,
     load_python_callable,
 )
+from strands_cli.tools.http_executor_factory import create_http_executor_tool
 from strands_cli.types import (
     Agent as AgentConfig,
 )

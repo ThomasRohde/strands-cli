@@ -1,4 +1,4 @@
-"""Safe tool adapters for http_executors and Python tools.
+"""Safe tool adapters for Python tools.
 
 Provides controlled tool execution with security boundaries:
 
@@ -8,10 +8,8 @@ Python Tools:
     - Callable verification
 
 HTTP Executors:
-    - Configurable base URL and headers
-    - Timeout enforcement (default 30s)
-    - Error handling with httpx
-    - Response normalization to dict format
+    - Now handled by tools/http_executor_factory.py
+    - Creates proper native tool modules with TOOL_SPEC
 
 All tools raise ToolError on failures for consistent error handling.
 """
@@ -19,10 +17,7 @@ All tools raise ToolError on failures for consistent error handling.
 import importlib
 from typing import Any
 
-import httpx
-
 from strands_cli.capability import ALLOWED_PYTHON_CALLABLES
-from strands_cli.types import HttpExecutor
 
 
 class ToolError(Exception):
@@ -113,120 +108,3 @@ def load_python_callable(import_path: str) -> Any:
 
     except Exception as e:
         raise ToolError(f"Failed to load tool '{import_path}': {e}") from e
-
-
-class HttpExecutorAdapter:
-    """Safe HTTP executor adapter with timeout and retry logic.
-
-    Wraps http_executors config into a callable tool that can be
-    registered with a Strands Agent. Provides:
-
-    - Base URL configuration for relative paths
-    - Header management (base + per-request override)
-    - Timeout enforcement (configurable, default 30s)
-    - Normalized response format (status, headers, body)
-    - Error handling for timeouts and HTTP errors
-
-    The adapter is callable and context-manager compatible for resource cleanup.
-    """
-
-    def __init__(self, config: HttpExecutor):
-        """Initialize HTTP executor.
-
-        Args:
-            config: HTTP executor configuration with base_url, headers, timeout
-        """
-        self.config = config
-        self.client = httpx.Client(
-            base_url=config.base_url,
-            timeout=config.timeout,
-            headers=config.headers or {},
-        )
-
-    def __call__(
-        self,
-        method: str,
-        path: str,
-        json_data: dict[str, Any] | None = None,
-        headers_override: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        """Execute an HTTP request.
-
-        Args:
-            method: HTTP method (GET, POST, etc.)
-            path: Request path (relative to base_url)
-            json_data: Optional JSON body
-            headers_override: Optional headers to merge/override
-
-        Returns:
-            Response as dictionary with status, headers, body
-
-        Raises:
-            ToolError: If request fails
-        """
-        # Merge headers
-        headers = dict(self.config.headers or {})
-        if headers_override:
-            headers.update(headers_override)
-
-        try:
-            response = self.client.request(
-                method=method.upper(),
-                url=path,
-                json=json_data,
-                headers=headers if headers else None,
-            )
-
-            return {
-                "status": response.status_code,
-                "headers": dict(response.headers),
-                "body": response.text,
-            }
-        except httpx.TimeoutException as e:
-            raise ToolError(f"HTTP request timed out: {e}") from e
-        except httpx.HTTPError as e:
-            raise ToolError(f"HTTP request failed: {e}") from e
-        except Exception as e:
-            raise ToolError(f"Unexpected error in HTTP request: {e}") from e
-
-    def close(self) -> None:
-        """Close the HTTP client and release resources.
-
-        Should be called when the tool is no longer needed to prevent
-        lingering sockets in long-running workflow orchestrations.
-        """
-        self.client.close()
-
-    async def aclose(self) -> None:
-        """Async close for async context manager support.
-
-        Enables proper cleanup in async workflows and AgentCache.
-        """
-        self.client.close()
-
-    def __enter__(self) -> "HttpExecutorAdapter":
-        """Context manager entry."""
-        return self
-
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
-    ) -> None:
-        """Context manager exit - ensures cleanup on context exit."""
-        self.close()
-
-    async def __aenter__(self) -> "HttpExecutorAdapter":
-        """Async context manager entry."""
-        return self
-
-    async def __aexit__(
-        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
-    ) -> None:
-        """Async context manager exit - ensures cleanup on context exit."""
-        await self.aclose()
-
-    def __del__(self) -> None:
-        """Destructor to cleanup resources if not explicitly closed."""
-        from contextlib import suppress
-
-        with suppress(Exception):
-            self.client.close()

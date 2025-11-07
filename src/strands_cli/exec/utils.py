@@ -23,7 +23,7 @@ from tenacity import (
 )
 
 from strands_cli.runtime.strands_adapter import build_agent
-from strands_cli.runtime.tools import HttpExecutorAdapter
+from strands_cli.tools.http_executor_factory import close_http_executor_tool
 from strands_cli.types import Agent as AgentConfig
 from strands_cli.types import Spec
 
@@ -241,9 +241,9 @@ class AgentCache:
         # Cache key: (agent_id, frozenset(tool_ids)) -> Agent instance
         self._agents: dict[tuple[str, frozenset[str]], Agent] = {}
 
-        # Track HTTP executor tools separately for cleanup
-        # Key: executor ID -> HttpExecutorAdapter instance
-        self._http_executors: dict[str, HttpExecutorAdapter] = {}
+        # Track HTTP executor tool modules separately for cleanup
+        # Key: executor ID -> Module with _http_client
+        self._http_executors: dict[str, Any] = {}
 
         logger.debug("agent_cache_initialized")
 
@@ -300,16 +300,18 @@ class AgentCache:
         # Cache the agent
         self._agents[cache_key] = agent
 
-        # Track HTTP executors for cleanup (extract from agent.tools)
+        # Track HTTP executor tool modules for cleanup (extract from agent.tools)
         if hasattr(agent, "tools") and agent.tools:
             for tool in agent.tools:
+                # Check for module-based HTTP executor tools (created by factory)
                 if (
-                    isinstance(tool, HttpExecutorAdapter)
-                    and hasattr(tool, "config")
-                    and hasattr(tool.config, "id")
+                    hasattr(tool, "TOOL_SPEC")
+                    and hasattr(tool, "_http_client")
+                    and hasattr(tool, "_http_config")
                 ):
-                    # Use HTTP executor's config.id as key
-                    self._http_executors[tool.config.id] = tool
+                    # Extract executor ID from config
+                    executor_id = tool._http_config.id
+                    self._http_executors[executor_id] = tool
 
         return agent
 
@@ -328,10 +330,10 @@ class AgentCache:
             http_executors=len(self._http_executors),
         )
 
-        # Close all HTTP executor clients
-        for executor_id, executor in self._http_executors.items():
+        # Close all HTTP executor tool modules
+        for executor_id, tool_module in self._http_executors.items():
             try:
-                executor.close()
+                close_http_executor_tool(tool_module)
                 logger.debug("http_executor_closed", executor_id=executor_id)
             except Exception as e:
                 logger.warning(

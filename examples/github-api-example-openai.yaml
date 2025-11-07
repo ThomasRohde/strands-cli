@@ -1,0 +1,43 @@
+version: 0
+name: github-api-example
+description: Fetch GitHub data with authenticated HTTP executor
+
+# 1. Define secrets from environment variables
+env:
+  secrets:
+    - name: GITHUB_TOKEN
+      source: env
+      key: MY_GITHUB_PAT
+
+# 2. Configure HTTP executor with secret in headers
+tools:
+  http_executors:
+    - id: gh
+      base_url: https://api.github.com
+      headers:
+        Authorization: "Bearer ${GITHUB_TOKEN}"  # Reference the secret
+        Accept: "application/vnd.github+json"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+agents:
+  api_researcher:
+    prompt: |
+      You can fetch GitHub repository data using the gh tool.
+      Make GET requests to paths like /repos/owner/name.
+    tools:
+      - gh  # Give agent access to the HTTP executor
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: api_researcher
+        input: "Fetch info about {{repo_name}} repository"
+
+outputs:
+  artifacts:
+    - path: ./repo-info.md
+      from: "{{ last_response }}"
