@@ -67,6 +67,7 @@ outputs:
 
         # Run the workflow (mock will return success)
         from strands_cli.exec.chain import run_chain
+
         result = await run_chain(spec, {})
 
         assert result is not None
@@ -117,6 +118,7 @@ outputs:
 
         # Run should succeed
         from strands_cli.exec.chain import run_chain
+
         result = await run_chain(spec, {})
         assert result is not None
 

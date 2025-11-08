@@ -142,9 +142,7 @@ async def test_proactive_compaction_hook_uses_token_counter_fallback(tmp_path: A
     # Create messages that would exceed threshold when counted
     # Each message has ~4 token overhead + content
     # "Hello world" ≈ 2-3 tokens, so ~200 messages should exceed 1000 tokens
-    mock_agent.messages = [
-        {"role": "user", "content": "Hello world " * 50} for _ in range(20)
-    ]
+    mock_agent.messages = [{"role": "user", "content": "Hello world " * 50} for _ in range(20)]
 
     # Create mock event
     from strands.hooks import AfterInvocationEvent
@@ -209,9 +207,7 @@ async def test_proactive_compaction_hook_prefers_provider_metrics(tmp_path: Any)
     mock_agent.accumulated_usage = {"totalTokens": 500}
 
     # Messages would show above threshold if counted (but should not be used)
-    mock_agent.messages = [
-        {"role": "user", "content": "Hello world " * 50} for _ in range(20)
-    ]
+    mock_agent.messages = [{"role": "user", "content": "Hello world " * 50} for _ in range(20)]
 
     # Create mock event
     from strands.hooks import AfterInvocationEvent
@@ -240,9 +236,7 @@ async def test_proactive_compaction_hook_without_token_counter_or_metrics(tmp_pa
     mock_agent.conversation_manager = Mock()
     mock_agent.conversation_manager.apply_management = Mock()
     mock_agent.accumulated_usage = None
-    mock_agent.messages = [
-        {"role": "user", "content": "Hello world " * 50} for _ in range(20)
-    ]
+    mock_agent.messages = [{"role": "user", "content": "Hello world " * 50} for _ in range(20)]
 
     # Create mock event
     from strands.hooks import AfterInvocationEvent

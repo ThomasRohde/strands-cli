@@ -48,12 +48,7 @@ class TestPythonExecFunction:
         """Test execution of simple Python code that prints output."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "test-123",
-            "input": {
-                "code": "print('Hello, World!')"
-            }
-        }
+        tool_input = {"toolUseId": "test-123", "input": {"code": "print('Hello, World!')"}}
 
         result = python_exec(tool_input)
 
@@ -68,9 +63,7 @@ class TestPythonExecFunction:
 
         tool_input = {
             "toolUseId": "calc-456",
-            "input": {
-                "code": "result = 2 + 2\nprint(f'Result: {result}')"
-            }
+            "input": {"code": "result = 2 + 2\nprint(f'Result: {result}')"},
         }
 
         result = python_exec(tool_input)
@@ -84,9 +77,7 @@ class TestPythonExecFunction:
 
         tool_input = {
             "toolUseId": "multi-print",
-            "input": {
-                "code": "print('Line 1')\nprint('Line 2')\nprint('Line 3')"
-            }
+            "input": {"code": "print('Line 1')\nprint('Line 2')\nprint('Line 3')"},
         }
 
         result = python_exec(tool_input)
@@ -105,7 +96,7 @@ class TestPythonExecFunction:
             "toolUseId": "no-output",
             "input": {
                 "code": "x = 5 + 5"  # No print, just assignment
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -117,12 +108,7 @@ class TestPythonExecFunction:
         """Test that empty code returns error status."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "empty-code",
-            "input": {
-                "code": ""
-            }
-        }
+        tool_input = {"toolUseId": "empty-code", "input": {"code": ""}}
 
         result = python_exec(tool_input)
 
@@ -134,10 +120,7 @@ class TestPythonExecFunction:
         """Test that missing code field returns error."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "no-code-field",
-            "input": {}
-        }
+        tool_input = {"toolUseId": "no-code-field", "input": {}}
 
         result = python_exec(tool_input)
 
@@ -148,12 +131,7 @@ class TestPythonExecFunction:
         """Test that syntax errors are caught and returned as errors."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "syntax-err",
-            "input": {
-                "code": "print('missing closing quote"
-            }
-        }
+        tool_input = {"toolUseId": "syntax-err", "input": {"code": "print('missing closing quote"}}
 
         result = python_exec(tool_input)
 
@@ -169,7 +147,7 @@ class TestPythonExecFunction:
             "toolUseId": "runtime-err",
             "input": {
                 "code": "x = 1 / 0"  # Division by zero
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -182,12 +160,7 @@ class TestPythonExecFunction:
         """Test that undefined variables raise NameError."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "name-err",
-            "input": {
-                "code": "print(undefined_variable)"
-            }
-        }
+        tool_input = {"toolUseId": "name-err", "input": {"code": "print(undefined_variable)"}}
 
         result = python_exec(tool_input)
 
@@ -213,7 +186,7 @@ items = list([1, 2, 3])
 result = len(items) + sum(items)
 print(f'Result: {result}')
 """
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -232,7 +205,7 @@ print(f'Result: {result}')
 for i in range(3):
     print(f'Number: {i}')
 """
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -257,7 +230,7 @@ my_set = set([1, 2, 2, 3])
 my_tuple = tuple([4, 5])
 print(f'List: {len(my_list)}, Dict: {len(my_dict)}, Set: {len(my_set)}, Tuple: {len(my_tuple)}')
 """
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -280,7 +253,7 @@ print(f'Sum: {sum(numbers)}')
 print(f'Abs: {abs(-42)}')
 print(f'Round: {round(3.7)}')
 """
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -305,7 +278,7 @@ items = [3, 1, 4, 1, 5]
 print(f'Sorted: {sorted(items)}')
 print(f'Reversed: {list(reversed(items))}')
 """
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -327,7 +300,7 @@ x = 42
 print(f'Is int: {isinstance(x, int)}')
 print(f'Type: {type(x).__name__}')
 """
-            }
+            },
         }
 
         result = python_exec(tool_input)
@@ -341,12 +314,7 @@ print(f'Type: {type(x).__name__}')
         """Test that import is not available (security)."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "blocked-import",
-            "input": {
-                "code": "import os"
-            }
-        }
+        tool_input = {"toolUseId": "blocked-import", "input": {"code": "import os"}}
 
         result = python_exec(tool_input)
 
@@ -358,12 +326,7 @@ print(f'Type: {type(x).__name__}')
         """Test that file operations are not available (security)."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "blocked-open",
-            "input": {
-                "code": "open('test.txt', 'w')"
-            }
-        }
+        tool_input = {"toolUseId": "blocked-open", "input": {"code": "open('test.txt', 'w')"}}
 
         result = python_exec(tool_input)
 
@@ -375,12 +338,7 @@ print(f'Type: {type(x).__name__}')
         """Test that eval is not available (security)."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "blocked-eval",
-            "input": {
-                "code": "eval('1 + 1')"
-            }
-        }
+        tool_input = {"toolUseId": "blocked-eval", "input": {"code": "eval('1 + 1')"}}
 
         result = python_exec(tool_input)
 
@@ -392,12 +350,7 @@ print(f'Type: {type(x).__name__}')
         """Test that exec function is not available (security)."""
         from strands_cli.tools.python_exec import python_exec
 
-        tool_input = {
-            "toolUseId": "blocked-exec-fn",
-            "input": {
-                "code": "exec('print(\"test\")')"
-            }
-        }
+        tool_input = {"toolUseId": "blocked-exec-fn", "input": {"code": "exec('print(\"test\")')"}}
 
         result = python_exec(tool_input)
 

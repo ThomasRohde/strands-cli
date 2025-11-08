@@ -9,9 +9,7 @@ TOOL_SPEC = {
     "inputSchema": {
         "json": {
             "type": "object",
-            "properties": {
-                "test_input": {"type": "string", "description": "Test input parameter"}
-            },
+            "properties": {"test_input": {"type": "string", "description": "Test input parameter"}},
             "required": ["test_input"],
         }
     },

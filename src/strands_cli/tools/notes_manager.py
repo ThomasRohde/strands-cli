@@ -199,11 +199,7 @@ class NotesManager:
             return ""
 
         # Split on ## headers (note entries)
-        entries = [
-            entry.strip()
-            for entry in content.split("##")
-            if entry.strip()
-        ]
+        entries = [entry.strip() for entry in content.split("##") if entry.strip()]
 
         if not entries:
             return ""
@@ -323,14 +319,8 @@ class NotesManager:
         tools_str = ", ".join(tools_used) if tools_used else "None"
 
         # Truncate long inputs/outcomes for readability
-        input_truncated = (
-            input_summary[:200] + "..."
-            if len(input_summary) > 200
-            else input_summary
-        )
-        outcome_truncated = (
-            outcome[:200] + "..." if len(outcome) > 200 else outcome
-        )
+        input_truncated = input_summary[:200] + "..." if len(input_summary) > 200 else input_summary
+        outcome_truncated = outcome[:200] + "..." if len(outcome) > 200 else outcome
 
         return f"""## [{timestamp}] — Agent: {agent_name} (Step {step_index})
 - **Input**: {input_truncated}

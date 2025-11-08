@@ -1,0 +1,85 @@
+version: 0
+name: "orchestrator-data-processing-bedrock"
+description: "Orchestrator manages data processing tasks with worker concurrency limits"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 100000
+  failure_policy:
+    retries: 2
+    backoff: exponential
+
+inputs:
+  values:
+    dataset: "customer_feedback_q4_2024"
+    num_categories: 4
+
+agents:
+  task_planner:
+    prompt: |
+      You are a data processing orchestrator. Given a dataset, create subtasks for parallel processing.
+      
+      Dataset: {{ dataset }}
+      Categories to analyze: product, service, pricing, support
+      
+      Create one subtask per category for sentiment analysis and key theme extraction.
+      
+      Respond with ONLY a JSON array:
+      [
+        {"task": "Analyze sentiment and extract themes for product feedback"},
+        {"task": "Analyze sentiment and extract themes for service feedback"},
+        {"task": "Analyze sentiment and extract themes for pricing feedback"},
+        {"task": "Analyze sentiment and extract themes for support feedback"}
+      ]
+
+  data_analyst:
+    prompt: |
+      You are a data analyst specializing in text analysis and sentiment detection.
+      Perform the assigned analysis thoroughly and provide structured results.
+
+  aggregator:
+    prompt: |
+      You are a data aggregation specialist. Combine analysis from multiple workers.
+      
+      Worker results:
+      {% for worker in workers %}
+      Analysis {{ loop.index0 + 1 }}: {{ worker.response }}
+      {% endfor %}
+      
+      Provide:
+      1. Overall sentiment distribution across all categories
+      2. Top 5 themes across all data
+      3. Category-specific insights
+      4. Recommendations based on findings
+
+pattern:
+  type: orchestrator_workers
+  config:
+    orchestrator:
+      agent: task_planner
+      limits:
+        max_workers: 3     # Process max 3 categories concurrently
+        max_rounds: 2      # Allow up to 2 delegation rounds
+    
+    worker_template:
+      agent: data_analyst
+    
+    reduce:
+      agent: aggregator
+      input: "Aggregate all category analyses"
+
+outputs:
+  artifacts:
+    - path: "./{{ dataset }}-analysis.md"
+      from: |
+        # Data Analysis Report: {{ dataset }}
+        
+        **Categories Analyzed**: {{ num_categories }}
+        **Workers Used**: {{ num_workers }}
+        **Rounds**: {{ round_count }}
+        
+        ## Aggregated Results
+        
+        {{ last_response }}

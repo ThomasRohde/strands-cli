@@ -16,39 +16,39 @@ logger = structlog.get_logger(__name__)
 TOOL_SPEC = {
     "name": "grep",
     "description": "Search for regex pattern in a file and return matching lines with context. "
-                   "Useful for finding specific content without loading entire files. "
-                   "Cross-platform pure Python implementation.",
+    "Useful for finding specific content without loading entire files. "
+    "Cross-platform pure Python implementation.",
     "inputSchema": {
         "json": {
             "type": "object",
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Regular expression pattern to search for"
+                    "description": "Regular expression pattern to search for",
                 },
                 "path": {
                     "type": "string",
-                    "description": "Path to file to search (relative or absolute)"
+                    "description": "Path to file to search (relative or absolute)",
                 },
                 "context_lines": {
                     "type": "integer",
                     "default": 3,
-                    "description": "Number of context lines before and after each match (default: 3)"
+                    "description": "Number of context lines before and after each match (default: 3)",
                 },
                 "ignore_case": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Perform case-insensitive search (default: false)"
+                    "description": "Perform case-insensitive search (default: false)",
                 },
                 "max_matches": {
                     "type": "integer",
                     "default": 100,
-                    "description": "Maximum number of matches to return (default: 100)"
-                }
+                    "description": "Maximum number of matches to return (default: 100)",
+                },
             },
-            "required": ["pattern", "path"]
+            "required": ["pattern", "path"],
         }
-    }
+    },
 }
 
 
@@ -58,14 +58,14 @@ def _validate_inputs(tool_use_id: str, pattern_str: str, path_str: str) -> dict[
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "No search pattern provided"}]
+            "content": [{"text": "No search pattern provided"}],
         }
 
     if not path_str:
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "No file path provided"}]
+            "content": [{"text": "No file path provided"}],
         }
 
     return None
@@ -77,14 +77,14 @@ def _validate_file_path(tool_use_id: str, path: Path) -> dict[str, Any] | None:
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": f"File not found: {path}"}]
+            "content": [{"text": f"File not found: {path}"}],
         }
 
     if not path.is_file():
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": f"Path is not a file: {path}"}]
+            "content": [{"text": f"Path is not a file: {path}"}],
         }
 
     return None
@@ -98,13 +98,19 @@ def _check_binary_file(tool_use_id: str, path: Path) -> dict[str, Any] | None:
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Binary file detected (cannot search): {path}"}]
+                "content": [{"text": f"Binary file detected (cannot search): {path}"}],
             }
     return None
 
 
-def _build_output(matches: list[int], lines: list[str], path: Path,
-                  pattern_str: str, context_lines: int, max_matches: int) -> str:
+def _build_output(
+    matches: list[int],
+    lines: list[str],
+    path: Path,
+    pattern_str: str,
+    context_lines: int,
+    max_matches: int,
+) -> str:
     """Build formatted output with context lines."""
     if not matches:
         return f"No matches found for pattern '{pattern_str}' in {path}"
@@ -178,7 +184,7 @@ def grep(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Invalid regex pattern: {e}"}]
+                "content": [{"text": f"Invalid regex pattern: {e}"}],
             }
 
         # Read file and search
@@ -191,7 +197,7 @@ def grep(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Failed to read file: {e}"}]
+                "content": [{"text": f"Failed to read file: {e}"}],
             }
 
         # Find matching lines
@@ -211,19 +217,15 @@ def grep(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                 pattern=pattern_str,
                 file=str(path),
                 matches=len(matches),
-                context_lines=context_lines
+                context_lines=context_lines,
             )
 
-        return {
-            "toolUseId": tool_use_id,
-            "status": "success",
-            "content": [{"text": result_text}]
-        }
+        return {"toolUseId": tool_use_id, "status": "success", "content": [{"text": result_text}]}
 
     except Exception as e:
         logger.error("grep_search_failed", error=str(e), pattern=pattern_str, path=path_str)
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": f"Search failed: {type(e).__name__}: {e}"}]
+            "content": [{"text": f"Search failed: {type(e).__name__}: {e}"}],
         }

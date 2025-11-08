@@ -288,4 +288,3 @@ class TestContextNoteModel:
 
         error = str(exc_info.value)
         assert "content" in error.lower()
-

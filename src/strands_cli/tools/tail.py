@@ -16,30 +16,30 @@ logger = structlog.get_logger(__name__)
 TOOL_SPEC = {
     "name": "tail",
     "description": "Read the last N lines from a file. "
-                   "Useful for reading recent log entries or file endings without loading entire files. "
-                   "Cross-platform pure Python implementation.",
+    "Useful for reading recent log entries or file endings without loading entire files. "
+    "Cross-platform pure Python implementation.",
     "inputSchema": {
         "json": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to file to read (relative or absolute)"
+                    "description": "Path to file to read (relative or absolute)",
                 },
                 "lines": {
                     "type": "integer",
                     "default": 10,
-                    "description": "Number of lines to read from end (default: 10)"
+                    "description": "Number of lines to read from end (default: 10)",
                 },
                 "bytes_limit": {
                     "type": "integer",
                     "default": 10485760,
-                    "description": "Maximum bytes to read (default: 10MB, for efficient tail on large files)"
-                }
+                    "description": "Maximum bytes to read (default: 10MB, for efficient tail on large files)",
+                },
             },
-            "required": ["path"]
+            "required": ["path"],
         }
-    }
+    },
 }
 
 
@@ -68,14 +68,14 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "No file path provided"}]
+            "content": [{"text": "No file path provided"}],
         }
 
     if num_lines < 1:
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "Number of lines must be at least 1"}]
+            "content": [{"text": "Number of lines must be at least 1"}],
         }
 
     try:
@@ -87,14 +87,14 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"File not found: {path}"}]
+                "content": [{"text": f"File not found: {path}"}],
             }
 
         if not path.is_file():
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Path is not a file: {path}"}]
+                "content": [{"text": f"Path is not a file: {path}"}],
             }
 
         # Check for binary file (first 8KB)
@@ -104,7 +104,7 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                 return {
                     "toolUseId": tool_use_id,
                     "status": "error",
-                    "content": [{"text": f"Binary file detected (cannot read as text): {path}"}]
+                    "content": [{"text": f"Binary file detected (cannot read as text): {path}"}],
                 }
 
         # Read last N lines efficiently using deque with line tracking
@@ -133,14 +133,14 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Failed to read file: {e}"}]
+                "content": [{"text": f"Failed to read file: {e}"}],
             }
 
         if not last_lines:
             return {
                 "toolUseId": tool_use_id,
                 "status": "success",
-                "content": [{"text": f"File is empty: {path}"}]
+                "content": [{"text": f"File is empty: {path}"}],
             }
 
         # Build output with actual line numbers
@@ -161,19 +161,15 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             lines_requested=num_lines,
             lines_read=len(last_lines),
             bytes_read=bytes_read,
-            truncated=truncated
+            truncated=truncated,
         )
 
-        return {
-            "toolUseId": tool_use_id,
-            "status": "success",
-            "content": [{"text": result_text}]
-        }
+        return {"toolUseId": tool_use_id, "status": "success", "content": [{"text": result_text}]}
 
     except Exception as e:
         logger.error("tail_read_failed", error=str(e), path=path_str)
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": f"Read failed: {type(e).__name__}: {e}"}]
+            "content": [{"text": f"Read failed: {type(e).__name__}: {e}"}],
         }

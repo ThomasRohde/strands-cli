@@ -343,9 +343,7 @@ class TestSchemaValidation:
         # Should not raise
         validate_spec(sample_spec_with_compaction_dict)
 
-    def test_context_policy_notes_all_fields(
-        self, sample_spec_with_notes_dict: dict
-    ) -> None:
+    def test_context_policy_notes_all_fields(self, sample_spec_with_notes_dict: dict) -> None:
         """Test that notes with all fields passes validation."""
         # Should not raise
         validate_spec(sample_spec_with_notes_dict)
@@ -488,4 +486,3 @@ class TestSchemaValidation:
 
         error_text = str(exc_info.value)
         assert "file" in error_text.lower() or "required" in error_text.lower()
-

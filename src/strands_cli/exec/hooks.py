@@ -42,14 +42,10 @@ class ProactiveCompactionHook(HookProvider):
 
     Example:
         >>> hook = ProactiveCompactionHook(
-        ...     threshold_tokens=60000,
-        ...     model_id="anthropic.claude-3-sonnet-20240229-v1:0"
+        ...     threshold_tokens=60000, model_id="anthropic.claude-3-sonnet-20240229-v1:0"
         ... )
         >>> agent = Agent(
-        ...     name="research-agent",
-        ...     model=model,
-        ...     conversation_manager=manager,
-        ...     hooks=[hook]
+        ...     name="research-agent", model=model, conversation_manager=manager, hooks=[hook]
         ... )
     """
 
@@ -182,6 +178,8 @@ class ProactiveCompactionHook(HookProvider):
                 messages_after_compaction=len(agent.messages),
                 token_source=token_source,
             )
+
+
 class NotesAppenderHook(HookProvider):
     """Append structured notes after each agent invocation.
 
@@ -206,7 +204,12 @@ class NotesAppenderHook(HookProvider):
         >>> agent = Agent(name="research-agent", model=model, hooks=[hook])
     """
 
-    def __init__(self, notes_manager: NotesManager, step_counter_ref: list[int], agent_tools: dict[str, list[str]] | None = None):
+    def __init__(
+        self,
+        notes_manager: NotesManager,
+        step_counter_ref: list[int],
+        agent_tools: dict[str, list[str]] | None = None,
+    ):
         """Initialize the notes appender hook.
 
         Args:
@@ -376,4 +379,3 @@ class NotesAppenderHook(HookProvider):
                     return output[:500] if len(output) > 500 else output
 
         return "No output"
-

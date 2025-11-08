@@ -60,9 +60,7 @@ def get_context_preset(preset: str | ContextPreset) -> ContextPolicy:
             preset = ContextPreset(preset)
         except ValueError as e:
             valid_presets = [p.value for p in ContextPreset if p != ContextPreset.CUSTOM]
-            raise ValueError(
-                f"Invalid preset '{preset}'. Valid presets: {valid_presets}"
-            ) from e
+            raise ValueError(f"Invalid preset '{preset}'. Valid presets: {valid_presets}") from e
 
     if preset == ContextPreset.MINIMAL:
         return _minimal_preset()

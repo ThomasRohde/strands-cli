@@ -16,40 +16,37 @@ logger = structlog.get_logger(__name__)
 TOOL_SPEC = {
     "name": "search",
     "description": "Search for keyword or regex pattern in a file and return matching lines with line numbers. "
-                   "Simpler than grep - no context lines, just direct matches. "
-                   "Useful for finding specific content quickly. "
-                   "Cross-platform pure Python implementation.",
+    "Simpler than grep - no context lines, just direct matches. "
+    "Useful for finding specific content quickly. "
+    "Cross-platform pure Python implementation.",
     "inputSchema": {
         "json": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query (plain text or regex)"
-                },
+                "query": {"type": "string", "description": "Search query (plain text or regex)"},
                 "path": {
                     "type": "string",
-                    "description": "Path to file to search (relative or absolute)"
+                    "description": "Path to file to search (relative or absolute)",
                 },
                 "is_regex": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Treat query as regex pattern (default: false, plain text)"
+                    "description": "Treat query as regex pattern (default: false, plain text)",
                 },
                 "ignore_case": {
                     "type": "boolean",
                     "default": True,
-                    "description": "Perform case-insensitive search (default: true)"
+                    "description": "Perform case-insensitive search (default: true)",
                 },
                 "max_matches": {
                     "type": "integer",
                     "default": 50,
-                    "description": "Maximum number of matches to return (default: 50)"
-                }
+                    "description": "Maximum number of matches to return (default: 50)",
+                },
             },
-            "required": ["query", "path"]
+            "required": ["query", "path"],
         }
-    }
+    },
 }
 
 
@@ -80,14 +77,14 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "No search query provided"}]
+            "content": [{"text": "No search query provided"}],
         }
 
     if not path_str:
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "No file path provided"}]
+            "content": [{"text": "No file path provided"}],
         }
 
     try:
@@ -99,14 +96,14 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"File not found: {path}"}]
+                "content": [{"text": f"File not found: {path}"}],
             }
 
         if not path.is_file():
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Path is not a file: {path}"}]
+                "content": [{"text": f"Path is not a file: {path}"}],
             }
 
         # Check for binary file (first 8KB)
@@ -116,7 +113,7 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                 return {
                     "toolUseId": tool_use_id,
                     "status": "error",
-                    "content": [{"text": f"Binary file detected (cannot search): {path}"}]
+                    "content": [{"text": f"Binary file detected (cannot search): {path}"}],
                 }
 
         # Prepare search pattern
@@ -129,7 +126,7 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                 return {
                     "toolUseId": tool_use_id,
                     "status": "error",
-                    "content": [{"text": f"Invalid regex pattern: {e}"}]
+                    "content": [{"text": f"Invalid regex pattern: {e}"}],
                 }
         else:
             # Escape query for literal search
@@ -146,7 +143,7 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Failed to read file: {e}"}]
+                "content": [{"text": f"Failed to read file: {e}"}],
             }
 
         # Find matching lines
@@ -161,7 +158,7 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "success",
-                "content": [{"text": f"No matches found for '{query}' in {path}"}]
+                "content": [{"text": f"No matches found for '{query}' in {path}"}],
             }
 
         # Build output
@@ -183,19 +180,15 @@ def search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             file=str(path),
             matches=len(matches),
             is_regex=is_regex,
-            ignore_case=ignore_case
+            ignore_case=ignore_case,
         )
 
-        return {
-            "toolUseId": tool_use_id,
-            "status": "success",
-            "content": [{"text": result_text}]
-        }
+        return {"toolUseId": tool_use_id, "status": "success", "content": [{"text": result_text}]}
 
     except Exception as e:
         logger.error("search_failed", error=str(e), query=query, path=path_str)
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": f"Search failed: {type(e).__name__}: {e}"}]
+            "content": [{"text": f"Search failed: {type(e).__name__}: {e}"}],
         }

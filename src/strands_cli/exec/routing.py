@@ -346,13 +346,14 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
     # Phase 6.1: Create context manager and hooks for compaction
     context_manager = create_from_policy(spec.context_policy, spec)
     hooks: list[Any] = []
-    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+    if (
+        spec.context_policy
+        and spec.context_policy.compaction
+        and spec.context_policy.compaction.enabled
+    ):
         threshold = spec.context_policy.compaction.when_tokens_over or 60000
         hooks.append(
-            ProactiveCompactionHook(
-                threshold_tokens=threshold,
-                model_id=spec.runtime.model_id
-            )
+            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
         )
         logger.info("compaction_enabled", threshold_tokens=threshold)
 

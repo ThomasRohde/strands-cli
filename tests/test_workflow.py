@@ -375,7 +375,9 @@ class TestRunWorkflow:
 
         assert result.success is True
 
-    @pytest.mark.skip(reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py")
+    @pytest.mark.skip(
+        reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py"
+    )
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     async def test_run_workflow_budget_exceeded(

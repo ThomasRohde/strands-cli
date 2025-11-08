@@ -84,7 +84,7 @@ class ToolRegistry:
         tools_dir = Path(__file__).parent
 
         # Modules to skip (not tools themselves)
-        SKIP_MODULES = {
+        skip_modules = {
             "registry",  # This registry module
             "http_executor_factory",  # Creates HTTP executor tools dynamically
             "notes_manager",  # Utility for notes management
@@ -93,7 +93,7 @@ class ToolRegistry:
         # Scan all .py files (skip __init__, registry, etc.)
         for _importer, module_name, _is_pkg in pkgutil.iter_modules([str(tools_dir)]):
             # Skip special files, packages, and utility modules
-            if module_name.startswith("_") or module_name in SKIP_MODULES:
+            if module_name.startswith("_") or module_name in skip_modules:
                 continue
 
             try:

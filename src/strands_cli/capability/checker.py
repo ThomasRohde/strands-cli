@@ -184,12 +184,13 @@ def _validate_pattern_type(spec: Spec, issues: list[CapabilityIssue]) -> None:
         PatternType.ROUTING,
         PatternType.PARALLEL,
         PatternType.EVALUATOR_OPTIMIZER,
+        PatternType.ORCHESTRATOR_WORKERS,
     }:
         issues.append(
             CapabilityIssue(
                 pointer="/pattern/type",
                 reason=f"Pattern type '{spec.pattern.type}' not supported yet",
-                remediation="Use 'chain', 'workflow', 'routing', 'parallel', or 'evaluator_optimizer'",
+                remediation="Use 'chain', 'workflow', 'routing', 'parallel', 'evaluator_optimizer', or 'orchestrator_workers'",
             )
         )
 
@@ -249,6 +250,120 @@ def _validate_evaluator_optimizer_pattern(spec: Spec, issues: list[CapabilityIss
                 pointer="/pattern/config/accept",
                 reason="Evaluator-optimizer pattern requires accept criteria",
                 remediation="Add 'accept' field with min_score and optional max_iters",
+            )
+        )
+
+
+def _validate_orchestrator_workers_pattern(spec: Spec, issues: list[CapabilityIssue]) -> None:
+    """Validate orchestrator-workers pattern configuration.
+
+    Args:
+        spec: Workflow spec
+        issues: List to append issues to
+    """
+    if spec.pattern.type != PatternType.ORCHESTRATOR_WORKERS:
+        return
+
+    config = spec.pattern.config
+
+    _validate_orchestrator_config(spec, config, issues)
+    _validate_worker_template_config(spec, config, issues)
+    _validate_reduce_agent(spec, config, issues)
+    _validate_writeup_agent(spec, config, issues)
+
+
+def _validate_orchestrator_config(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+    """Validate orchestrator configuration."""
+    # Check orchestrator config exists
+    if not config.orchestrator:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/orchestrator",
+                reason="Orchestrator-workers pattern requires orchestrator configuration",
+                remediation="Add 'orchestrator' field with agent and optional limits",
+            )
+        )
+        return  # Can't validate further without orchestrator
+
+    # Check orchestrator agent exists
+    if config.orchestrator.agent not in spec.agents:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/orchestrator/agent",
+                reason=f"Orchestrator agent '{config.orchestrator.agent}' not found in agents map",
+                remediation=f"Add agent '{config.orchestrator.agent}' to agents section or use existing agent",
+            )
+        )
+
+    # Validate limits if present
+    if config.orchestrator.limits:
+        _validate_orchestrator_limits(config.orchestrator.limits, issues)
+
+
+def _validate_orchestrator_limits(limits: Any, issues: list[CapabilityIssue]) -> None:
+    """Validate orchestrator limits."""
+    if limits.max_workers is not None and limits.max_workers < 1:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/orchestrator/limits/max_workers",
+                reason=f"max_workers must be >= 1, got {limits.max_workers}",
+                remediation="Set max_workers to a positive integer or omit for unlimited",
+            )
+        )
+    if limits.max_rounds is not None and limits.max_rounds < 1:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/orchestrator/limits/max_rounds",
+                reason=f"max_rounds must be >= 1, got {limits.max_rounds}",
+                remediation="Set max_rounds to a positive integer or omit for unlimited",
+            )
+        )
+
+
+def _validate_worker_template_config(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+    """Validate worker template configuration."""
+    # Check worker_template config exists
+    if not config.worker_template:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/worker_template",
+                reason="Orchestrator-workers pattern requires worker_template configuration",
+                remediation="Add 'worker_template' field with agent and optional tools",
+            )
+        )
+        return  # Can't validate further without worker_template
+
+    # Check worker agent exists
+    if config.worker_template.agent not in spec.agents:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/worker_template/agent",
+                reason=f"Worker agent '{config.worker_template.agent}' not found in agents map",
+                remediation=f"Add agent '{config.worker_template.agent}' to agents section or use existing agent",
+            )
+        )
+
+
+def _validate_reduce_agent(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+    """Validate reduce agent if present."""
+    if config.reduce and config.reduce.agent not in spec.agents:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/reduce/agent",
+                reason=f"Reduce agent '{config.reduce.agent}' not found in agents map",
+                remediation=f"Add agent '{config.reduce.agent}' to agents section or use existing agent",
+            )
+        )
+
+
+def _validate_writeup_agent(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+    """Validate writeup agent if present."""
+    if config.writeup and config.writeup.agent not in spec.agents:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/writeup/agent",
+                reason=f"Writeup agent '{config.writeup.agent}' not found in agents map",
+                remediation=f"Add agent '{config.writeup.agent}' to agents section or use existing agent",
             )
         )
 
@@ -559,7 +674,11 @@ def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
             if tool.callable not in allowed:
                 # Build helpful remediation message
                 native_tools = ', '.join(sorted(t.id for t in registry.list_all()))
-                remediation = f"Use existing tools or native tools: {native_tools}" if native_tools else f"Use one of: {', '.join(sorted(ALLOWED_PYTHON_CALLABLES))}"
+                remediation = (
+                    f"Use existing tools or native tools: {native_tools}"
+                    if native_tools
+                    else f"Use one of: {', '.join(sorted(ALLOWED_PYTHON_CALLABLES))}"
+                )
 
                 issues.append(
                     CapabilityIssue(
@@ -635,6 +754,7 @@ def check_capability(spec: Spec) -> CapabilityReport:
     _validate_routing_pattern(spec, issues)
     _validate_parallel_pattern(spec, issues)
     _validate_evaluator_optimizer_pattern(spec, issues)
+    _validate_orchestrator_workers_pattern(spec, issues)
     _validate_secrets(spec, issues)
     _validate_tools(spec, issues)
 

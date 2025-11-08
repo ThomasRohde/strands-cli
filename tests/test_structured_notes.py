@@ -407,7 +407,14 @@ class TestNotesManager:
 
         # Make directory read-only (Unix: chmod 555)
         try:
-            readonly_dir.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            readonly_dir.chmod(
+                stat.S_IRUSR
+                | stat.S_IXUSR
+                | stat.S_IRGRP
+                | stat.S_IXGRP
+                | stat.S_IROTH
+                | stat.S_IXOTH
+            )
 
             with pytest.raises(NotesManagerError, match="Failed to append note entry"):
                 manager.append_entry(

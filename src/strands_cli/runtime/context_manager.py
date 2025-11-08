@@ -37,11 +37,7 @@ def create_from_policy(
 
     Example:
         >>> manager = create_from_policy(spec.context_policy, spec)
-        >>> agent = Agent(
-        ...     name="research-agent",
-        ...     model=model,
-        ...     conversation_manager=manager
-        ... )
+        >>> agent = Agent(name="research-agent", model=model, conversation_manager=manager)
     """
     if not context_policy or not context_policy.compaction:
         logger.debug("context_manager_disabled", reason="no_compaction_config")
@@ -56,9 +52,7 @@ def create_from_policy(
     # Create optional custom summarization agent
     summarization_agent = None
     if compaction.summarization_model:
-        summarization_agent = _create_summarization_agent(
-            compaction.summarization_model, spec
-        )
+        summarization_agent = _create_summarization_agent(compaction.summarization_model, spec)
         logger.info(
             "summarization_agent_created",
             model=compaction.summarization_model,

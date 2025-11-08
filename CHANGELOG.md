@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 7 (Orchestrator-Workers Pattern)
+
+#### Orchestrator-Workers Pattern Support
+- **Dynamic task delegation with worker pools** - Orchestrator breaks down tasks, workers execute in parallel
+  - New executor: `src/strands_cli/exec/orchestrator_workers.py`
+  - Orchestrator agent returns JSON array of subtasks: `[{"task": "description"}, ...]`
+  - Worker pool executes subtasks with configurable concurrency (`max_workers` limit)
+  - Round tracking: Counts orchestrator delegation cycles (not individual worker calls)
+  - Optional `reduce` step aggregates worker outputs
+  - Optional `writeup` step generates final synthesis
+  - Template access: Indexed workers array `{{ workers[0].response }}`
+  - Fail-fast semantics: First worker error cancels remaining workers
+
+#### Configuration & Validation
+- **New Pydantic models** in `types.py`:
+  - `OrchestratorLimits`: `max_workers`, `max_rounds` constraints
+  - `OrchestratorConfig`: Orchestrator agent with optional limits
+  - `WorkerTemplate`: Worker agent with optional tool overrides
+  - Extended `PatternConfig` with orchestrator, worker_template, writeup fields
+- **Capability checking** - Validates orchestrator pattern configuration
+  - Checks orchestrator and worker agents exist in spec
+  - Validates limits (max_workers ≥ 1, max_rounds ≥ 1)
+  - Verifies reduce/writeup agent references
+
+#### JSON Parsing & Error Handling
+- **Multi-strategy JSON parsing** for orchestrator responses:
+  - Direct JSON parse
+  - Code block extraction (```json ... ```)
+  - Regex-based array/object extraction
+  - Retry logic (up to 2 retries) with clarification prompts on malformed JSON
+  - Empty array `[]` support (signals "no work needed")
+
+#### Examples
+- **orchestrator-research-swarm-openai.yaml** - Research delegation with 3 workers, reduce, and writeup
+- **orchestrator-data-processing-bedrock.yaml** - Data processing with max_workers=3, max_rounds=2
+- **orchestrator-minimal-ollama.yaml** - Minimal example (no reduce/writeup)
+
+#### Testing
+- **Comprehensive test suite** - 17 tests in `tests/test_orchestrator_workers.py`
+  - Basic flow (orchestrator → workers → reduce → writeup)
+  - Concurrency limits (max_workers enforcement via semaphore)
+  - JSON parsing with retry logic
+  - Empty subtask handling
+  - Fail-fast on worker errors
+  - Indexed template access
+  - Tool override validation
+  - Agent caching verification
+
 ### Added - Phase 2 Remediation (Hardening & UX Polish)
 
 #### Schema Drift Prevention

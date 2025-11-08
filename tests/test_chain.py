@@ -177,7 +177,9 @@ class TestRunChain:
 
         assert result.success is True
 
-    @pytest.mark.skip(reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py")
+    @pytest.mark.skip(
+        reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py"
+    )
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     async def test_run_chain_budget_exceeded(
@@ -408,30 +410,19 @@ async def test_chain_with_notes_creates_and_injects(tmp_path: Path, mocker: Any)
     spec_data = {
         "version": 0,
         "name": "Notes Test Chain",
-        "runtime": {
-            "provider": "ollama",
-            "model_id": "llama3.2",
-            "host": "http://localhost:11434"
-        },
-        "context_policy": {
-            "notes": {
-                "file": str(notes_file),
-                "include_last": 2
-            }
-        },
-        "agents": {
-            "agent1": {"prompt": "You are agent 1", "tools": []}
-        },
+        "runtime": {"provider": "ollama", "model_id": "llama3.2", "host": "http://localhost:11434"},
+        "context_policy": {"notes": {"file": str(notes_file), "include_last": 2}},
+        "agents": {"agent1": {"prompt": "You are agent 1", "tools": []}},
         "pattern": {
             "type": "chain",
             "config": {
                 "steps": [
                     {"agent": "agent1", "input": "Step 1 input"},
                     {"agent": "agent1", "input": "Step 2 input"},
-                    {"agent": "agent1", "input": "Step 3 input"}
+                    {"agent": "agent1", "input": "Step 3 input"},
                 ]
-            }
-        }
+            },
+        },
     }
 
     spec_file = tmp_path / "test.yaml"
@@ -468,6 +459,7 @@ async def test_chain_with_notes_creates_and_injects(tmp_path: Path, mocker: Any)
         assert hooks_arg is not None, "hooks parameter should be passed to get_or_build_agent"
         # Should contain NotesAppenderHook
         from strands_cli.exec.hooks import NotesAppenderHook
+
         has_notes_hook = any(isinstance(hook, NotesAppenderHook) for hook in hooks_arg)
         assert has_notes_hook, "NotesAppenderHook should be in hooks list"
 

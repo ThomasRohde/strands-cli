@@ -135,7 +135,11 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
     context_manager = create_from_policy(spec.context_policy, spec)
     shared_hooks: list[Any] = []
     compaction_threshold: int | None = None
-    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+    if (
+        spec.context_policy
+        and spec.context_policy.compaction
+        and spec.context_policy.compaction.enabled
+    ):
         compaction_threshold = spec.context_policy.compaction.when_tokens_over or 60000
         logger.info("compaction_enabled", threshold_tokens=compaction_threshold)
 
@@ -145,7 +149,9 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
         max_tokens = spec.runtime.budgets["max_tokens"]
         warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
-        shared_hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        shared_hooks.append(
+            BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold)
+        )
         logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
 
     # Phase 6.2: Initialize notes manager and hook for structured notes
@@ -197,7 +203,9 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Phase 6.2: Inject last N notes into agent context
             injected_notes = None
             if notes_manager and spec.context_policy and spec.context_policy.notes:
-                injected_notes = notes_manager.get_last_n_for_injection(spec.context_policy.notes.include_last)
+                injected_notes = notes_manager.get_last_n_for_injection(
+                    spec.context_policy.notes.include_last
+                )
                 if injected_notes:
                     logger.debug(
                         "notes_injected",
@@ -212,8 +220,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 if compaction_threshold is not None:
                     hooks_for_agent.append(
                         ProactiveCompactionHook(
-                            threshold_tokens=compaction_threshold,
-                            model_id=spec.runtime.model_id
+                            threshold_tokens=compaction_threshold, model_id=spec.runtime.model_id
                         )
                     )
                 hooks_for_agent.extend(shared_hooks)

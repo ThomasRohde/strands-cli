@@ -113,7 +113,12 @@ class TokenCounter:
         # Bedrock Claude models
         if "claude" in model_lower or "anthropic" in model_lower:
             encoding = tiktoken.get_encoding("cl100k_base")
-            logger.debug("encoding_selected", model_id=model_id, encoding="cl100k_base", reason="claude_model")
+            logger.debug(
+                "encoding_selected",
+                model_id=model_id,
+                encoding="cl100k_base",
+                reason="claude_model",
+            )
             return encoding
 
         # OpenAI models with specific encodings
@@ -144,4 +149,3 @@ class TokenCounter:
             reason="fallback",
         )
         return encoding
-

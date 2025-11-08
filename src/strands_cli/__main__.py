@@ -210,8 +210,14 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
         # Evaluator-optimizer pattern - use async evaluator-optimizer executor
         # Phase 4: Wrap with asyncio.run() for single event loop
         return asyncio.run(run_evaluator_optimizer(spec, variables))
+    elif spec.pattern.type == PatternType.ORCHESTRATOR_WORKERS:
+        # Orchestrator-workers pattern - use async orchestrator-workers executor
+        # Phase 7: Wrap with asyncio.run() for single event loop
+        from strands_cli.exec.orchestrator_workers import run_orchestrator_workers
+
+        return asyncio.run(run_orchestrator_workers(spec, variables))
     else:
-        # Other patterns (orchestrator, graph, etc.) - not yet supported
+        # Other patterns (graph, etc.) - not yet supported
         console.print(f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet")
         sys.exit(EX_UNSUPPORTED)
 

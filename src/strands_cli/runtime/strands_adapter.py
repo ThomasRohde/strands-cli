@@ -283,7 +283,7 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
                 "jit_tools_injected",
                 agent=agent_id,
                 jit_tools=retrieval.jit_tools,
-                final_tools=tools_to_use
+                final_tools=tools_to_use,
             )
 
     # Load all tools (native/JIT, Python callables, HTTP executors)

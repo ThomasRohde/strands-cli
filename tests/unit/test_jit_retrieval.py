@@ -4,7 +4,6 @@ Tests cross-platform file operations with path validation, encoding handling,
 and binary file detection.
 """
 
-
 import pytest
 
 
@@ -103,7 +102,7 @@ class TestTailToolLineNumbers:
         from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "binary.bin"
-        test_file.write_bytes(b"\x00\x01\x02\xFF binary data")
+        test_file.write_bytes(b"\x00\x01\x02\xff binary data")
 
         tool = {
             "toolUseId": "test-123",

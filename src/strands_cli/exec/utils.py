@@ -248,6 +248,7 @@ class AgentCache:
         # Hash notes content for cache key (agents with same notes can be cached)
         # This improves performance by avoiding rebuilds when notes content is identical
         import hashlib
+
         notes_hash = hashlib.md5(injected_notes.encode()).hexdigest() if injected_notes else None
 
         # Create cache key including notes hash

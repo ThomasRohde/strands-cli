@@ -1,0 +1,101 @@
+version: 0
+name: "orchestrator-research-swarm-openai"
+description: "Orchestrator delegates research tasks to worker swarm, then aggregates and writes final report"
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_tokens: 50000
+  failure_policy:
+    retries: 3
+    backoff: exponential
+
+env:
+  secrets:
+    - key: "OPENAI_API_KEY"
+      source: env
+
+inputs:
+  values:
+    topic: "impact of AI on software development"
+    num_perspectives: 3
+
+agents:
+  orchestrator:
+    prompt: |
+      You are a research orchestrator. Your job is to break down complex research topics into specific subtasks for worker agents.
+      
+      Break down the research on "{{ topic }}" into {{ num_perspectives }} distinct subtasks.
+      Each subtask should focus on a different aspect or perspective.
+      
+      Respond with ONLY a JSON array of tasks. Format:
+      [
+        {"task": "Research aspect 1"},
+        {"task": "Research aspect 2"},
+        {"task": "Research aspect 3"}
+      ]
+
+  researcher:
+    prompt: |
+      You are a research specialist. You conduct thorough research on assigned topics and provide detailed findings.
+      Be comprehensive, cite key points, and provide actionable insights.
+    tools:
+      - http_executors
+
+  synthesizer:
+    prompt: |
+      You are a synthesis specialist. Aggregate research findings from multiple workers.
+      
+      Available worker research:
+      {% for worker in workers %}
+      Worker {{ loop.index0 }}: {{ worker.response }}
+      {% endfor %}
+      
+      Your task:
+      1. Identify common themes across all research
+      2. Highlight unique insights from each worker
+      3. Create a coherent synthesis
+      4. Point out any contradictions or gaps
+
+  report_writer:
+    prompt: |
+      You are a technical writer. Create an executive summary report from synthesized research.
+      
+      Synthesis: {{ reduce_response }}
+      
+      Your report should:
+      1. Start with a 2-3 sentence executive summary
+      2. Present key findings in bullet points
+      3. Include implications and recommendations
+      4. Be concise yet comprehensive (aim for 300-500 words)
+
+pattern:
+  type: orchestrator_workers
+  config:
+    orchestrator:
+      agent: orchestrator
+      limits:
+        max_workers: 3  # Run up to 3 workers in parallel
+        max_rounds: 1   # Single delegation round
+    
+    worker_template:
+      agent: researcher
+      tools:
+        - http_executors  # Override to ensure workers can access web
+    
+    reduce:
+      agent: synthesizer
+      input: "Synthesize findings from all workers"
+    
+    writeup:
+      agent: report_writer
+      input: "Create final executive report"
+
+outputs:
+  artifacts:
+    - path: "./research-report.md"
+      from: "{{ last_response }}"
+    
+    - path: "./synthesis.md"
+      from: "{{ reduce_response }}"

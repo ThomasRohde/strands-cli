@@ -184,4 +184,3 @@ class BudgetEnforcerHook:
         """
         # Reserved for Phase 10 OTEL integration
         pass
-

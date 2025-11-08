@@ -637,9 +637,7 @@ pattern:
         assert result["status"] == "success"
         report = result["content"][0]["json"]
         assert report["capability_supported"] is False
-        assert any(
-            "not in allowlist" in issue["reason"] for issue in report["issues"]
-        )
+        assert any("not in allowlist" in issue["reason"] for issue in report["issues"])
 
     def test_missing_tooluseid_handled(self) -> None:
         """Test that missing toolUseId is handled gracefully."""

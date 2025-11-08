@@ -15,30 +15,30 @@ logger = structlog.get_logger(__name__)
 TOOL_SPEC = {
     "name": "head",
     "description": "Read the first N lines from a file. "
-                   "Useful for previewing file contents or reading headers without loading entire files. "
-                   "Cross-platform pure Python implementation.",
+    "Useful for previewing file contents or reading headers without loading entire files. "
+    "Cross-platform pure Python implementation.",
     "inputSchema": {
         "json": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to file to read (relative or absolute)"
+                    "description": "Path to file to read (relative or absolute)",
                 },
                 "lines": {
                     "type": "integer",
                     "default": 10,
-                    "description": "Number of lines to read from start (default: 10)"
+                    "description": "Number of lines to read from start (default: 10)",
                 },
                 "bytes_limit": {
                     "type": "integer",
                     "default": 1048576,
-                    "description": "Maximum bytes to read (default: 1MB, prevents loading huge files)"
-                }
+                    "description": "Maximum bytes to read (default: 1MB, prevents loading huge files)",
+                },
             },
-            "required": ["path"]
+            "required": ["path"],
         }
-    }
+    },
 }
 
 
@@ -67,14 +67,14 @@ def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "No file path provided"}]
+            "content": [{"text": "No file path provided"}],
         }
 
     if num_lines < 1:
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": "Number of lines must be at least 1"}]
+            "content": [{"text": "Number of lines must be at least 1"}],
         }
 
     try:
@@ -86,14 +86,14 @@ def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"File not found: {path}"}]
+                "content": [{"text": f"File not found: {path}"}],
             }
 
         if not path.is_file():
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Path is not a file: {path}"}]
+                "content": [{"text": f"Path is not a file: {path}"}],
             }
 
         # Check for binary file (first 8KB)
@@ -103,7 +103,7 @@ def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                 return {
                     "toolUseId": tool_use_id,
                     "status": "error",
-                    "content": [{"text": f"Binary file detected (cannot read as text): {path}"}]
+                    "content": [{"text": f"Binary file detected (cannot read as text): {path}"}],
                 }
 
         # Read first N lines with byte limit
@@ -118,7 +118,9 @@ def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
 
                     line_bytes = len(line.encode("utf-8"))
                     if bytes_read + line_bytes > bytes_limit:
-                        lines_read.append(f"\n[Truncated: byte limit ({bytes_limit} bytes) reached]")
+                        lines_read.append(
+                            f"\n[Truncated: byte limit ({bytes_limit} bytes) reached]"
+                        )
                         break
 
                     lines_read.append(line.rstrip())
@@ -128,14 +130,14 @@ def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [{"text": f"Failed to read file: {e}"}]
+                "content": [{"text": f"Failed to read file: {e}"}],
             }
 
         if not lines_read:
             return {
                 "toolUseId": tool_use_id,
                 "status": "success",
-                "content": [{"text": f"File is empty: {path}"}]
+                "content": [{"text": f"File is empty: {path}"}],
             }
 
         # Build output with line numbers
@@ -154,19 +156,15 @@ def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             file=str(path),
             lines_requested=num_lines,
             lines_read=len(lines_read),
-            bytes_read=bytes_read
+            bytes_read=bytes_read,
         )
 
-        return {
-            "toolUseId": tool_use_id,
-            "status": "success",
-            "content": [{"text": result_text}]
-        }
+        return {"toolUseId": tool_use_id, "status": "success", "content": [{"text": result_text}]}
 
     except Exception as e:
         logger.error("head_read_failed", error=str(e), path=path_str)
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [{"text": f"Read failed: {type(e).__name__}: {e}"}]
+            "content": [{"text": f"Read failed: {type(e).__name__}: {e}"}],
         }

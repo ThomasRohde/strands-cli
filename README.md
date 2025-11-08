@@ -35,8 +35,7 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ⚡ **Resource Cleanup** - HTTP clients and tool adapters properly closed after execution to prevent resource leaks
 
 ### Future Roadmap
-- 🚧 Orchestrator-workers pattern
-- 🚧 Evaluator-optimizer pattern
+- ✅ **Orchestrator-workers pattern** - Dynamic task delegation with worker pools (Phase 7 - Completed)
 - 🚧 Graph pattern with conditional logic
 - 🚧 MCP tools integration
 - 🚧 Guardrails enforcement
@@ -499,8 +498,6 @@ Presets merge with existing configuration - your custom values take precedence. 
 | **OTEL** | Parsed (scaffolding) | Full tracing activation → future |
 
 ### Unsupported Patterns (exit code 18)
-- Orchestrator-workers pattern
-- Evaluator-optimizer pattern  
 - Graph pattern with conditional logic
 - MCP tools (`tools.mcp`)
 - Guardrails enforcement

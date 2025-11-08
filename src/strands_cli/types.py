@@ -418,6 +418,50 @@ class EvaluatorDecision(BaseModel):
     fixes: list[str] | None = None  # Suggested fixes (optional)
 
 
+class OrchestratorLimits(BaseModel):
+    """Orchestrator execution limits.
+
+    Controls concurrency and iteration bounds for orchestrator-workers pattern.
+
+    Attributes:
+        max_workers: Maximum concurrent workers (default: unlimited)
+        max_rounds: Maximum orchestrator delegation cycles (default: unlimited)
+    """
+
+    max_workers: int | None = Field(None, ge=1)  # Max concurrent workers
+    max_rounds: int | None = Field(None, ge=1)  # Max delegation rounds
+
+
+class OrchestratorConfig(BaseModel):
+    """Orchestrator configuration for orchestrator-workers pattern.
+
+    The orchestrator agent breaks down tasks into subtasks and delegates
+    to workers. Expected JSON format from orchestrator:
+    [{"task": "description"}, ...]
+
+    Attributes:
+        agent: Orchestrator agent ID (required)
+        limits: Execution limits (optional)
+    """
+
+    agent: str  # Orchestrator agent ID (required)
+    limits: OrchestratorLimits | None = None  # Execution limits (optional)
+
+
+class WorkerTemplate(BaseModel):
+    """Worker template configuration for orchestrator-workers pattern.
+
+    Defines the agent and tools used by all workers in the pool.
+
+    Attributes:
+        agent: Worker agent ID (required)
+        tools: Tool overrides for workers (optional)
+    """
+
+    agent: str  # Worker agent ID (required)
+    tools: list[str] | None = None  # Tool overrides (optional)
+
+
 class PatternConfig(BaseModel):
     """Pattern-specific configuration."""
 
@@ -433,6 +477,11 @@ class PatternConfig(BaseModel):
     evaluator: EvaluatorConfig | None = None  # Evaluator config
     accept: AcceptConfig | None = None  # Accept criteria
     revise_prompt: str | None = None  # Revision prompt template
+
+    # Orchestrator-workers fields
+    orchestrator: OrchestratorConfig | None = None  # Orchestrator config
+    worker_template: WorkerTemplate | None = None  # Worker template
+    writeup: ChainStep | None = None  # Optional final synthesis step
 
 
 class Pattern(BaseModel):
@@ -543,9 +592,7 @@ class Notes(BaseModel):
         """Validate format is supported."""
         supported_formats = {"markdown", "json"}
         if v not in supported_formats:
-            raise ValueError(
-                f"format must be one of {supported_formats}, got '{v}'"
-            )
+            raise ValueError(f"format must be one of {supported_formats}, got '{v}'")
         return v
 
 
@@ -562,12 +609,10 @@ class Retrieval(BaseModel):
     """
 
     jit_tools: list[str] | None = Field(
-        None,
-        description="JIT tool IDs to enable (grep, head, tail, search)"
+        None, description="JIT tool IDs to enable (grep, head, tail, search)"
     )
     mcp_servers: list[str] | None = Field(
-        None,
-        description="MCP server IDs (Phase 9 - not yet implemented)"
+        None, description="MCP server IDs (Phase 9 - not yet implemented)"
     )
 
     @field_validator("jit_tools")
@@ -579,6 +624,7 @@ class Retrieval(BaseModel):
 
         # Allowed tool IDs (alphanumeric, underscore, hyphen only)
         import re
+
         valid_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
 
         for tool_id in v:

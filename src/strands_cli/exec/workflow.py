@@ -354,7 +354,8 @@ async def _execute_workflow_layer(
                     context_manager,
                     hooks,
                     notes_manager,
-                )        # Execute all tasks in layer (parallel where possible)
+                )  # Execute all tasks in layer (parallel where possible)
+
         results = await asyncio.gather(
             *[_execute_with_semaphore(tid, tobj, ctx) for tid, tobj, ctx in tasks_with_context],
             return_exceptions=False,  # Fail-fast on first error
@@ -417,13 +418,14 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     # Phase 6.1: Create context manager and hooks for compaction
     context_manager = create_from_policy(spec.context_policy, spec)
     hooks: list[Any] = []
-    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+    if (
+        spec.context_policy
+        and spec.context_policy.compaction
+        and spec.context_policy.compaction.enabled
+    ):
         threshold = spec.context_policy.compaction.when_tokens_over or 60000
         hooks.append(
-            ProactiveCompactionHook(
-                threshold_tokens=threshold,
-                model_id=spec.runtime.model_id
-            )
+            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
         )
         logger.info("compaction_enabled", threshold_tokens=threshold)
 
