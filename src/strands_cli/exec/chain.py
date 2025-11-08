@@ -34,7 +34,6 @@ import structlog
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
@@ -140,6 +139,15 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
         hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
         logger.info("compaction_enabled", threshold_tokens=threshold)
 
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens = spec.runtime.budgets["max_tokens"]
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
+
     # Phase 6.2: Initialize notes manager and hook for structured notes
     notes_manager = None
     step_counter = [0]  # Mutable container for hook to track step count
@@ -219,9 +227,6 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Track token usage using shared estimator
             estimated_tokens = estimate_tokens(step_input, response_text)
             cumulative_tokens += estimated_tokens
-
-            # Check budget using shared function
-            check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_index}")
 
             # Record step result
             step_result = {

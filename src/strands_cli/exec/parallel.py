@@ -39,7 +39,6 @@ import structlog
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
@@ -452,13 +451,22 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
         max_tokens=max_tokens,
     )
 
-    # Phase 6: Create context manager and hooks for compaction
+    # Phase 6.1: Create context manager and hooks for compaction
     context_manager = create_from_policy(spec.context_policy, spec)
     hooks: list[Any] = []
     if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
         threshold = spec.context_policy.compaction.when_tokens_over or 60000
         hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
         logger.info("compaction_enabled", threshold_tokens=threshold)
+
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens = spec.runtime.budgets["max_tokens"]
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
 
     # Phase 6.2: Initialize notes manager and hook for structured notes
     notes_manager = None
@@ -528,9 +536,6 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                 "tokens_estimated": tokens,
             }
 
-        # Check budget after all branches complete
-        check_budget_threshold(cumulative_tokens, max_tokens, "all_branches")
-
         logger.info(
             "All branches completed",
             num_branches=len(branches_dict),
@@ -558,9 +563,6 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
             final_response = reduce_response
             final_agent_id = spec.pattern.config.reduce.agent
             cumulative_tokens += reduce_tokens
-
-            # Check budget after reduce
-            check_budget_threshold(cumulative_tokens, max_tokens, "reduce")
         else:
             # No reduce step - aggregate branch responses alphabetically
             logger.info("No reduce step - aggregating branch responses")

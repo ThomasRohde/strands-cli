@@ -257,6 +257,18 @@ def _dispatch_executor(
         if verbose:
             console.print_exception()
         sys.exit(EX_RUNTIME)
+    except Exception as e:
+        # Phase 6.4: Handle budget exceeded error
+        from strands_cli.runtime.budget_enforcer import BudgetExceededError
+
+        if isinstance(e, BudgetExceededError):
+            console.print(f"\n[red]Budget exceeded:[/red] {e}")
+            if verbose:
+                console.print(f"[dim]Tokens used: {e.cumulative_tokens}/{e.max_tokens}[/dim]")
+            sys.exit(e.exit_code)
+
+        # Re-raise other exceptions
+        raise
 
 
 def _write_and_report_artifacts(

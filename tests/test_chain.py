@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from strands_cli.exec.chain import _build_step_context, run_chain
-from strands_cli.exec.utils import check_budget_threshold
 from strands_cli.types import Spec
 
 
@@ -49,44 +48,8 @@ class TestBuildStepContext:
         assert context["topic"] == "test"
 
 
-class TestCheckBudgetWarning:
-    """Test budget threshold warnings."""
-
-    def test_no_warning_below_threshold(self) -> None:
-        """No warning when consumption below 80%."""
-        step_number = 1
-        cumulative_tokens = 700
-        max_tokens = 1000
-
-        # Should not raise
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
-
-    def test_warning_at_80_percent(self) -> None:
-        """Warning emitted at 80% consumption."""
-        step_number = 2
-        cumulative_tokens = 800
-        max_tokens = 1000
-
-        # Should not raise, but will log warning to structlog
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
-
-    def test_stops_at_100_percent(self) -> None:
-        """Should raise error at 100% consumption."""
-        step_number = 3
-        cumulative_tokens = 1000
-        max_tokens = 1000
-
-        with pytest.raises(Exception, match="Token budget exceeded"):
-            check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
-
-    def test_no_warning_when_no_budgets(self) -> None:
-        """No warning when budgets not configured."""
-        step_number = 1
-        cumulative_tokens = 999999
-        max_tokens = None
-
-        # Should not raise or warn
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
+# Note: TestCheckBudgetWarning class removed in Phase 6.4
+# Budget enforcement now handled by BudgetEnforcerHook (see tests/test_token_budgets.py)
 
 
 class TestRunChain:
@@ -214,6 +177,7 @@ class TestRunChain:
 
         assert result.success is True
 
+    @pytest.mark.skip(reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py")
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     async def test_run_chain_budget_exceeded(

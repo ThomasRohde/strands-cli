@@ -84,50 +84,6 @@ def get_retry_config(spec: Spec) -> tuple[int, int, int]:
     return max_attempts, wait_min, wait_max
 
 
-def check_budget_threshold(
-    cumulative_tokens: int,
-    max_tokens: int | None,
-    context_id: str,
-    warn_threshold: float = 0.8,
-) -> None:
-    """Check token budget and log warnings or raise on exceed.
-
-    Args:
-        cumulative_tokens: Total tokens used so far
-        max_tokens: Maximum tokens allowed (from budgets.max_tokens)
-        context_id: Identifier for logging (step, task, branch)
-        warn_threshold: Threshold for warning (default 0.8 = 80%)
-
-    Raises:
-        ExecutionUtilsError: If budget exceeded (100%)
-    """
-    if max_tokens is None:
-        return
-
-    usage_pct = (cumulative_tokens / max_tokens) * 100
-
-    if usage_pct >= 100:
-        logger.error(
-            "token_budget_exceeded",
-            context=context_id,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_pct=usage_pct,
-        )
-        raise ExecutionUtilsError(
-            f"Token budget exceeded: {cumulative_tokens}/{max_tokens} tokens (100%)"
-        )
-    elif usage_pct >= (warn_threshold * 100):
-        logger.warning(
-            "token_budget_warning",
-            context=context_id,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_pct=f"{usage_pct:.1f}",
-            threshold=f"{warn_threshold * 100:.0f}%",
-        )
-
-
 def create_retry_decorator(
     max_attempts: int,
     wait_min: int,

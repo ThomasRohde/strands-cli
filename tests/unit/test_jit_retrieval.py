@@ -9,11 +9,11 @@ import pytest
 
 
 class TestTailToolLineNumbers:
-    """Tests for jit_tail.py actual line numbering (Phase 6 fix)."""
+    """Tests for tail.py actual line numbering (Phase 6 fix)."""
 
     def test_tail_shows_actual_line_numbers(self, tmp_path):
         """Should show actual line numbers from file, not relative."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         # Create file with 100 lines
         test_file = tmp_path / "large.txt"
@@ -36,7 +36,7 @@ class TestTailToolLineNumbers:
 
     def test_tail_with_truncation_shows_correct_line_numbers(self, tmp_path):
         """Should show actual line numbers even with byte limit truncation."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         # Create file with many lines
         test_file = tmp_path / "large.txt"
@@ -66,7 +66,7 @@ class TestTailToolLineNumbers:
 
     def test_tail_empty_file(self, tmp_path):
         """Should handle empty file gracefully."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "empty.txt"
         test_file.write_text("")
@@ -83,7 +83,7 @@ class TestTailToolLineNumbers:
 
     def test_tail_invalid_lines_count(self, tmp_path):
         """Should reject invalid lines count."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("line1\nline2\n")
@@ -100,7 +100,7 @@ class TestTailToolLineNumbers:
 
     def test_tail_binary_file_detection(self, tmp_path):
         """Should detect and reject binary files."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "binary.bin"
         test_file.write_bytes(b"\x00\x01\x02\xFF binary data")
@@ -117,11 +117,11 @@ class TestTailToolLineNumbers:
 
 
 class TestGrepTool:
-    """Tests for jit_grep.py tool."""
+    """Tests for grep.py tool."""
 
     def test_grep_tool_spec_format(self):
         """TOOL_SPEC should have required fields."""
-        from strands_cli.tools.jit_grep import TOOL_SPEC
+        from strands_cli.tools.grep import TOOL_SPEC
 
         assert "name" in TOOL_SPEC
         assert TOOL_SPEC["name"] == "grep"
@@ -131,7 +131,7 @@ class TestGrepTool:
 
     def test_grep_finds_pattern_with_context(self, tmp_path):
         """Should find pattern and return context lines."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         # Create test file
         test_file = tmp_path / "test.txt"
@@ -158,7 +158,7 @@ class TestGrepTool:
 
     def test_grep_regex_pattern(self, tmp_path):
         """Should support regex patterns."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo():\n    pass\nclass Bar:\n    pass\n")
@@ -181,7 +181,7 @@ class TestGrepTool:
 
     def test_grep_case_insensitive(self, tmp_path):
         """Should support case-insensitive search."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("Hello\nWORLD\nhello\n")
@@ -204,7 +204,7 @@ class TestGrepTool:
 
     def test_grep_no_matches(self, tmp_path):
         """Should return success with no matches message."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("foo\nbar\nbaz\n")
@@ -221,7 +221,7 @@ class TestGrepTool:
 
     def test_grep_max_matches_limit(self, tmp_path):
         """Should respect max_matches limit."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("match\n" * 100)
@@ -240,7 +240,7 @@ class TestGrepTool:
 
     def test_grep_file_not_found(self):
         """Should return error for non-existent file."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         tool = {
             "toolUseId": "test-222",
@@ -254,7 +254,7 @@ class TestGrepTool:
 
     def test_grep_binary_file_detection(self, tmp_path):
         """Should detect and reject binary files."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "binary.bin"
         test_file.write_bytes(b"\x00\x01\x02\x03" * 100)
@@ -271,7 +271,7 @@ class TestGrepTool:
 
     def test_grep_invalid_regex(self, tmp_path):
         """Should return error for invalid regex pattern."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("test content")
@@ -288,7 +288,7 @@ class TestGrepTool:
 
     def test_grep_empty_pattern(self, tmp_path):
         """Should return error for empty pattern."""
-        from strands_cli.tools.jit_grep import grep
+        from strands_cli.tools.grep import grep
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("test")
@@ -302,18 +302,18 @@ class TestGrepTool:
 
 
 class TestHeadTool:
-    """Tests for jit_head.py tool."""
+    """Tests for head.py tool."""
 
     def test_head_tool_spec_format(self):
         """TOOL_SPEC should have required fields."""
-        from strands_cli.tools.jit_head import TOOL_SPEC
+        from strands_cli.tools.head import TOOL_SPEC
 
         assert TOOL_SPEC["name"] == "head"
         assert "inputSchema" in TOOL_SPEC
 
     def test_head_reads_first_lines(self, tmp_path):
         """Should read first N lines from file."""
-        from strands_cli.tools.jit_head import head
+        from strands_cli.tools.head import head
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("\n".join([f"line{i}" for i in range(1, 21)]))
@@ -333,7 +333,7 @@ class TestHeadTool:
 
     def test_head_default_lines(self, tmp_path):
         """Should default to 10 lines."""
-        from strands_cli.tools.jit_head import head
+        from strands_cli.tools.head import head
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("\n".join([f"line{i}" for i in range(1, 21)]))
@@ -349,7 +349,7 @@ class TestHeadTool:
 
     def test_head_empty_file(self, tmp_path):
         """Should handle empty file gracefully."""
-        from strands_cli.tools.jit_head import head
+        from strands_cli.tools.head import head
 
         test_file = tmp_path / "empty.txt"
         test_file.write_text("")
@@ -363,7 +363,7 @@ class TestHeadTool:
 
     def test_head_bytes_limit(self, tmp_path):
         """Should respect bytes limit."""
-        from strands_cli.tools.jit_head import head
+        from strands_cli.tools.head import head
 
         test_file = tmp_path / "large.txt"
         # Create file with large lines
@@ -382,7 +382,7 @@ class TestHeadTool:
 
     def test_head_binary_file_detection(self, tmp_path):
         """Should detect and reject binary files."""
-        from strands_cli.tools.jit_head import head
+        from strands_cli.tools.head import head
 
         test_file = tmp_path / "binary.bin"
         test_file.write_bytes(b"\x00\x01\x02\x03" * 100)
@@ -396,18 +396,18 @@ class TestHeadTool:
 
 
 class TestTailTool:
-    """Tests for jit_tail.py tool."""
+    """Tests for tail.py tool."""
 
     def test_tail_tool_spec_format(self):
         """TOOL_SPEC should have required fields."""
-        from strands_cli.tools.jit_tail import TOOL_SPEC
+        from strands_cli.tools.tail import TOOL_SPEC
 
         assert TOOL_SPEC["name"] == "tail"
         assert "inputSchema" in TOOL_SPEC
 
     def test_tail_reads_last_lines(self, tmp_path):
         """Should read last N lines from file."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("\n".join([f"line{i}" for i in range(1, 21)]))
@@ -427,7 +427,7 @@ class TestTailTool:
 
     def test_tail_default_lines(self, tmp_path):
         """Should default to 10 lines."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("\n".join([f"line{i}" for i in range(1, 21)]))
@@ -443,7 +443,7 @@ class TestTailTool:
 
     def test_tail_fewer_lines_than_requested(self, tmp_path):
         """Should return all lines if file has fewer than requested."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "small.txt"
         test_file.write_text("line1\nline2\nline3\n")
@@ -463,7 +463,7 @@ class TestTailTool:
 
     def test_tail_empty_file(self, tmp_path):
         """Should handle empty file gracefully."""
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.tail import tail
 
         test_file = tmp_path / "empty.txt"
         test_file.write_text("")
@@ -477,18 +477,18 @@ class TestTailTool:
 
 
 class TestSearchTool:
-    """Tests for jit_search.py tool."""
+    """Tests for search.py tool."""
 
     def test_search_tool_spec_format(self):
         """TOOL_SPEC should have required fields."""
-        from strands_cli.tools.jit_search import TOOL_SPEC
+        from strands_cli.tools.search import TOOL_SPEC
 
         assert TOOL_SPEC["name"] == "search"
         assert "inputSchema" in TOOL_SPEC
 
     def test_search_plain_text(self, tmp_path):
         """Should find plain text keywords."""
-        from strands_cli.tools.jit_search import search
+        from strands_cli.tools.search import search
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("foo\nbar\nbaz\nfoo again\n")
@@ -507,7 +507,7 @@ class TestSearchTool:
 
     def test_search_case_insensitive_default(self, tmp_path):
         """Should be case-insensitive by default."""
-        from strands_cli.tools.jit_search import search
+        from strands_cli.tools.search import search
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("Hello\nWORLD\nhello\n")
@@ -525,7 +525,7 @@ class TestSearchTool:
 
     def test_search_regex_mode(self, tmp_path):
         """Should support regex when is_regex=true."""
-        from strands_cli.tools.jit_search import search
+        from strands_cli.tools.search import search
 
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo():\n    pass\nclass Bar:\n    pass\n")
@@ -547,7 +547,7 @@ class TestSearchTool:
 
     def test_search_no_matches(self, tmp_path):
         """Should return success with no matches message."""
-        from strands_cli.tools.jit_search import search
+        from strands_cli.tools.search import search
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("foo\nbar\nbaz\n")
@@ -564,7 +564,7 @@ class TestSearchTool:
 
     def test_search_max_matches(self, tmp_path):
         """Should respect max_matches limit."""
-        from strands_cli.tools.jit_search import search
+        from strands_cli.tools.search import search
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("match\n" * 100)
@@ -582,7 +582,7 @@ class TestSearchTool:
 
     def test_search_empty_query(self, tmp_path):
         """Should return error for empty query."""
-        from strands_cli.tools.jit_search import search
+        from strands_cli.tools.search import search
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("test")
@@ -600,10 +600,10 @@ class TestPathSecurity:
 
     def test_path_traversal_prevention(self, tmp_path):
         """All tools should prevent directory traversal attacks."""
-        from strands_cli.tools.jit_grep import grep
-        from strands_cli.tools.jit_head import head
-        from strands_cli.tools.jit_search import search
-        from strands_cli.tools.jit_tail import tail
+        from strands_cli.tools.grep import grep
+        from strands_cli.tools.head import head
+        from strands_cli.tools.search import search
+        from strands_cli.tools.tail import tail
 
         # Create a file outside tmp_path
         safe_file = tmp_path / "safe.txt"
@@ -630,7 +630,7 @@ class TestPathSecurity:
 
     def test_symlink_resolution(self, tmp_path):
         """Tools should resolve symlinks safely."""
-        from strands_cli.tools.jit_head import head
+        from strands_cli.tools.head import head
 
         # Create original file
         original = tmp_path / "original.txt"

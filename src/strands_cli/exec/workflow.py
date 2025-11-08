@@ -35,7 +35,6 @@ import structlog
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
@@ -415,13 +414,24 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     task_results: dict[str, dict[str, Any]] = {}
     started_at = datetime.now(UTC).isoformat()
 
-    # Phase 6: Create context manager and hooks for compaction
+    # Phase 6.1: Create context manager and hooks for compaction
     context_manager = create_from_policy(spec.context_policy, spec)
     hooks: list[Any] = []
     if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
         threshold = spec.context_policy.compaction.when_tokens_over or 60000
         hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
         logger.info("compaction_enabled", threshold_tokens=threshold)
+
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens_val = spec.runtime.budgets["max_tokens"]
+        # Ensure max_tokens is int (spec validation should guarantee this)
+        max_tokens = int(max_tokens_val) if max_tokens_val is not None else 0
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
 
     # Phase 6.2: Initialize notes manager and hook for structured notes
     notes_manager = None
@@ -473,10 +483,6 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                 layer_task_ids, layer_results, strict=True
             ):
                 cumulative_tokens += estimated_tokens
-
-                # Check budget
-                if max_tokens:
-                    check_budget_threshold(cumulative_tokens, max_tokens, task_id)
 
                 # Store result with agent ID for tracking
                 task_results[task_id] = {

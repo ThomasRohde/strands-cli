@@ -16,7 +16,6 @@ import pytest
 from strands_cli.exec.utils import (
     TRANSIENT_ERRORS,
     ExecutionUtilsError,
-    check_budget_threshold,
     create_retry_decorator,
     estimate_tokens,
     get_retry_config,
@@ -137,56 +136,8 @@ def test_get_retry_config_with_partial_policy(minimal_ollama_spec: Any) -> None:
     assert wait_max == 60  # Default
 
 
-# --- Tests for check_budget_threshold ---
-
-
-def test_check_budget_threshold_no_budget() -> None:
-    """Test that no action is taken when max_tokens is None."""
-    # Should not raise or log anything
-    check_budget_threshold(500, None, "test_context")
-
-
-def test_check_budget_threshold_below_warning() -> None:
-    """Test that no warnings are logged below 80% threshold."""
-    # Should not raise or log anything
-    check_budget_threshold(700, 1000, "test_context", warn_threshold=0.8)
-    # If we get here without exception, test passes
-
-
-def test_check_budget_threshold_at_warning() -> None:
-    """Test that warning is logged at 80% threshold (no exception)."""
-    # Should log warning but not raise
-    check_budget_threshold(800, 1000, "step_5", warn_threshold=0.8)
-    # If we get here without exception, test passes
-
-
-def test_check_budget_threshold_above_warning() -> None:
-    """Test that warning is logged above 80% threshold (no exception)."""
-    # Should log warning but not raise
-    check_budget_threshold(950, 1000, "task_x", warn_threshold=0.8)
-    # If we get here without exception, test passes
-
-
-def test_check_budget_threshold_at_100_percent() -> None:
-    """Test that ExecutionUtilsError is raised at 100% budget."""
-    with pytest.raises(ExecutionUtilsError, match="Token budget exceeded"):
-        check_budget_threshold(1000, 1000, "final_step")
-
-
-def test_check_budget_threshold_above_100_percent() -> None:
-    """Test that ExecutionUtilsError is raised above 100% budget."""
-    with pytest.raises(ExecutionUtilsError, match="Token budget exceeded"):
-        check_budget_threshold(1100, 1000, "overflow_step")
-
-
-def test_check_budget_threshold_custom_warning_threshold() -> None:
-    """Test that custom warning threshold (e.g., 50%) works correctly."""
-    # Below 50% - no warning, no exception
-    check_budget_threshold(400, 1000, "context1", warn_threshold=0.5)
-
-    # At 50% - warning but no exception
-    check_budget_threshold(500, 1000, "context2", warn_threshold=0.5)
-    # If we get here without exception, test passes
+# Note: check_budget_threshold function removed in Phase 6.4 - replaced by BudgetEnforcerHook
+# See tests/test_token_budgets.py for budget enforcement tests
 
 
 # --- Tests for create_retry_decorator ---

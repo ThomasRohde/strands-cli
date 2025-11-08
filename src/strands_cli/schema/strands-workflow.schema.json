@@ -150,6 +150,13 @@
             "max_duration_s": {
               "type": "integer",
               "minimum": 1
+            },
+            "warn_threshold": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "default": 0.8,
+              "description": "Percentage (0.0-1.0) at which to log token budget warning. Default is 0.8 (80%)."
             }
           }
         },
