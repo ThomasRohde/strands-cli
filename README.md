@@ -2,11 +2,12 @@
 
 Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
 
-**Current Version**: v0.4.0 | 287 tests passing | 83% coverage
+**Current Version**: v0.9.0 | 782 tests passing | 83% coverage
 
 ## Features
 
-### Core Capabilities (v0.4.0)
+### Core Capabilities (v0.9.0)
+- ✅ **Orchestrator-Workers pattern** - Dynamic task delegation with worker pools and optional reduce/writeup steps
 - ✅ **Graph pattern** - Explicit control flow with conditionals, loops, and cycle protection
 - ✅ **Evaluator-Optimizer pattern** - Iterative refinement with quality gates and convergence detection
 - ✅ **Parallel execution pattern** - Concurrent branch execution with optional reduce step for aggregation
@@ -37,9 +38,10 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ⚡ **Resource Cleanup** - HTTP clients and tool adapters properly closed after execution to prevent resource leaks
 
 ### Future Roadmap
-- ✅ **Orchestrator-workers pattern** - Dynamic task delegation with worker pools (Phase 7 - Completed)
-- 🚧 MCP tools integration
-- 🚧 Guardrails enforcement
+- ✅ **Orchestrator-workers pattern** - Dynamic task delegation with worker pools (Phase 7 - v0.8.0)
+- ✅ **Graph pattern** - Explicit control flow with conditionals and loops (Phase 8 - v0.9.0)
+- 🚧 MCP tools integration (Phase 9)
+- 🚧 Guardrails enforcement (Phase 5)
 - 🚧 Context policy execution
 - 🚧 Full OTEL tracing
 

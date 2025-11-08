@@ -2,17 +2,17 @@
 
 **Created:** 2025-11-04  
 **Owner:** Thomas Rohde  
-**Current Version:** v0.4.0 (Parallel Execution Pattern)  
+**Current Version:** v0.9.0 (Graph Pattern with Advanced Control Flow)  
 **Target:** Full multi-agent workflow orchestration with observability, security, and enterprise features
 
 ---
 
-## Completed Phases Summary (v0.1.0 → v0.4.0)
+## Completed Phases Summary (v0.1.0 → v0.9.0)
 
-**Completion Date**: November 7, 2025  
-**Current Version**: v0.5.0  
-**Status**: ✅ Phases 1-4 Complete  
-**Tests**: 479 passing | Coverage maintained  
+**Completion Date**: November 8, 2025  
+**Current Version**: v0.9.0  
+**Status**: ✅ Phases 1-4, 7-8 Complete  
+**Tests**: 782 passing | Coverage maintained  
 **Type Safety**: Mypy strict mode passing
 
 ### Major Achievements
@@ -23,6 +23,8 @@
 - ✅ **Routing Pattern**: Dynamic agent selection with router retry logic and malformed JSON handling
 - ✅ **Parallel Pattern**: Concurrent branch execution with optional reduce aggregation (`{{ branches.<id>.response }}`)
 - ✅ **Evaluator-Optimizer Pattern**: Iterative refinement with producer-evaluator feedback loops and quality gates
+- ✅ **Orchestrator-Workers Pattern**: Dynamic task delegation with worker pools, max_workers concurrency control, and optional reduce/writeup steps
+- ✅ **Graph Pattern**: Explicit control flow with conditional edges, loop detection, cycle protection, and max iteration limits
 
 **Multi-Agent Architecture:**
 - ✅ Agent reuse and caching via `AgentCache` singleton
@@ -371,6 +373,7 @@ filelock = "^3.16.0"              # Cross-process file locking
 
 ## Phase 7: Orchestrator-Workers Pattern (v0.8.0)
 
+**Status:** ✅ **COMPLETE** (2025-11-08)  
 **Goal:** Dynamic task delegation with worker pools
 
 **Duration:** 3 weeks  
@@ -437,6 +440,7 @@ filelock = "^3.16.0"              # Cross-process file locking
 
 ## Phase 8: Graph Pattern & Advanced Control Flow (v0.9.0)
 
+**Status:** ✅ **COMPLETE** (2025-11-08)  
 **Goal:** Explicit control flow with conditionals and loops
 
 **Duration:** 3 weeks  

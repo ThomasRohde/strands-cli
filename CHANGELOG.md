@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2025-11-08
+
+### Added - Phase 8 (Graph Pattern & Advanced Control Flow)
+
+#### Graph Pattern Support
+- **Explicit control flow with conditionals and loops** - Define workflow graphs with nodes and edges
+  - New executor: `src/strands_cli/exec/graph.py`
+  - Condition evaluator: `src/strands_cli/exec/conditions.py`
+  - Node-based execution with explicit transitions
+  - Conditional edges: `choose` clauses with `when` conditions
+  - Static edges: Unconditional `to` transitions
+  - Cycle detection and protection with max iteration limits
+  - Safe condition evaluation with restricted builtins
+  - Template access: Node outputs `{{ node.<id>.response }}`
+  - Graph visualization support for planning and debugging
+
+#### Security Enhancements
+- **Restricted condition evaluation** - Safe evaluation of edge conditions
+  - Allowlisted builtins only (len, str, int, float, bool, etc.)
+  - No arbitrary code execution in `when` clauses
+  - JSON-safe comparison operators
+  - Token budget checks before condition evaluation
+
+#### Examples
+- **graph-decision-tree-openai.yaml** - Multi-branch decision tree with conditional routing
+- **graph-iterative-refinement-openai.yaml** - Loop-based quality improvement
+- **graph-state-machine-openai.yaml** - State machine with transitions
+
+#### Testing
+- **Comprehensive test suite** - 32 tests in `tests/test_graph.py`
+  - Basic graph execution with conditionals
+  - Loop detection and max iteration enforcement
+  - Cycle protection
+  - Condition evaluation with node context
+  - Token budget integration
+  - Security validation for condition evaluation
+- **Graph visualization tests** - 21 tests in `tests/test_graph_viz.py`
+- **Condition security tests** - 36 tests in `tests/test_conditions_security.py`
+
+## [0.8.0] - 2025-11-08
+
 ### Added - Phase 7 (Orchestrator-Workers Pattern)
 
 #### Orchestrator-Workers Pattern Support
