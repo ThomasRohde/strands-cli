@@ -1,0 +1,57 @@
+version: 0
+name: preset-minimal-quick-task
+description: |
+  Demonstrates the 'minimal' context preset for short workflows.
+  
+  This preset is optimized for:
+  - Short workflows (1-3 steps)
+  - Small context windows
+  - When you want full control
+  
+  The minimal preset automatically configures:
+  - Compaction DISABLED (no automatic context management)
+  - Notes NOT configured
+  - Retrieval NOT configured
+
+tags:
+  - preset-example
+  - minimal
+  - short-workflow
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+# Context preset: minimal
+# No automatic context management
+context_policy:
+  compaction:
+    enabled: false  # Disabled for short workflows
+
+agents:
+  writer:
+    prompt: |
+      You are a content writer creating focused, concise content.
+      
+      Keep responses clear and to-the-point.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: writer
+        input: |
+          Create a brief summary about: {{ topic }}
+
+      - agent: writer
+        input: |
+          Enhance the summary with 2-3 key points.
+
+inputs:
+  values:
+    topic: "machine learning fundamentals"
+
+outputs:
+  artifacts:
+    - path: "./quick-summary.md"
+      from: "{{ last_response }}"

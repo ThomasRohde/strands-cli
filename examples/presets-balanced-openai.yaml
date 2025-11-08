@@ -1,0 +1,90 @@
+version: 0
+name: preset-balanced-workflow
+description: |
+  Demonstrates the 'balanced' context preset for typical workflows.
+  
+  This preset is optimized for:
+  - Most workflows (3-10 steps)
+  - Medium context windows
+  - General-purpose use
+  
+  The balanced preset automatically configures:
+  - Compaction at 100K tokens
+  - 35% summary ratio
+  - 12 recent messages preserved
+  - Notes and retrieval NOT configured (can add manually)
+
+tags:
+  - preset-example
+  - balanced
+  - general-purpose
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+# Context preset: balanced
+# Standard settings for most workflows
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 100000     # Standard threshold
+    summary_ratio: 0.35           # Moderate summarization
+    preserve_recent_messages: 12  # Reasonable recent context
+
+agents:
+  analyst:
+    prompt: |
+      You are a data analyst performing multi-step analysis.
+      
+      Process the data through multiple stages:
+      1. Initial exploration
+      2. Pattern identification
+      3. Statistical analysis
+      4. Insights generation
+      5. Recommendation formulation
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: analyst
+        input: |
+          Step 1: Data Exploration
+          
+          Examine the dataset and identify key characteristics.
+          Focus on: {{ focus_area }}
+
+      - agent: analyst
+        input: |
+          Step 2: Pattern Analysis
+          
+          Based on your exploration, identify patterns and trends.
+
+      - agent: analyst
+        input: |
+          Step 3: Deep Dive
+          
+          Analyze the most significant patterns in detail.
+
+      - agent: analyst
+        input: |
+          Step 4: Insight Generation
+          
+          Generate actionable insights from your analysis.
+
+      - agent: analyst
+        input: |
+          Step 5: Final Report
+          
+          Compile your findings into a comprehensive report with
+          recommendations.
+
+inputs:
+  values:
+    focus_area: "customer behavior patterns"
+
+outputs:
+  artifacts:
+    - path: "./analysis-report.md"
+      from: "{{ last_response }}"

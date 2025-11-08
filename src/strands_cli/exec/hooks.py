@@ -13,6 +13,7 @@ from typing import Any
 import structlog
 from strands.hooks import AfterInvocationEvent, HookProvider, HookRegistry
 
+from strands_cli.runtime.token_counter import TokenCounter
 from strands_cli.tools.notes_manager import NotesManager
 
 logger = structlog.get_logger(__name__)
@@ -25,16 +26,25 @@ class ProactiveCompactionHook(HookProvider):
     and triggers compaction when approaching the configured threshold. This prevents
     reactive overflow handling and enables controlled context reduction.
 
+    **Token Counting Strategy**: Uses provider-reported metrics when available, falls
+    back to TokenCounter estimation when metrics are missing or stale. This ensures
+    reliable compaction triggering across all providers (Bedrock, Ollama, OpenAI).
+
     **Single-Fire Behavior**: Compaction triggers only once per hook instance to avoid
     repeated compaction cycles within the same workflow. For multi-session workflows
     or workflows requiring multiple compactions, create a new hook instance.
 
     Attributes:
         threshold_tokens: Token count at which to trigger compaction
+        model_id: Model identifier for TokenCounter fallback
         compacted: Flag tracking whether compaction has been triggered (single-fire)
+        token_counter: TokenCounter instance for fallback estimation
 
     Example:
-        >>> hook = ProactiveCompactionHook(threshold_tokens=60000)
+        >>> hook = ProactiveCompactionHook(
+        ...     threshold_tokens=60000,
+        ...     model_id="anthropic.claude-3-sonnet-20240229-v1:0"
+        ... )
         >>> agent = Agent(
         ...     name="research-agent",
         ...     model=model,
@@ -43,14 +53,26 @@ class ProactiveCompactionHook(HookProvider):
         ... )
     """
 
-    def __init__(self, threshold_tokens: int):
+    def __init__(self, threshold_tokens: int, model_id: str | None = None):
         """Initialize the proactive compaction hook.
 
         Args:
             threshold_tokens: Trigger compaction when total tokens exceed this value
+            model_id: Optional model identifier for TokenCounter fallback
         """
         self.threshold_tokens = threshold_tokens
+        self.model_id = model_id
         self.compacted = False  # Track if we've already compacted
+        self.token_counter: TokenCounter | None = None
+
+        # Initialize token counter if model_id provided
+        if model_id:
+            self.token_counter = TokenCounter(model_id)
+            logger.debug(
+                "token_counter_initialized",
+                model_id=model_id,
+                threshold_tokens=threshold_tokens,
+            )
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hook callbacks with the agent's hook registry.
@@ -65,16 +87,16 @@ class ProactiveCompactionHook(HookProvider):
         """Check token usage and trigger compaction if threshold exceeded.
 
         Called automatically by Strands SDK after each agent invocation.
-        Reads accumulated usage metrics and compares against threshold.
-        If threshold exceeded, triggers conversation_manager.apply_management().
+        Uses provider-reported metrics when available, falls back to TokenCounter
+        estimation when metrics are missing or stale.
 
         Args:
             event: AfterInvocationEvent containing agent and result information
 
         Note:
-            Uses agent.accumulated_usage from Strands SDK (provider-reported)
-            rather than estimates for accuracy. Falls back gracefully if metrics
-            unavailable.
+            Prefers agent.accumulated_usage from Strands SDK (provider-reported)
+            for accuracy. Falls back to TokenCounter estimation of agent.messages
+            if provider metrics unavailable.
         """
         agent = event.agent
 
@@ -87,17 +109,42 @@ class ProactiveCompactionHook(HookProvider):
             )
             return
 
-        # Extract token usage from Strands SDK metrics
+        # Try to extract token usage from provider metrics (preferred)
         usage = getattr(agent, "accumulated_usage", None)
-        if not usage:
-            logger.debug(
-                "compaction_skipped",
-                reason="no_usage_metrics",
-                agent_name=agent.name if hasattr(agent, "name") else "unknown",
-            )
-            return
+        total_tokens = None
+        token_source = "unknown"
 
-        total_tokens = usage.get("totalTokens", 0)
+        if usage and usage.get("totalTokens", 0) > 0:
+            total_tokens = usage.get("totalTokens", 0)
+            token_source = "provider_metrics"
+            logger.debug(
+                "token_usage_from_provider",
+                agent_name=agent.name if hasattr(agent, "name") else "unknown",
+                total_tokens=total_tokens,
+            )
+
+        # Fallback to TokenCounter estimation if provider metrics unavailable
+        if total_tokens is None or total_tokens == 0:
+            if self.token_counter and hasattr(agent, "messages") and agent.messages:
+                # Note: agent.messages is list[Message] from Strands SDK, but TokenCounter
+                # expects list[dict[str, Any]]. Message objects support dict-like iteration.
+                total_tokens = self.token_counter.count_messages(agent.messages)  # type: ignore[arg-type]
+                token_source = "token_counter_fallback"
+                logger.debug(
+                    "token_usage_from_counter",
+                    agent_name=agent.name if hasattr(agent, "name") else "unknown",
+                    total_tokens=total_tokens,
+                    message_count=len(agent.messages),
+                )
+            else:
+                logger.debug(
+                    "compaction_skipped",
+                    reason="no_usage_metrics_or_counter",
+                    agent_name=agent.name if hasattr(agent, "name") else "unknown",
+                    has_token_counter=self.token_counter is not None,
+                    has_messages=hasattr(agent, "messages") and bool(agent.messages),
+                )
+                return
 
         # Log current usage
         logger.debug(
@@ -105,6 +152,7 @@ class ProactiveCompactionHook(HookProvider):
             agent_name=agent.name if hasattr(agent, "name") else "unknown",
             total_tokens=total_tokens,
             threshold=self.threshold_tokens,
+            token_source=token_source,
             percentage=round(total_tokens / self.threshold_tokens * 100, 1)
             if self.threshold_tokens > 0
             else 0,
@@ -117,6 +165,7 @@ class ProactiveCompactionHook(HookProvider):
                 agent_name=agent.name if hasattr(agent, "name") else "unknown",
                 total_tokens=total_tokens,
                 threshold=self.threshold_tokens,
+                token_source=token_source,
                 trigger_reason="proactive_threshold_exceeded",
             )
 
@@ -131,6 +180,7 @@ class ProactiveCompactionHook(HookProvider):
                 "compaction_completed",
                 agent_name=agent.name if hasattr(agent, "name") else "unknown",
                 messages_after_compaction=len(agent.messages),
+                token_source=token_source,
             )
 class NotesAppenderHook(HookProvider):
     """Append structured notes after each agent invocation.

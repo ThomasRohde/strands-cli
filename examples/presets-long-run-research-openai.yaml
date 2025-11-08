@@ -1,0 +1,133 @@
+version: 0
+name: preset-long-run-research
+description: |
+  Demonstrates the 'long_run' context preset for research workflows.
+  
+  This preset is optimized for:
+  - Research workflows with 10+ steps
+  - Long context requirements (80K token threshold)
+  - Cross-step continuity via structured notes
+  - JIT file access tools (grep, search, head, tail)
+  
+  The long_run preset automatically configures:
+  - Compaction at 80K tokens (vs 100K in balanced)
+  - 40% summary ratio (vs 35% in balanced)
+  - 20 recent messages preserved (vs 12 in balanced)
+  - Notes enabled with last 20 entries
+  - All JIT retrieval tools enabled
+
+tags:
+  - preset-example
+  - research
+  - long-context
+  - multi-step
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+# Context preset: long_run
+# This configures compaction, notes, and retrieval optimally for research
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 80000      # Trigger earlier for long workflows
+    summary_ratio: 0.40           # Summarize more context
+    preserve_recent_messages: 20  # Keep more recent messages
+  
+  notes:
+    file: "artifacts/research-notes.md"
+    include_last: 20              # Inject last 20 notes into context
+    format: "markdown"
+  
+  retrieval:
+    jit_tools:                    # Enable all JIT tools
+      - grep
+      - search
+      - head
+      - tail
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant conducting comprehensive analysis.
+      
+      Your workflow:
+      1. Use the 'search' tool to find relevant content in files
+      2. Use the 'grep' tool to extract specific patterns
+      3. Use the 'head'/'tail' tools to preview files
+      4. Document key findings using the 'notes' tool
+      5. Synthesize information for the final report
+      
+      Always document important findings so they're available in future steps.
+      The notes file will be automatically included in your context.
+      
+      Available JIT tools (auto-injected):
+      - grep: Search files with regex patterns and context
+      - search: Simple keyword search with highlighting
+      - head: Read first N lines of a file
+      - tail: Read last N lines of a file
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: |
+          Step 1: Initial Discovery
+          
+          Search for Python files containing 'context' or 'compaction' patterns.
+          Document what you find in the notes file.
+          
+          Topic: {{ topic }}
+
+      - agent: researcher
+        input: |
+          Step 2: Deep Dive
+          
+          Based on your previous findings (check the notes!), use grep to find
+          specific implementation details. Look for function definitions and
+          class structures.
+
+      - agent: researcher
+        input: |
+          Step 3: Configuration Analysis
+          
+          Examine configuration files and schemas. Use head/tail to preview
+          large files without loading them entirely.
+
+      - agent: researcher
+        input: |
+          Step 4: Pattern Recognition
+          
+          Review all your notes from previous steps. Identify common patterns,
+          design decisions, and implementation strategies.
+
+      - agent: researcher
+        input: |
+          Step 5: Documentation Review
+          
+          Search documentation files for relevant information. Cross-reference
+          with your implementation findings from earlier steps.
+
+      - agent: researcher
+        input: |
+          Step 6: Final Synthesis
+          
+          Compile all your findings into a comprehensive report. Your notes
+          from all previous steps are in your context (last 20 entries).
+          
+          Create a structured analysis with:
+          - Key findings
+          - Design patterns identified
+          - Implementation details
+          - Recommendations
+
+inputs:
+  values:
+    topic: "context management patterns"
+
+outputs:
+  artifacts:
+    - path: "./research-report.md"
+      from: "{{ last_response }}"

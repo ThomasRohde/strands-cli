@@ -335,3 +335,157 @@ class TestSchemaValidation:
         error = exc_info.value
         error_text = str(error)
         assert "minitems" in error_text.lower() or "steps" in error_text.lower()
+
+    def test_context_policy_compaction_all_fields(
+        self, sample_spec_with_compaction_dict: dict
+    ) -> None:
+        """Test that compaction with all fields passes validation."""
+        # Should not raise
+        validate_spec(sample_spec_with_compaction_dict)
+
+    def test_context_policy_notes_all_fields(
+        self, sample_spec_with_notes_dict: dict
+    ) -> None:
+        """Test that notes with all fields passes validation."""
+        # Should not raise
+        validate_spec(sample_spec_with_notes_dict)
+
+    def test_context_policy_full_config(
+        self, sample_spec_with_full_context_policy_dict: dict
+    ) -> None:
+        """Test that full context policy configuration passes validation."""
+        # Should not raise
+        validate_spec(sample_spec_with_full_context_policy_dict)
+
+    def test_compaction_summary_ratio_range(self) -> None:
+        """Test that summary_ratio must be between 0.0 and 1.0."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama", "model_id": "gpt", "host": "http://localhost:11434"},
+            "context_policy": {
+                "compaction": {
+                    "enabled": True,
+                    "summary_ratio": 1.5,  # Invalid: > 1.0
+                }
+            },
+            "agents": {"test": {"prompt": "Hello"}},
+            "pattern": {"type": "chain", "config": {"steps": [{"agent": "test", "input": "Hi"}]}},
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            validate_spec(spec_data)
+
+        error_text = str(exc_info.value)
+        assert "summary_ratio" in error_text.lower() or "maximum" in error_text.lower()
+
+    def test_compaction_when_tokens_over_minimum(self) -> None:
+        """Test that when_tokens_over must be at least 1000."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama", "model_id": "gpt", "host": "http://localhost:11434"},
+            "context_policy": {
+                "compaction": {
+                    "enabled": True,
+                    "when_tokens_over": 500,  # Invalid: < 1000
+                }
+            },
+            "agents": {"test": {"prompt": "Hello"}},
+            "pattern": {"type": "chain", "config": {"steps": [{"agent": "test", "input": "Hi"}]}},
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            validate_spec(spec_data)
+
+        error_text = str(exc_info.value)
+        assert "when_tokens_over" in error_text.lower() or "minimum" in error_text.lower()
+
+    def test_compaction_preserve_recent_messages_minimum(self) -> None:
+        """Test that preserve_recent_messages must be at least 1."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama", "model_id": "gpt", "host": "http://localhost:11434"},
+            "context_policy": {
+                "compaction": {
+                    "enabled": True,
+                    "preserve_recent_messages": 0,  # Invalid: < 1
+                }
+            },
+            "agents": {"test": {"prompt": "Hello"}},
+            "pattern": {"type": "chain", "config": {"steps": [{"agent": "test", "input": "Hi"}]}},
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            validate_spec(spec_data)
+
+        error_text = str(exc_info.value)
+        assert "preserve_recent_messages" in error_text.lower() or "minimum" in error_text.lower()
+
+    def test_notes_include_last_minimum(self) -> None:
+        """Test that include_last must be at least 1."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama", "model_id": "gpt", "host": "http://localhost:11434"},
+            "context_policy": {
+                "notes": {
+                    "file": "artifacts/notes.md",
+                    "include_last": 0,  # Invalid: < 1
+                }
+            },
+            "agents": {"test": {"prompt": "Hello"}},
+            "pattern": {"type": "chain", "config": {"steps": [{"agent": "test", "input": "Hi"}]}},
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            validate_spec(spec_data)
+
+        error_text = str(exc_info.value)
+        assert "include_last" in error_text.lower() or "minimum" in error_text.lower()
+
+    def test_notes_format_enum(self) -> None:
+        """Test that notes format must be 'markdown' or 'json'."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama", "model_id": "gpt", "host": "http://localhost:11434"},
+            "context_policy": {
+                "notes": {
+                    "file": "artifacts/notes.md",
+                    "format": "xml",  # Invalid: not in enum
+                }
+            },
+            "agents": {"test": {"prompt": "Hello"}},
+            "pattern": {"type": "chain", "config": {"steps": [{"agent": "test", "input": "Hi"}]}},
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            validate_spec(spec_data)
+
+        error_text = str(exc_info.value)
+        assert "format" in error_text.lower() or "enum" in error_text.lower()
+
+    def test_notes_file_required(self) -> None:
+        """Test that notes.file is required when notes config is present."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama", "model_id": "gpt", "host": "http://localhost:11434"},
+            "context_policy": {
+                "notes": {
+                    # Missing "file" field - should fail
+                    "include_last": 10,
+                }
+            },
+            "agents": {"test": {"prompt": "Hello"}},
+            "pattern": {"type": "chain", "config": {"steps": [{"agent": "test", "input": "Hi"}]}},
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            validate_spec(spec_data)
+
+        error_text = str(exc_info.value)
+        assert "file" in error_text.lower() or "required" in error_text.lower()
+

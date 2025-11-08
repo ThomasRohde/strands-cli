@@ -278,6 +278,49 @@ def test_with_mocking(mocker: Any, mock_strands_agent: Mock) -> None:
 4. **Test one thing**: Each test should verify one behavior
 5. **Arrange-Act-Assert**: Structure tests clearly
 
+### Schema/Pydantic Drift Prevention
+
+**Critical**: When adding or modifying configuration fields, ensure defaults are synchronized:
+
+1. **Update JSON Schema** (`src/strands_cli/schema/strands-workflow.schema.json`)
+   - Add `"default": value` to property definition
+   
+2. **Update Pydantic Model** (`src/strands_cli/types.py`)
+   - Add `Field(default=value)` to model field
+
+3. **Update Drift Test** (`tests/test_schema_pydantic_drift.py`)
+   - Add new model to `schema_to_model_map` if needed
+   - Run tests to verify: `uv run pytest tests/test_schema_pydantic_drift.py -v`
+
+**Example - Adding a new field:**
+
+```python
+# 1. Update JSON Schema
+{
+  "properties": {
+    "new_field": {
+      "type": "integer",
+      "default": 42,
+      "description": "New configuration field"
+    }
+  }
+}
+
+# 2. Update Pydantic Model
+class MyConfig(BaseModel):
+    new_field: int = Field(42, description="New configuration field")
+
+# 3. Verify drift test passes
+# The test automatically validates defaults match
+```
+
+**Why this matters**: Mismatched defaults between JSON Schema and Pydantic models can cause:
+- Silent configuration drift
+- Unexpected behavior when users omit fields
+- Validation failures when specs are loaded
+
+The drift tests in `test_schema_pydantic_drift.py` automatically catch these issues.
+
 ```python
 def test_load_spec_with_invalid_yaml_raises_load_error(
     malformed_spec: Path

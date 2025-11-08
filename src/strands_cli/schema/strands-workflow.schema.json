@@ -362,20 +362,48 @@
             },
             "when_tokens_over": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1000,
+              "description": "Trigger compaction before reaching this token threshold (minimum 1000)"
+            },
+            "summary_ratio": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "default": 0.35,
+              "description": "Proportion of older messages to summarize (0.0-1.0)"
+            },
+            "preserve_recent_messages": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 12,
+              "description": "Number of recent messages to keep intact during compaction"
+            },
+            "summarization_model": {
+              "type": "string",
+              "description": "Optional cheaper model for summarization (e.g., 'gpt-4o-mini')"
             }
           }
         },
         "notes": {
           "type": "object",
           "additionalProperties": false,
+          "required": ["file"],
           "properties": {
             "file": {
-              "type": "string"
+              "type": "string",
+              "description": "Path to notes file (e.g., 'artifacts/notes.md')"
             },
             "include_last": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 1,
+              "default": 12,
+              "description": "Number of recent notes to inject into agent context"
+            },
+            "format": {
+              "type": "string",
+              "enum": ["markdown", "json"],
+              "default": "markdown",
+              "description": "Output format for notes"
             }
           }
         },

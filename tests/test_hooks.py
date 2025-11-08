@@ -126,6 +126,139 @@ async def test_proactive_compaction_hook_handles_missing_usage(tmp_path: Any) ->
 
 
 @pytest.mark.asyncio
+async def test_proactive_compaction_hook_uses_token_counter_fallback(tmp_path: Any) -> None:
+    """Test ProactiveCompactionHook falls back to TokenCounter when provider metrics missing."""
+    threshold = 1000
+    model_id = "anthropic.claude-3-sonnet-20240229-v1:0"
+    hook = ProactiveCompactionHook(threshold_tokens=threshold, model_id=model_id)
+
+    # Create mock agent without accumulated_usage (triggers fallback)
+    mock_agent = Mock()
+    mock_agent.name = "test-agent"
+    mock_agent.conversation_manager = Mock()
+    mock_agent.conversation_manager.apply_management = Mock()
+    mock_agent.accumulated_usage = None  # No provider metrics
+
+    # Create messages that would exceed threshold when counted
+    # Each message has ~4 token overhead + content
+    # "Hello world" ≈ 2-3 tokens, so ~200 messages should exceed 1000 tokens
+    mock_agent.messages = [
+        {"role": "user", "content": "Hello world " * 50} for _ in range(20)
+    ]
+
+    # Create mock event
+    from strands.hooks import AfterInvocationEvent
+
+    mock_event = Mock(spec=AfterInvocationEvent)
+    mock_event.agent = mock_agent
+
+    # Trigger hook callback
+    hook._check_and_compact(mock_event)
+
+    # Verify compaction was triggered via TokenCounter fallback
+    mock_agent.conversation_manager.apply_management.assert_called_once()
+    assert hook.compacted is True
+
+
+@pytest.mark.asyncio
+async def test_proactive_compaction_hook_token_counter_below_threshold(tmp_path: Any) -> None:
+    """Test TokenCounter fallback does not trigger when below threshold."""
+    threshold = 10000  # High threshold
+    model_id = "gpt-4o-mini"
+    hook = ProactiveCompactionHook(threshold_tokens=threshold, model_id=model_id)
+
+    # Create mock agent with minimal messages
+    mock_agent = Mock()
+    mock_agent.name = "test-agent"
+    mock_agent.conversation_manager = Mock()
+    mock_agent.conversation_manager.apply_management = Mock()
+    mock_agent.accumulated_usage = {"totalTokens": 0}  # Stale metrics
+    mock_agent.messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there"},
+    ]
+
+    # Create mock event
+    from strands.hooks import AfterInvocationEvent
+
+    mock_event = Mock(spec=AfterInvocationEvent)
+    mock_event.agent = mock_agent
+
+    # Trigger hook callback
+    hook._check_and_compact(mock_event)
+
+    # Verify compaction was NOT triggered
+    mock_agent.conversation_manager.apply_management.assert_not_called()
+    assert hook.compacted is False
+
+
+@pytest.mark.asyncio
+async def test_proactive_compaction_hook_prefers_provider_metrics(tmp_path: Any) -> None:
+    """Test ProactiveCompactionHook prefers provider metrics over TokenCounter."""
+    threshold = 1000
+    model_id = "anthropic.claude-3-sonnet-20240229-v1:0"
+    hook = ProactiveCompactionHook(threshold_tokens=threshold, model_id=model_id)
+
+    # Create mock agent with both provider metrics and messages
+    mock_agent = Mock()
+    mock_agent.name = "test-agent"
+    mock_agent.conversation_manager = Mock()
+    mock_agent.conversation_manager.apply_management = Mock()
+
+    # Provider metrics show below threshold
+    mock_agent.accumulated_usage = {"totalTokens": 500}
+
+    # Messages would show above threshold if counted (but should not be used)
+    mock_agent.messages = [
+        {"role": "user", "content": "Hello world " * 50} for _ in range(20)
+    ]
+
+    # Create mock event
+    from strands.hooks import AfterInvocationEvent
+
+    mock_event = Mock(spec=AfterInvocationEvent)
+    mock_event.agent = mock_agent
+
+    # Trigger hook callback
+    hook._check_and_compact(mock_event)
+
+    # Verify compaction was NOT triggered (using provider metrics, not TokenCounter)
+    mock_agent.conversation_manager.apply_management.assert_not_called()
+    assert hook.compacted is False
+
+
+@pytest.mark.asyncio
+async def test_proactive_compaction_hook_without_token_counter_or_metrics(tmp_path: Any) -> None:
+    """Test ProactiveCompactionHook skips when no TokenCounter and no provider metrics."""
+    threshold = 1000
+    # No model_id provided, so no TokenCounter created
+    hook = ProactiveCompactionHook(threshold_tokens=threshold, model_id=None)
+
+    # Create mock agent without accumulated_usage
+    mock_agent = Mock()
+    mock_agent.name = "test-agent"
+    mock_agent.conversation_manager = Mock()
+    mock_agent.conversation_manager.apply_management = Mock()
+    mock_agent.accumulated_usage = None
+    mock_agent.messages = [
+        {"role": "user", "content": "Hello world " * 50} for _ in range(20)
+    ]
+
+    # Create mock event
+    from strands.hooks import AfterInvocationEvent
+
+    mock_event = Mock(spec=AfterInvocationEvent)
+    mock_event.agent = mock_agent
+
+    # Trigger hook callback
+    hook._check_and_compact(mock_event)
+
+    # Verify no compaction triggered (no metrics and no counter)
+    mock_agent.conversation_manager.apply_management.assert_not_called()
+    assert hook.compacted is False
+
+
+@pytest.mark.asyncio
 async def test_notes_appender_hook_writes_note(tmp_path: Any) -> None:
     """Test NotesAppenderHook writes note after invocation."""
     notes_file = tmp_path / "test-notes.md"

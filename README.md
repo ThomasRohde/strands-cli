@@ -436,6 +436,51 @@ Environment variables (prefix: `STRANDS_`):
 - `STRANDS_VERBOSE`: Enable verbose logging
 - `STRANDS_CONFIG_DIR`: Config directory (uses `platformdirs` by default)
 
+### Context Management Presets
+
+Simplify context management configuration with predefined presets. Instead of manually configuring compaction, notes, and retrieval settings, use one of four presets optimized for common scenarios:
+
+**Available Presets:**
+
+- **`minimal`** - Compaction disabled (best for short workflows, 1-3 steps)
+- **`balanced`** - Standard settings (most workflows, 3-10 steps, 100K token threshold)
+- **`long_run`** - Optimized for research workflows (10+ steps, 80K threshold, notes + JIT tools enabled)
+- **`interactive`** - Chat-optimized (50K threshold, 16 recent messages preserved)
+
+**Example - Using presets in Python:**
+
+```python
+from strands_cli.presets import get_context_preset
+
+# Get a preset configuration
+policy = get_context_preset("long_run")
+
+# Apply to your spec
+spec.context_policy = policy
+```
+
+**Example - Manual configuration:**
+
+```yaml
+# Instead of manually configuring:
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 80000
+    summary_ratio: 0.40
+    preserve_recent_messages: 20
+  notes:
+    file: "artifacts/notes.md"
+    include_last: 20
+  retrieval:
+    jit_tools: ["grep", "search", "head", "tail"]
+
+# Simply reference the preset (future feature):
+context_preset: "long_run"
+```
+
+Presets merge with existing configuration - your custom values take precedence. See `src/strands_cli/presets.py` for implementation details.
+
 ## Supported Workflow Features
 
 | Feature | Support | Notes |

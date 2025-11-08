@@ -422,6 +422,128 @@ def sample_openai_spec(sample_openai_spec_dict: dict[str, Any]) -> Any:
     return Spec.model_validate(sample_openai_spec_dict)
 
 
+@pytest.fixture
+def sample_spec_with_compaction_dict() -> dict[str, Any]:
+    """Return a spec with compaction configuration as a dictionary."""
+    return {
+        "version": 0,
+        "name": "compaction-test",
+        "runtime": {
+            "provider": "ollama",
+            "model_id": "gpt-oss",
+            "host": "http://localhost:11434",
+        },
+        "context_policy": {
+            "compaction": {
+                "enabled": True,
+                "when_tokens_over": 5000,
+                "summary_ratio": 0.4,
+                "preserve_recent_messages": 10,
+                "summarization_model": "gpt-4o-mini",
+            }
+        },
+        "agents": {
+            "test_agent": {
+                "prompt": "You are a test agent.",
+            }
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    {
+                        "agent": "test_agent",
+                        "input": "Test input",
+                    }
+                ]
+            },
+        },
+    }
+
+
+@pytest.fixture
+def sample_spec_with_notes_dict() -> dict[str, Any]:
+    """Return a spec with notes configuration as a dictionary."""
+    return {
+        "version": 0,
+        "name": "notes-test",
+        "runtime": {
+            "provider": "ollama",
+            "model_id": "gpt-oss",
+            "host": "http://localhost:11434",
+        },
+        "context_policy": {
+            "notes": {
+                "file": "artifacts/test-notes.md",
+                "include_last": 8,
+                "format": "markdown",
+            }
+        },
+        "agents": {
+            "test_agent": {
+                "prompt": "You are a test agent.",
+            }
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    {
+                        "agent": "test_agent",
+                        "input": "Test input",
+                    }
+                ]
+            },
+        },
+    }
+
+
+@pytest.fixture
+def sample_spec_with_full_context_policy_dict() -> dict[str, Any]:
+    """Return a spec with complete context policy as a dictionary."""
+    return {
+        "version": 0,
+        "name": "full-context-policy-test",
+        "runtime": {
+            "provider": "ollama",
+            "model_id": "gpt-oss",
+            "host": "http://localhost:11434",
+        },
+        "context_policy": {
+            "compaction": {
+                "enabled": True,
+                "when_tokens_over": 4000,
+                "summary_ratio": 0.35,
+                "preserve_recent_messages": 12,
+            },
+            "notes": {
+                "file": "artifacts/workflow-notes.md",
+                "include_last": 12,
+                "format": "markdown",
+            },
+            "retrieval": {
+                "jit_tools": ["grep", "head", "tail", "search"],
+            },
+        },
+        "agents": {
+            "test_agent": {
+                "prompt": "You are a test agent.",
+            }
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    {
+                        "agent": "test_agent",
+                        "input": "Test input",
+                    }
+                ]
+            },
+        },
+    }
+
+
 # ============================================================================
 # Environment Variables
 # ============================================================================

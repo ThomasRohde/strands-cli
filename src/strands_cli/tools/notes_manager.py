@@ -144,6 +144,9 @@ class NotesManager:
         """Read the last N note entries for injection into agent context.
 
         This is the primary method for retrieving notes to inject into agent prompts.
+        Uses efficient streaming read from end of file to handle large notes files
+        without loading entire file into memory.
+
         Alias: read_last_n() is maintained for backwards compatibility.
 
         Args:
@@ -160,33 +163,18 @@ class NotesManager:
             return ""
 
         try:
-            with open(self.file_path, encoding="utf-8") as f:
-                content = f.read()
+            # For small N, use efficient streaming read from end of file
+            # For large N or small files, fall back to full read
+            file_size = self.file_path.stat().st_size
 
-            # Split on ## headers (note entries)
-            entries = [
-                entry.strip()
-                for entry in content.split("##")
-                if entry.strip()
-            ]
+            # If file is small (<100KB) or N is large, just read entire file
+            if file_size < 100_000 or n > 50:
+                with open(self.file_path, encoding="utf-8") as f:
+                    content = f.read()
+                return self._extract_last_n_entries(content, n)
 
-            if not entries:
-                return ""
-
-            # Get last N entries
-            selected_entries = entries[-n:] if len(entries) > n else entries
-
-            # Reconstruct with ## prefixes
-            result = "\n\n".join(f"## {entry}" for entry in selected_entries)
-
-            logger.debug(
-                "read_last_n_notes",
-                requested=n,
-                found=len(entries),
-                returned=len(selected_entries),
-            )
-
-            return result
+            # For larger files with small N, read from end efficiently
+            return self._stream_last_n_entries(n)
 
         except Exception as e:
             logger.error(
@@ -195,6 +183,120 @@ class NotesManager:
                 file=str(self.file_path),
             )
             raise NotesManagerError(f"Failed to read notes: {e}") from e
+
+    def _extract_last_n_entries(self, content: str, n: int) -> str:
+        """Extract last N entries from content string.
+
+        Args:
+            content: Full file content
+            n: Number of entries to extract
+
+        Returns:
+            Formatted string with last N entries
+        """
+        # Handle n=0 case
+        if n <= 0:
+            return ""
+
+        # Split on ## headers (note entries)
+        entries = [
+            entry.strip()
+            for entry in content.split("##")
+            if entry.strip()
+        ]
+
+        if not entries:
+            return ""
+
+        # Get last N entries
+        selected_entries = entries[-n:] if len(entries) > n else entries
+
+        # Reconstruct with ## prefixes
+        result = "\n\n".join(f"## {entry}" for entry in selected_entries)
+
+        logger.debug(
+            "read_last_n_notes",
+            requested=n,
+            found=len(entries),
+            returned=len(selected_entries),
+        )
+
+        return result
+
+    def _stream_last_n_entries(self, n: int) -> str:
+        """Stream last N entries from file without loading entire file.
+
+        Reads file in chunks from the end, accumulating entries until we have
+        enough. This is memory-efficient for large files.
+
+        Args:
+            n: Number of entries to read
+
+        Returns:
+            Formatted string with last N entries
+        """
+        # Handle n=0 case
+        if n <= 0:
+            return ""
+
+        chunk_size = 8192  # 8KB chunks
+        entries: list[str] = []
+        partial_entry = ""
+
+        with open(self.file_path, "rb") as f:
+            # Get file size and start from end
+            f.seek(0, 2)  # Seek to end
+            file_size = f.tell()
+
+            # Read chunks from end until we have N entries
+            offset = 0
+            while offset < file_size and len(entries) < n:
+                # Calculate chunk position (read backwards)
+                chunk_start = max(0, file_size - offset - chunk_size)
+                chunk_end = file_size - offset
+
+                # Read chunk
+                f.seek(chunk_start)
+                chunk_bytes = f.read(chunk_end - chunk_start)
+                chunk_text = chunk_bytes.decode("utf-8", errors="replace")
+
+                # Prepend to partial entry (we're reading backwards)
+                chunk_text = chunk_text + partial_entry
+
+                # Split on ## headers
+                parts = chunk_text.split("##")
+
+                # Last part might be incomplete (unless we're at start of file)
+                if chunk_start > 0:
+                    partial_entry = parts[0] if parts else ""
+                    chunk_entries = parts[1:]
+                else:
+                    # At start of file, all parts are complete
+                    partial_entry = ""
+                    chunk_entries = parts
+
+                # Filter empty entries and add to list (reverse because we're reading backwards)
+                for entry in reversed([e.strip() for e in chunk_entries if e.strip()]):
+                    entries.insert(0, entry)
+                    if len(entries) >= n:
+                        break
+
+                offset += chunk_size
+
+        # Take last N entries (we might have collected more)
+        selected_entries = entries[-n:] if len(entries) > n else entries
+
+        # Reconstruct with ## prefixes
+        result = "\n\n".join(f"## {entry}" for entry in selected_entries)
+
+        logger.debug(
+            "streamed_last_n_notes",
+            requested=n,
+            returned=len(selected_entries),
+            file_size=file_size,
+        )
+
+        return result
 
     def _format_entry(
         self,

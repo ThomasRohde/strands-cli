@@ -488,6 +488,30 @@ class Compaction(BaseModel):
     preserve_recent_messages: int = Field(12, ge=1)  # At least 1 message
     summarization_model: str | None = None  # Optional cheaper model
 
+    @field_validator("summary_ratio")
+    @classmethod
+    def validate_summary_ratio(cls, v: float) -> float:
+        """Validate summary_ratio is between 0.0 and 1.0."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"summary_ratio must be between 0.0 and 1.0, got {v}")
+        return v
+
+    @field_validator("preserve_recent_messages")
+    @classmethod
+    def validate_preserve_recent_messages(cls, v: int) -> int:
+        """Validate preserve_recent_messages is at least 1."""
+        if v < 1:
+            raise ValueError(f"preserve_recent_messages must be at least 1, got {v}")
+        return v
+
+    @field_validator("when_tokens_over")
+    @classmethod
+    def validate_when_tokens_over(cls, v: int | None) -> int | None:
+        """Validate when_tokens_over is at least 1000 if set."""
+        if v is not None and v < 1000:
+            raise ValueError(f"when_tokens_over must be at least 1000, got {v}")
+        return v
+
 
 class Notes(BaseModel):
     """Structured notes configuration.
@@ -504,6 +528,25 @@ class Notes(BaseModel):
     file: str  # Path to notes file
     include_last: int = Field(12, ge=1)  # At least 1 note
     format: str = "markdown"  # Future: support JSON
+
+    @field_validator("include_last")
+    @classmethod
+    def validate_include_last(cls, v: int) -> int:
+        """Validate include_last is at least 1."""
+        if v < 1:
+            raise ValueError(f"include_last must be at least 1, got {v}")
+        return v
+
+    @field_validator("format")
+    @classmethod
+    def validate_format(cls, v: str) -> str:
+        """Validate format is supported."""
+        supported_formats = {"markdown", "json"}
+        if v not in supported_formats:
+            raise ValueError(
+                f"format must be one of {supported_formats}, got '{v}'"
+            )
+        return v
 
 
 class Retrieval(BaseModel):
@@ -562,6 +605,27 @@ class ContextPolicy(BaseModel):
     compaction: Compaction | None = None
     notes: Notes | None = None
     retrieval: Retrieval | None = None
+
+
+class ContextNote(BaseModel):
+    """Structured context note for cross-step continuity.
+
+    Captures key information during workflow execution that should be
+    persisted and made available to subsequent steps or future workflow runs.
+
+    Attributes:
+        timestamp: ISO 8601 timestamp when note was created
+        step_id: Step/task/branch identifier (e.g., "step_0", "task_analyze", "branch_research")
+        agent_id: Agent that created the note
+        content: Note content (markdown or plain text)
+        metadata: Optional metadata (tags, importance, etc.)
+    """
+
+    timestamp: str  # ISO 8601 timestamp
+    step_id: str  # Step/task/branch identifier
+    agent_id: str  # Agent ID
+    content: str  # Note content
+    metadata: dict[str, Any] | None = None  # Optional metadata
 
 
 class Environment(BaseModel):

@@ -182,6 +182,8 @@ def grep(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
             }
 
         # Read file and search
+        # NOTE: Currently loads entire file into memory. For very large files (>100MB),
+        # consider streaming implementation. See docs/STREAMING_DESIGN.md for design.
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()

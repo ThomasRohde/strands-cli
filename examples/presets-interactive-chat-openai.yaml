@@ -1,0 +1,74 @@
+version: 0
+name: preset-interactive-chat
+description: |
+  Demonstrates the 'interactive' context preset for chat-like workflows.
+  
+  This preset is optimized for:
+  - Conversational agents
+  - User-facing chat interfaces
+  - Frequent back-and-forth exchanges
+  
+  The interactive preset automatically configures:
+  - Compaction at 50K tokens (earlier for responsive chat)
+  - 30% summary ratio (less aggressive)
+  - 16 recent messages preserved (more context)
+  - Notes and retrieval NOT configured (history is primary context)
+
+tags:
+  - preset-example
+  - interactive
+  - chat
+  - conversational
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+# Context preset: interactive
+# Optimized for chat-like interactions
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 50000      # Trigger earlier for responsive chat
+    summary_ratio: 0.30           # Less aggressive summarization
+    preserve_recent_messages: 16  # Keep more recent exchanges
+
+agents:
+  assistant:
+    prompt: |
+      You are a helpful, conversational AI assistant.
+      
+      Your communication style:
+      - Friendly and approachable
+      - Clear and concise responses
+      - Remember context from previous exchanges
+      - Ask clarifying questions when needed
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: assistant
+        input: |
+          User Query: {{ query }}
+          
+          Respond naturally and helpfully.
+
+      - agent: assistant
+        input: |
+          Follow-up: Based on your previous response, can you elaborate on
+          the key points and provide specific examples?
+
+      - agent: assistant
+        input: |
+          Clarification: Are there any edge cases or special considerations
+          the user should be aware of?
+
+inputs:
+  values:
+    query: "What are the key benefits of AI?"
+
+outputs:
+  artifacts:
+    - path: "./chat-response.md"
+      from: "{{ last_response }}"

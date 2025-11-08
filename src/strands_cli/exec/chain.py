@@ -211,7 +211,10 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 hooks_for_agent = []
                 if compaction_threshold is not None:
                     hooks_for_agent.append(
-                        ProactiveCompactionHook(threshold_tokens=compaction_threshold)
+                        ProactiveCompactionHook(
+                            threshold_tokens=compaction_threshold,
+                            model_id=spec.runtime.model_id
+                        )
                     )
                 hooks_for_agent.extend(shared_hooks)
 

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 2 Remediation (Hardening & UX Polish)
+
+#### Schema Drift Prevention
+- **Automated schema/Pydantic drift tests** - Prevents configuration inconsistencies
+  - New test suite in `tests/test_schema_pydantic_drift.py`
+  - Validates default values match between JSON Schema and Pydantic models
+  - Covers: Compaction, Notes, Retrieval, RouterConfig, AcceptConfig
+  - Integration tests verify defaults are applied during spec loading
+  - Prevents silent configuration drift that could cause unexpected behavior
+
+#### Configuration Presets
+- **Context management presets** - Simplifies workflow configuration
+  - New module: `src/strands_cli/presets.py`
+  - Four predefined presets: `minimal`, `balanced`, `long_run`, `interactive`
+  - `minimal` - Compaction disabled (short workflows, 1-3 steps)
+  - `balanced` - Standard settings (most workflows, 3-10 steps, 100K token threshold)
+  - `long_run` - Optimized for research (10+ steps, 80K threshold, notes + JIT tools)
+  - `interactive` - Chat-optimized (50K threshold, 16 recent messages)
+  - Helper functions: `get_context_preset()`, `apply_preset_to_spec()`, `describe_presets()`
+  - Presets merge with existing config (user values take precedence)
+
+#### Documentation Enhancements
+- **Streaming design document** - Future-proofs JIT tools
+  - New doc: `docs/STREAMING_DESIGN.md`
+  - Details streaming implementation strategy for large file support (>100MB)
+  - Documents current limitations (loads entire file into memory)
+  - Provides implementation plan for future phases
+  - Added TODO comments in `grep.py` and `search.py`
+
 ### Added - Python Tool Expansion
 
 #### New Python Tools
