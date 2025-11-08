@@ -138,6 +138,23 @@ class NotesManager:
         Raises:
             NotesManagerError: If file read fails
         """
+        return self.get_last_n_for_injection(n)
+
+    def get_last_n_for_injection(self, n: int) -> str:
+        """Read the last N note entries for injection into agent context.
+
+        This is the primary method for retrieving notes to inject into agent prompts.
+        Alias: read_last_n() is maintained for backwards compatibility.
+
+        Args:
+            n: Number of recent entries to read
+
+        Returns:
+            Markdown string containing last N entries, or empty string if file doesn't exist
+
+        Raises:
+            NotesManagerError: If file read fails
+        """
         if not self.file_path.exists():
             logger.debug("notes_file_not_found", file=str(self.file_path))
             return ""

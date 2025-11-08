@@ -8,6 +8,114 @@ and binary file detection.
 import pytest
 
 
+class TestTailToolLineNumbers:
+    """Tests for jit_tail.py actual line numbering (Phase 6 fix)."""
+
+    def test_tail_shows_actual_line_numbers(self, tmp_path):
+        """Should show actual line numbers from file, not relative."""
+        from strands_cli.tools.jit_tail import tail
+
+        # Create file with 100 lines
+        test_file = tmp_path / "large.txt"
+        lines = [f"Line {i}" for i in range(1, 101)]
+        test_file.write_text("\n".join(lines))
+
+        tool = {
+            "toolUseId": "test-123",
+            "input": {"path": str(test_file), "lines": 5},
+        }
+
+        result = tail(tool)
+
+        assert result["status"] == "success"
+        content = result["content"][0]["text"]
+
+        # Should show lines 96-100 with actual line numbers
+        assert "  96 | Line 96" in content or "96 | Line 96" in content
+        assert "100 | Line 100" in content
+
+    def test_tail_with_truncation_shows_correct_line_numbers(self, tmp_path):
+        """Should show actual line numbers even with byte limit truncation."""
+        from strands_cli.tools.jit_tail import tail
+
+        # Create file with many lines
+        test_file = tmp_path / "large.txt"
+        lines = [f"Line {i}" for i in range(1, 1001)]
+        test_file.write_text("\n".join(lines))
+
+        tool = {
+            "toolUseId": "test-123",
+            "input": {
+                "path": str(test_file),
+                "lines": 10,
+                "bytes_limit": 500,  # Small limit to trigger truncation
+            },
+        }
+
+        result = tail(tool)
+
+        assert result["status"] == "success"
+        content = result["content"][0]["text"]
+
+        # Verify truncation notice
+        assert "truncated" in content.lower()
+
+        # Line numbers should still reflect actual positions
+        # (not relative 1, 2, 3...)
+        assert not ("   1 | Line 1" in content or "1 | Line 1" in content)
+
+    def test_tail_empty_file(self, tmp_path):
+        """Should handle empty file gracefully."""
+        from strands_cli.tools.jit_tail import tail
+
+        test_file = tmp_path / "empty.txt"
+        test_file.write_text("")
+
+        tool = {
+            "toolUseId": "test-123",
+            "input": {"path": str(test_file), "lines": 10},
+        }
+
+        result = tail(tool)
+
+        assert result["status"] == "success"
+        assert "empty" in result["content"][0]["text"].lower()
+
+    def test_tail_invalid_lines_count(self, tmp_path):
+        """Should reject invalid lines count."""
+        from strands_cli.tools.jit_tail import tail
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("line1\nline2\n")
+
+        tool = {
+            "toolUseId": "test-123",
+            "input": {"path": str(test_file), "lines": 0},  # Invalid
+        }
+
+        result = tail(tool)
+
+        assert result["status"] == "error"
+        assert "at least 1" in result["content"][0]["text"]
+
+    def test_tail_binary_file_detection(self, tmp_path):
+        """Should detect and reject binary files."""
+        from strands_cli.tools.jit_tail import tail
+
+        test_file = tmp_path / "binary.bin"
+        test_file.write_bytes(b"\x00\x01\x02\xFF binary data")
+
+        tool = {
+            "toolUseId": "test-123",
+            "input": {"path": str(test_file), "lines": 10},
+        }
+
+        result = tail(tool)
+
+        assert result["status"] == "error"
+        assert "binary" in result["content"][0]["text"].lower()
+
+
 class TestGrepTool:
     """Tests for jit_grep.py tool."""
 

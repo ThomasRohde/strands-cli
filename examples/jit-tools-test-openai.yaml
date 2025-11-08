@@ -34,5 +34,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/jit-test-result.txt"
+    - path: "./jit-test-result.txt"
       from: "{{ last_response }}"

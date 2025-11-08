@@ -99,5 +99,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/log-analysis-report-openai.txt"
+    - path: "./log-analysis-report-openai.txt"
       from: "{{ last_response }}"

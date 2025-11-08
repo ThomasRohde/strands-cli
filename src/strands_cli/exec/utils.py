@@ -238,8 +238,9 @@ class AgentCache:
 
     def __init__(self) -> None:
         """Initialize empty agent cache."""
-        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type) -> Agent instance
-        self._agents: dict[tuple[str, frozenset[str], str | None], Agent] = {}
+        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, notes_hash) -> Agent instance
+        # Notes hash allows caching agents with identical notes content
+        self._agents: dict[tuple[str, frozenset[str], str | None, str | None], Agent] = {}
 
         # Track HTTP executor tool modules separately for cleanup
         # Key: executor ID -> Module with _http_client
@@ -288,8 +289,13 @@ class AgentCache:
         # Include conversation manager type in cache key to prevent collisions
         cm_type = type(conversation_manager).__name__ if conversation_manager else None
 
-        # Create cache key
-        cache_key = (agent_id, tools_key, cm_type)
+        # Hash notes content for cache key (agents with same notes can be cached)
+        # This improves performance by avoiding rebuilds when notes content is identical
+        import hashlib
+        notes_hash = hashlib.md5(injected_notes.encode()).hexdigest() if injected_notes else None
+
+        # Create cache key including notes hash
+        cache_key = (agent_id, tools_key, cm_type, notes_hash)
 
         # Check cache
         if cache_key in self._agents:
@@ -298,6 +304,7 @@ class AgentCache:
                 agent_id=agent_id,
                 tools=sorted(tools_key) if tools_key else None,
                 conversation_manager=cm_type,
+                notes_hash=notes_hash[:8] if notes_hash else None,
             )
             return self._agents[cache_key]
 
@@ -307,6 +314,7 @@ class AgentCache:
             agent_id=agent_id,
             tools=sorted(tools_key) if tools_key else None,
             conversation_manager=cm_type,
+            notes_hash=notes_hash[:8] if notes_hash else None,
         )
 
         agent = build_agent(

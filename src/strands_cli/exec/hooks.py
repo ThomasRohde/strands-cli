@@ -25,9 +25,13 @@ class ProactiveCompactionHook(HookProvider):
     and triggers compaction when approaching the configured threshold. This prevents
     reactive overflow handling and enables controlled context reduction.
 
+    **Single-Fire Behavior**: Compaction triggers only once per hook instance to avoid
+    repeated compaction cycles within the same workflow. For multi-session workflows
+    or workflows requiring multiple compactions, create a new hook instance.
+
     Attributes:
         threshold_tokens: Token count at which to trigger compaction
-        compacted: Flag tracking whether compaction has been triggered
+        compacted: Flag tracking whether compaction has been triggered (single-fire)
 
     Example:
         >>> hook = ProactiveCompactionHook(threshold_tokens=60000)
@@ -117,7 +121,8 @@ class ProactiveCompactionHook(HookProvider):
             )
 
             # Apply context compaction via conversation manager
-            agent.conversation_manager.apply_management(agent)
+            # Note: SDK type stub may show wrong signature, but this is correct per SDK docs
+            agent.conversation_manager.apply_management(agent.messages)  # type: ignore[arg-type]
 
             # Mark as compacted to avoid repeated triggers
             self.compacted = True
@@ -127,13 +132,16 @@ class ProactiveCompactionHook(HookProvider):
                 agent_name=agent.name if hasattr(agent, "name") else "unknown",
                 messages_after_compaction=len(agent.messages),
             )
-
-
 class NotesAppenderHook(HookProvider):
     """Append structured notes after each agent invocation.
 
     Captures execution history (input, tools used, outcome) and persists to a
     Markdown notes file for cross-step continuity and multi-session workflows.
+
+    **Error Handling Policy**: Note write failures are logged but do not raise exceptions.
+    This ensures workflow execution continues even if notes persistence fails (e.g., due to
+    file permissions). Notes are considered auxiliary/observability features, not critical
+    to workflow success.
 
     Attributes:
         notes_manager: NotesManager instance for file operations

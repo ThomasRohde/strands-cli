@@ -46,5 +46,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/codebase-analysis-openai.txt"
+    - path: "./codebase-analysis-openai.txt"
       from: "{{ last_response }}"

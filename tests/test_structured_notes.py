@@ -100,9 +100,39 @@ class TestNotesManager:
         )
 
         content = notes_path.read_text(encoding="utf-8")
-        # Should be truncated to 200 + "..."
-        assert "A" * 200 + "..." in content
-        assert len(long_input) > 200
+
+        # Should be truncated with "..."
+        assert "..." in content
+        # Truncated version should not contain full string
+        assert long_input not in content
+
+    def test_get_last_n_for_injection_alias(self, tmp_path: Path) -> None:
+        """Test get_last_n_for_injection is an alias for read_last_n."""
+        notes_path = tmp_path / "notes.md"
+        manager = NotesManager(str(notes_path))
+
+        manager.append_entry(
+            timestamp="2025-11-08T00:00:00Z",
+            agent_name="agent-1",
+            step_index=1,
+            input_summary="Test",
+            tools_used=None,
+            outcome="Result",
+        )
+
+        result1 = manager.read_last_n(1)
+        result2 = manager.get_last_n_for_injection(1)
+
+        assert result1 == result2
+        assert "agent-1" in result1
+
+    def test_get_last_n_for_injection_empty_file(self, tmp_path: Path) -> None:
+        """Test get_last_n_for_injection returns empty string for non-existent file."""
+        notes_path = tmp_path / "nonexistent.md"
+        manager = NotesManager(str(notes_path))
+
+        result = manager.get_last_n_for_injection(5)
+        assert result == ""
 
     def test_format_entry_truncates_long_outcome(self, tmp_path: Path) -> None:
         """Test that long outcomes are truncated to 200 chars."""

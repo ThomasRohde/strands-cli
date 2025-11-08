@@ -57,5 +57,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/config-audit-report-openai.txt"
+    - path: "./config-audit-report-openai.txt"
       from: "{{ last_response }}"

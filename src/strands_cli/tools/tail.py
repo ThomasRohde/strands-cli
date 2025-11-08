@@ -107,15 +107,18 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                     "content": [{"text": f"Binary file detected (cannot read as text): {path}"}]
                 }
 
-        # Read last N lines efficiently using deque
+        # Read last N lines efficiently using deque with line tracking
         # Deque automatically limits size, keeping only last N items
-        last_lines: deque[str] = deque(maxlen=num_lines)
+        # Store tuples of (line_number, line_content)
+        last_lines: deque[tuple[int, str]] = deque(maxlen=num_lines)
         bytes_read = 0
         truncated = False
+        line_number = 0
 
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 for line in f:
+                    line_number += 1
                     line_bytes = len(line.encode("utf-8"))
 
                     # Check byte limit
@@ -123,7 +126,7 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                         truncated = True
                         break
 
-                    last_lines.append(line.rstrip())
+                    last_lines.append((line_number, line.rstrip()))
                     bytes_read += line_bytes
 
         except Exception as e:
@@ -140,17 +143,15 @@ def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
                 "content": [{"text": f"File is empty: {path}"}]
             }
 
-        # Build output with line numbers (relative to end)
+        # Build output with actual line numbers
         output_lines = [f"Last {len(last_lines)} line(s) from {path}:\n"]
 
         if truncated:
             output_lines.append(f"[Note: File truncated at {bytes_limit} bytes limit]\n")
 
-        # Calculate starting line number (approximate if truncated)
-        start_num = 1 if truncated else max(1, len(last_lines))
-
-        for i, line in enumerate(last_lines, start=start_num):
-            output_lines.append(f"{i:4d} | {line}")
+        # Use actual line numbers from file
+        for line_num, line_content in last_lines:
+            output_lines.append(f"{line_num:4d} | {line_content}")
 
         result_text = "\n".join(output_lines)
 

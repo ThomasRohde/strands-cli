@@ -32,7 +32,7 @@ from typing import Any
 
 import structlog
 
-from strands_cli.exec.hooks import ProactiveCompactionHook
+from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
     check_budget_threshold,
@@ -42,6 +42,7 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
 try:
@@ -162,6 +163,7 @@ async def _execute_task(
     cache: AgentCache,
     context_manager: Any = None,
     hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> tuple[str, int]:
     """Execute a single task asynchronously.
 
@@ -201,6 +203,14 @@ async def _execute_task(
         tools_for_task = (
             task.tool_overrides if hasattr(task, 'tool_overrides') and task.tool_overrides else None
         )
+
+        # Phase 6.2: Inject last N notes into agent context
+        injected_notes = None
+        if notes_manager and spec.context_policy and spec.context_policy.notes:
+            injected_notes = notes_manager.get_last_n_for_injection(
+                spec.context_policy.notes.include_last
+            )
+
         agent = await cache.get_or_build_agent(
             spec,
             task_agent_id,
@@ -208,6 +218,7 @@ async def _execute_task(
             tool_overrides=tools_for_task,
             conversation_manager=context_manager,
             hooks=hooks,
+            injected_notes=injected_notes,
         )
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e
@@ -278,6 +289,7 @@ async def _execute_workflow_layer(
     cache: AgentCache,
     context_manager: Any = None,
     hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> list[tuple[str, int]]:
     """Execute all tasks in a workflow layer (potentially in parallel).
 
@@ -329,6 +341,7 @@ async def _execute_workflow_layer(
                         cache,
                         context_manager,
                         hooks,
+                        notes_manager,
                     )
             else:
                 return await _execute_task(
@@ -341,9 +354,8 @@ async def _execute_workflow_layer(
                     cache,
                     context_manager,
                     hooks,
-                )
-
-        # Execute all tasks in layer (parallel where possible)
+                    notes_manager,
+                )        # Execute all tasks in layer (parallel where possible)
         results = await asyncio.gather(
             *[_execute_with_semaphore(tid, tobj, ctx) for tid, tobj, ctx in tasks_with_context],
             return_exceptions=False,  # Fail-fast on first error
@@ -411,6 +423,21 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
         hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
         logger.info("compaction_enabled", threshold_tokens=threshold)
 
+    # Phase 6.2: Initialize notes manager and hook for structured notes
+    notes_manager = None
+    task_counter = [0]  # Mutable container for hook to track task count
+    if spec.context_policy and spec.context_policy.notes:
+        notes_manager = NotesManager(spec.context_policy.notes.file)
+
+        # Build agent_id → tools mapping for notes hook
+        agent_tools: dict[str, list[str]] = {}
+        for agent_id, agent_config in spec.agents.items():
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+        hooks.append(NotesAppenderHook(notes_manager, task_counter, agent_tools))
+        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
     # Phase 5: Create AgentCache for agent reuse across tasks
     cache = AgentCache()
     try:
@@ -436,6 +463,7 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                     cache,
                     context_manager,
                     hooks,
+                    notes_manager,
                 )
             except Exception as e:
                 raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e

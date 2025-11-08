@@ -31,10 +31,11 @@ import structlog
 from pydantic import ValidationError
 
 from strands_cli.exec.chain import run_chain
-from strands_cli.exec.hooks import ProactiveCompactionHook
+from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import AgentCache
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RouterDecision, RunResult, Spec
 
 
@@ -130,6 +131,7 @@ async def _execute_router_with_retry(
     max_retries: int,
     context_manager: Any = None,
     hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> str:
     """Execute router agent with retry logic for malformed responses.
 
@@ -147,12 +149,21 @@ async def _execute_router_with_retry(
         RoutingExecutionError: If all retry attempts fail or route is invalid
     """
     router_agent_config = spec.agents[router_agent_id]
+
+    # Phase 6.2: Inject last N notes into agent context
+    injected_notes = None
+    if notes_manager and spec.context_policy and spec.context_policy.notes:
+        injected_notes = notes_manager.get_last_n_for_injection(
+            spec.context_policy.notes.include_last
+        )
+
     agent = await cache.get_or_build_agent(
         spec,
         router_agent_id,
         router_agent_config,
         conversation_manager=context_manager,
         hooks=hooks,
+        injected_notes=injected_notes,
     )
 
     # Construct router task with output format instructions
@@ -340,6 +351,21 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
         hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
         logger.info("compaction_enabled", threshold_tokens=threshold)
 
+    # Phase 6.2: Initialize notes manager and hook for structured notes
+    notes_manager = None
+    step_counter = [0]  # Mutable container for hook to track step count
+    if spec.context_policy and spec.context_policy.notes:
+        notes_manager = NotesManager(spec.context_policy.notes.file)
+
+        # Build agent_id → tools mapping for notes hook
+        agent_tools: dict[str, list[str]] = {}
+        for agent_id, agent_config in spec.agents.items():
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+        hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
     # Create AgentCache for this execution
     cache = AgentCache()
 
@@ -354,6 +380,7 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
                 max_retries,
                 context_manager,
                 hooks,
+                notes_manager,
             )
         except RoutingExecutionError:
             raise

@@ -189,7 +189,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Phase 6.2: Inject last N notes into agent context
             injected_notes = None
             if notes_manager and spec.context_policy and spec.context_policy.notes:
-                injected_notes = notes_manager.read_last_n(spec.context_policy.notes.include_last)
+                injected_notes = notes_manager.get_last_n_for_injection(spec.context_policy.notes.include_last)
                 if injected_notes:
                     logger.debug(
                         "notes_injected",
