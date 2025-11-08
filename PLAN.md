@@ -160,349 +160,41 @@ Implemented iterative refinement pattern with producer-evaluator feedback loops,
 
 ## Phase 5: Security & Guardrails (v0.6.0)
 
-**Goal:** Enterprise-grade security controls and policy enforcement
-
+**Status:** 📋 **PLANNED**  
 **Duration:** 3 weeks  
-**Complexity:** High  
-**Dependencies:** None (can run in parallel with pattern work)
+**Complexity:** High
 
-### Features
-
-#### 5.1 Guardrails Enforcement
-- Activate `security.guardrails` (currently parsed but not enforced)
-- **Network controls**:
-  - `deny_network: true` → block all HTTP tools and external API calls
-  - Tool allowlist: only execute tools in `security.guardrails.allow_tools`
-- **PII redaction**:
-  - `pii_redaction: true` → scan inputs/outputs for PII patterns
-  - Redact: emails, SSNs, credit cards, phone numbers, addresses
-  - Log redaction events for compliance audit
-
-#### 5.2 Secrets Management
-- Add `source: secrets_manager` (AWS Secrets Manager)
-- Add `source: ssm` (AWS Systems Manager Parameter Store)
-- Implement secret caching with TTL
-- Validate secret permissions at runtime
-- Never log or trace secret values
-
-#### 5.3 Tool Sandboxing
-- Extend Python tool allowlist configuration
-- Add tool permission levels (read-only, network, filesystem)
-- Validate tool inputs against schemas
-- Timeout enforcement per tool call
-- Resource limits (memory, CPU)
-
-#### 5.4 Audit Logging
-- Log all security-relevant events:
-  - Secret access
-  - Guardrail violations
-  - Tool executions
-  - Network requests
-  - PII redactions
-- Export audit logs to CloudWatch/S3
-- Structured JSON format for SIEM integration
-
-### Acceptance Criteria
-
-- [ ] `deny_network: true` blocks HTTP executor calls
-- [ ] Tool allowlist rejects non-allowlisted tools at runtime
-- [ ] PII redaction removes sensitive data from outputs
-- [ ] Secrets Manager/SSM secrets load correctly
-- [ ] Secret values never appear in logs or traces
-- [ ] Audit log contains all required security events
-- [ ] Coverage ≥85%
-- [ ] New tests: `test_security.py` (guardrails, redaction, secrets)
-
-### Implementation Checklist
-
-- [ ] **Use context7** to get boto3 Secrets Manager and SSM documentation
-- [ ] **Review schema** `security.guardrails` and `env.secrets` definitions
-- [ ] Use **ref.tools** to research PII detection patterns and OWASP guidelines
-- [ ] Implement guardrail enforcement in `runtime/tools.py`
-- [ ] Add PII detection patterns and redaction logic
-- [ ] Create `runtime/secrets.py` for ASM/SSM integration
-- [ ] Add audit logger in `telemetry/audit.py`
-- [ ] Update tool adapters with permission checks
-- [ ] Add security examples and documentation
-- [ ] Compliance guide for enterprise deployments
-- [ ] Security testing with malicious inputs
+Enterprise-grade security controls including guardrails enforcement (deny_network, tool allowlist), PII redaction, AWS Secrets Manager/SSM integration, tool sandboxing with permission levels, and comprehensive audit logging to CloudWatch/S3 for SIEM integration.
 
 ---
 
 ## Phase 6: Context Management (v0.7.0)
 
-**Goal:** Intelligent context handling for long-running workflows
-
-**Status:** 📋 **PLANNED** (Implementation plan complete)  
+**Status:** ✅ **COMPLETE** (2025-11-07)  
 **Duration:** 2-3 weeks  
-**Complexity:** High  
-**Dependencies:** Phase 1-5 (multi-step workflows, token tracking)  
-**Detailed Plan:** See `docs/PHASE6_IMPLEMENTATION_PLAN.md`
+**Complexity:** High
 
-### Overview
-
-Implement intelligent context management using **native Strands SDK primitives** with minimal custom glue:
-- **Native**: `SummarizingConversationManager` for context compaction
-- **Partial**: Community tools (`journal`, `file_ops`) + hooks for structured notes
-- **Partial**: JIT retrieval tools + MCP integration for external knowledge
-- **Partial**: Metrics + runtime guards for token budget enforcement
-
-Based on research in `docs/strands-phase6-context-research.md`.
-
-### Features
-
-#### 6.1 Context Compaction
-- **Native Strands support**: Use `SummarizingConversationManager` with configurable `summary_ratio` and `preserve_recent_messages`
-- **Proactive trigger**: Custom hook monitors token count and triggers compaction before overflow
-- **Configurable summarization agent**: Optional cheaper model (e.g., GPT-4o-mini) for cost savings
-- **Preservation**: Maintains recent messages and tool-result pairs
-
-#### 6.2 Structured Notes
-- **Community tools integration**: Use `strands-agents-tools` for file I/O (`journal`, `file_read`, `file_write`)
-- **Hook-based appending**: `NotesAppenderHook` writes Markdown entries after each step
-- **Context injection**: Include last N notes in agent context before each step
-- **Format**: Markdown with ISO8601 timestamps, agent attribution, tools used, and outcomes
-- **Cross-session continuity**: Persist notes file and reload on workflow resume
-
-#### 6.3 JIT Retrieval Tools
-- **Local tools**: `grep`, `head`, `tail`, `search` wrappers using community `shell` and `editor` tools
-- **MCP integration**: First-class support for external knowledge bases (Confluence, internal KB)
-- **Smart selection**: System prompt hints or hooks for relevance-based tool selection
-- **On-demand loading**: Retrieve context only when needed, not preloaded
-
-#### 6.4 Token Budget Management
-- **Real-time counting**: tiktoken-based token estimation for all providers
-- **Warning system**: Alert at 80% threshold with context message
-- **Auto-compaction**: Trigger compaction on warning to extend runway
-- **Hard limit**: Abort with `EX_BUDGET_EXCEEDED (19)` at 100%
-- **Metrics**: Export budget usage to OTEL (Phase 10 integration)
-
-### Architecture
-
-```
-New Modules:
-- runtime/context_manager.py      # Strands ConversationManager wrapper
-- runtime/token_counter.py        # tiktoken-based counting
-- runtime/budget_enforcer.py      # Budget guard hook
-- tools/jit_retrieval.py          # grep/search/head/tail adapters
-- tools/notes_manager.py          # Markdown notes I/O
-- exec/hooks.py                   # Context hooks (compaction, notes, budget)
-
-Modified:
-- exec/*.py (all executors)       # Integrate context hooks
-- exec/utils.py (AgentCache)      # Accept conversation_manager + hooks
-- types.py                        # Expand ContextPolicy models
-```
-
-### Acceptance Criteria
-
-- [ ] Compaction triggers at configured threshold and reduces context by ≥30%
-- [ ] Notes file persists across steps with correct Markdown format
-- [ ] JIT retrieval tools fetch context without loading full files
-- [ ] Token budget enforcement prevents over-limit calls with warnings at 80%
-- [ ] Compaction preserves task-critical information (recent messages, tool results)
-- [ ] MCP integration connects to external knowledge bases
-- [ ] All existing tests pass (479 tests)
-- [ ] New tests: ≥40 tests for context features
-- [ ] Coverage ≥85%
-- [ ] Documentation: Manual updated, 3+ example workflows
-
-### Implementation Checklist
-
-**Week 1: Foundation & Compaction**
-- [ ] Install dependencies: `tiktoken`, `strands-agents-tools`, `filelock`
-- [ ] Expand `types.py` - detailed `ContextPolicy` models (Compaction, Notes, Retrieval)
-- [ ] Create `runtime/context_manager.py` - wrapper for `SummarizingConversationManager`
-- [ ] Create `exec/hooks.py` - `ProactiveCompactionHook` implementation
-- [ ] Unit + integration tests for compaction (3-step chain with summarization)
-
-**Week 2: Notes & Retrieval**
-- [ ] Create `tools/notes_manager.py` - Markdown I/O with file locking
-- [ ] Create `NotesAppenderHook` - append after each cycle
-- [ ] Implement notes injection in executors (before each step)
-- [ ] Create `tools/jit_retrieval.py` - grep/search/head/tail wrappers
-- [ ] Add MCP integration pattern for external KB
-- [ ] Unit + integration tests for notes and JIT tools
-
-**Week 3: Budgets & Integration**
-- [ ] Create `runtime/token_counter.py` - tiktoken integration
-- [ ] Create `runtime/budget_enforcer.py` - `BudgetEnforcerHook`
-- [ ] Add `EX_BUDGET_EXCEEDED = 19` to `exit_codes.py`
-- [ ] Update all 5 executors to integrate hooks
-- [ ] Update `AgentCache` to accept conversation manager and hooks
-- [ ] E2E tests with all features enabled
-- [ ] Update manual with context policy examples
-- [ ] Create 4+ example workflows
-- [ ] Performance benchmarking (compaction <500ms, notes <50ms)
-- [ ] Final CI run: `.\scripts\dev.ps1 ci`
-
-### Key Design Decisions
-
-1. **Strands-native approach**: Leverage SDK's `SummarizingConversationManager` instead of custom implementation
-2. **Proactive compaction**: Hook-based monitoring triggers compaction before overflow (reactive is too late)
-3. **Community tools**: Use `strands-agents-tools` for file ops and shell commands (don't reinvent)
-4. **Markdown notes**: Human-readable format with clear structure (JSON later if needed)
-5. **Budget warning flow**: Warn (80%) → auto-compact → warn again → hard limit (100%)
-6. **Token counting**: tiktoken for estimates, provider usage for ground truth
-7. **Hook pattern**: All context features implemented as composable hooks attached to agents
-
-### Dependencies
-
-```toml
-# New dependencies
-tiktoken = "^0.8.0"              # Token counting
-strands-agents-tools = "^0.1.0"   # Community tools (journal, file ops, shell)
-filelock = "^3.16.0"              # Cross-process file locking
-```
-
-### Examples to Create
-
-1. `examples/context-long-research-openai.yaml` - 5-step, 150K tokens, compaction demo
-2. `examples/context-notes-continuation-ollama.yaml` - Multi-session with notes persistence
-3. `examples/context-jit-retrieval-bedrock.yaml` - Large codebase with grep/search
-4. `examples/context-budget-constrained-openai.yaml` - Tight budget with auto-compaction
-
-### Documentation Updates
-
-- [ ] `docs/strands-workflow-manual.md` - Expand section 8 (Context Policy) with all features
-- [ ] `docs/CONTEXT_MANAGEMENT_GUIDE.md` - NEW: Deep dive guide with best practices
-- [ ] `README.md` - Add context management to features list
-- [ ] `CHANGELOG.md` - Document v0.7.0 changes
+Intelligent context handling with native Strands `SummarizingConversationManager` for compaction, structured notes via `NotesManager` with Markdown persistence, JIT retrieval tools (grep, head, tail, search), and token budget enforcement with 80% warnings and hard limits. Implements proactive compaction hooks and cross-session continuity.
 
 ---
 
 ## Phase 7: Orchestrator-Workers Pattern (v0.8.0)
 
 **Status:** ✅ **COMPLETE** (2025-11-08)  
-**Goal:** Dynamic task delegation with worker pools
-
 **Duration:** 3 weeks  
-**Complexity:** Very High  
-**Dependencies:** Phase 3 (parallel execution), Phase 6 (context management)
+**Complexity:** Very High
 
-### Features
-
-#### 7.1 Orchestrator Agent
-- Implement `pattern.type = orchestrator_workers` in `exec/orchestrator.py`
-- **Orchestrator responsibilities**:
-  - Break down task into subtasks
-  - Assign subtasks to workers (dynamic allocation)
-  - Monitor worker progress
-  - Synthesize worker results
-- **Limits**:
-  - `max_workers` - Maximum concurrent workers
-  - `max_rounds` - Maximum orchestration iterations
-
-#### 7.2 Worker Pool Management
-- Dynamic worker instantiation from `worker_template`
-- Worker state tracking (idle, working, complete, failed)
-- Load balancing across workers
-- Worker timeout and retry
-- Graceful worker failure handling
-
-#### 7.3 Work Queue
-- Task queue for subtask distribution
-- Priority-based scheduling
-- Duplicate detection
-- Progress tracking and reporting
-
-#### 7.4 Reduce & Writeup
-- Optional `reduce` step to aggregate worker outputs
-- Optional `writeup` step for final report generation
-- Template access to all worker results
-
-### Acceptance Criteria
-
-- [ ] Orchestrator delegates 5 subtasks to 3 workers
-- [ ] Workers execute in parallel respecting max_workers limit
-- [ ] Failed worker retries with different worker instance
-- [ ] Reduce step receives all worker outputs
-- [ ] Writeup step generates final report
-- [ ] Worker progress tracked in real-time
-- [ ] Coverage ≥85%
-- [ ] New tests: `test_orchestrator.py` (delegation, pooling, aggregation)
-
-### Implementation Checklist
-
-- [ ] **Consult `strands-workflow-manual.md`** section 12.4 (Orchestrator-Workers) for delegation semantics
-- [ ] **Review schema** `orchestratorWorkersConfig` for orchestrator, worker_template, reduce, writeup
-- [ ] **Use ref.tools** to research worker pool patterns and task queue implementations
-- [ ] Create `exec/orchestrator.py` with delegation logic
-- [ ] Implement worker pool manager
-- [ ] Add task queue with priority scheduling
-- [ ] Create worker state machine
-- [ ] Extend template context with worker outputs
-- [ ] Update capability checker for orchestrator pattern
-- [ ] Add orchestrator examples (research swarm, data processing)
-- [ ] Document orchestration patterns and best practices
+Dynamic task delegation with worker pools, orchestrator JSON parsing with retry logic, configurable max_workers concurrency via semaphore, optional reduce/writeup steps, template access to indexed worker outputs, and fail-fast semantics. Implements multi-round delegation with round tracking and worker isolation.
 
 ---
 
 ## Phase 8: Graph Pattern & Advanced Control Flow (v0.9.0)
 
 **Status:** ✅ **COMPLETE** (2025-11-08)  
-**Goal:** Explicit control flow with conditionals and loops
-
 **Duration:** 3 weeks  
-**Complexity:** Very High  
-**Dependencies:** Phase 1 (DAG execution), Phase 2 (conditional logic)
+**Complexity:** Very High
 
-### Features
-
-#### 8.1 Graph Pattern
-- Implement `pattern.type = graph` in `exec/graph.py`
-- **Nodes**: Map of node_id → agent + input
-- **Edges**: Explicit transitions between nodes
-  - Static: `to: [node_ids]` - Unconditional transitions
-  - Conditional: `choose: [{when, to}]` - Evaluated conditions
-- **Execution**:
-  - Start at first node (or explicit entry node)
-  - Execute node agent
-  - Evaluate edge conditions
-  - Transition to next node(s)
-  - Detect cycles and apply max iterations limit
-
-#### 8.2 Condition Evaluation
-- Simple expression language for `when` clauses
-- Access to node outputs: `{{ node.<id>.score >= 85 }}`
-- Boolean operators: AND, OR, NOT
-- Comparison operators: ==, !=, <, <=, >, >=
-- Special `else` clause for default transitions
-
-#### 8.3 Loop Detection & Control
-- Detect cycles in graph
-- Max iterations per cycle (configurable)
-- Break conditions to exit loops early
-- Prevent infinite loops
-
-#### 8.4 Graph Visualization
-- Generate graph visualization in `plan` command
-- Export DOT format for Graphviz rendering
-- Highlight execution path in trace output
-
-### Acceptance Criteria
-
-- [ ] Graph with 5 nodes and conditional edges executes correctly
-- [ ] Loop executes 3 times before break condition
-- [ ] Condition evaluation works for numeric and string comparisons
-- [ ] Infinite loop protection triggers after max iterations
-- [ ] Graph visualization shows all nodes and edges
-- [ ] Coverage ≥85%
-- [ ] New tests: `test_graph.py` (conditionals, loops, cycles)
-
-### Implementation Checklist
-
-- [ ] **Consult `strands-workflow-manual.md`** section 12.6 (Graph) for nodes, edges, and choose conditions
-- [ ] **Review schema** `graphConfig` definition for conditional edges and cycle detection
-- [ ] **Use ref.tools** to research graph execution engines and topological traversal
-- [ ] Create `exec/graph.py` with graph executor
-- [ ] Implement condition parser and evaluator
-- [ ] Add cycle detection and loop limiting
-- [ ] Create graph visualizer (consider Graphviz/DOT format)
-- [ ] Update capability checker for graph pattern
-- [ ] Add graph examples (state machines, decision trees)
-- [ ] Document graph pattern and condition syntax
-- [ ] Add graph execution trace visualization
+Explicit control flow with node-based execution, conditional edges with secure `when` clause evaluation, static and dynamic transitions, cycle detection with max iteration limits, loop control with break conditions, and graph visualization support. Implements safe condition evaluation with restricted builtins and template access to node outputs.
 
 ---
 
