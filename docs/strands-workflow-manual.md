@@ -576,27 +576,239 @@ pattern:
 
 ### 12.6 Graph
 
+**Pattern**: Explicit control flow with nodes, edges, and conditional transitions.
+
+**Use for**: State machines, decision trees, iterative refinement loops, and complex workflows requiring dynamic routing based on previous agent responses.
+
+#### Core Concepts
+
+**Nodes**: Individual execution points, each running a specific agent.
+- Entry node: First node in `nodes:` map (Python 3.7+ dict insertion order)
+- Terminal nodes: Nodes with no outgoing edges (workflow stops when reached)
+- Iterations: Nodes can be revisited multiple times (tracked automatically)
+
+**Edges**: Define allowed transitions between nodes.
+- **Static edges**: Always transition to target node(s)
+  ```yaml
+  - from: node_a
+    to: [node_b]
+  ```
+- **Conditional edges**: Choose path based on runtime conditions
+  ```yaml
+  - from: node_a
+    choose:
+      - when: "{{ condition_1 }}"
+        to: node_b
+      - when: "{{ condition_2 }}"
+        to: node_c
+      - when: else
+        to: node_d
+  ```
+
+**Conditions**: Jinja2 expressions evaluated against execution context.
+- Access node responses: `{{ nodes.node_a.response }}`
+- Access node iteration: `{{ nodes.node_a.iteration }}`
+- Boolean operators: `and`, `or`, `not`
+- Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- String operations: `in`, `lower()`, `upper()`
+- Special keyword: `else` always evaluates to `True` (catch-all)
+
+**Cycle Protection**: Dual-limit enforcement prevents infinite loops.
+- **Global limit**: `runtime.budgets.max_steps` (default 100) - total workflow steps
+- **Per-node limit**: `pattern.config.max_iterations` (default 10) - max visits per node
+
+#### Configuration
+
 ```yaml
 pattern:
   type: graph
   config:
+    max_iterations: 5  # Optional: per-node iteration limit (default: 10)
+    
     nodes:
-      research: {{ agent: researcher }}
-      analyze:  {{ agent: researcher, input: "Extract 3–5 insights with evidence" }}
-      write:    {{ agent: writer }}
-      fix:      {{ agent: researcher, input: "Resolve: {{issues}}" }}
+      # Entry node (first in map)
+      intake:
+        agent: classifier
+        input: "{{ user_request }}"  # Optional: override agent prompt
+      
+      # Standard nodes
+      handle_technical:
+        agent: tech_support
+      
+      handle_billing:
+        agent: billing_support
+      
+      # Terminal node (no outgoing edges)
+      escalate:
+        agent: senior_manager
+    
     edges:
-      - from: research
-        to: [analyze]
-      - from: analyze
+      # Entry: Route based on classification
+      - from: intake
         choose:
-          - when: "{{score}} >= 85"
-            to: write
-          - when: "else"
-            to: fix
+          - when: "{{ 'technical' in nodes.intake.response.lower() }}"
+            to: handle_technical
+          - when: "{{ 'billing' in nodes.intake.response.lower() }}"
+            to: handle_billing
+          - when: else
+            to: escalate
+      
+      # Technical path: Check priority
+      - from: handle_technical
+        choose:
+          - when: "{{ 'high' in nodes.intake.response.lower() }}"
+            to: escalate
+          # Otherwise terminal (no else clause)
+      
+      # Billing path: Always escalate
+      - from: handle_billing
+        to: [escalate]
 ```
 
-**Use for**: explicit control flow with conditions and loops.
+#### Condition Evaluation
+
+Conditions are evaluated using Jinja2 with access to the execution context:
+
+**Available Context**:
+```python
+{
+  "nodes": {
+    "node_id": {
+      "response": "Agent response text",
+      "agent": "agent_id",
+      "status": "success|error",
+      "iteration": 2  # How many times this node has executed
+    }
+  },
+  "last_response": "Most recent node response",
+  "total_steps": 5,
+  # Plus any inputs.values variables
+}
+```
+
+**Example Conditions**:
+```yaml
+# Simple string matching
+when: "{{ 'approve' in nodes.reviewer.response.lower() }}"
+
+# Numeric comparison
+when: "{{ nodes.validator.iteration >= 3 }}"
+
+# Boolean operators
+when: "{{ 'valid' in nodes.check.response and nodes.check.iteration < 5 }}"
+
+# Multiple conditions with else
+choose:
+  - when: "{{ nodes.score.response | int >= 85 }}"
+    to: approve
+  - when: "{{ nodes.score.response | int >= 60 }}"
+    to: review
+  - when: else
+    to: reject
+```
+
+#### Loop Patterns
+
+**Iterative Refinement** (with quality threshold):
+```yaml
+nodes:
+  writer:
+    agent: coder
+    input: "{{ task }}"
+  
+  reviewer:
+    agent: reviewer
+  
+  finalize:
+    agent: finalizer
+
+edges:
+  - from: writer
+    to: [reviewer]
+  
+  - from: reviewer
+    choose:
+      - when: "{{ 'approve' in nodes.reviewer.response.lower() }}"
+        to: finalize
+      - when: "{{ nodes.writer.iteration >= 3 }}"
+        to: finalize  # Force exit after 3 attempts
+      - when: else
+        to: writer  # Loop back for revision
+```
+
+**Bounded Retry** (with iteration limit):
+```yaml
+edges:
+  - from: processor
+    choose:
+      - when: "{{ 'success' in nodes.processor.response.lower() }}"
+        to: complete
+      - when: "{{ nodes.processor.iteration >= 5 }}"
+        to: error_handler
+      - when: else
+        to: processor  # Retry
+```
+
+#### Execution Flow
+
+1. **Entry**: Execute first node in `nodes:` map
+2. **Edge Traversal**: For each node, find matching edges:
+   - Evaluate `choose` conditions in order (first match wins)
+   - Execute static `to` if no `choose` clause
+   - Stop if no outgoing edges (terminal node)
+3. **Iteration Tracking**: Increment node iteration counter on each visit
+4. **Cycle Detection**: 
+   - Check per-node iteration limit (raise error if exceeded)
+   - Check global step limit (raise error if exceeded)
+5. **Termination**: Stop when terminal node reached or limits hit
+
+#### Output Templates
+
+Access node data in output artifacts:
+
+```yaml
+outputs:
+  artifacts:
+    - path: ./result.md
+      from: |
+        # Workflow Result
+        
+        {% if nodes.approve %}
+        ## Approved
+        {{ nodes.approve.response }}
+        {% endif %}
+        
+        {% if nodes.reject %}
+        ## Rejected
+        {{ nodes.reject.response }}
+        Attempts: {{ nodes.processor.iteration }}
+        {% endif %}
+        
+        Terminal Node: {{ terminal_node }}
+        Total Steps: {{ total_steps }}
+```
+
+#### Visualization
+
+Use `strands plan` to generate DOT visualization:
+
+```bash
+uv run strands plan examples/graph-state-machine-openai.yaml
+```
+
+Generates Graphviz DOT format showing:
+- **Green nodes**: Entry points
+- **Red nodes**: Terminal nodes
+- **Blue nodes**: Standard nodes
+- **Solid arrows**: Static edges
+- **Dashed arrows**: Conditional edges (labeled with condition)
+
+#### Examples
+
+See full working examples:
+- `examples/graph-state-machine-openai.yaml` - Customer support routing
+- `examples/graph-decision-tree-bedrock.yaml` - Approval workflow
+- `examples/graph-iterative-refinement-ollama.yaml` - Code review loop
 
 ---
 

@@ -1,0 +1,150 @@
+version: 0
+name: code-review-refinement
+description: |
+  Graph pattern example: Iterative code refinement with quality feedback loop.
+  Demonstrates loop detection with iteration limits and quality thresholds.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_steps: 25
+
+agents:
+  coder:
+    prompt: |
+      You are a Python developer. Write a function to solve this problem:
+      
+      {{ input_task }}
+      
+      {% if nodes.reviewer %}
+      Previous feedback: {{ nodes.reviewer.response }}
+      
+      Improve your implementation based on the feedback above.
+      {% endif %}
+      
+      Provide:
+      1. Complete Python function with docstring
+      2. Example usage
+      3. Time/space complexity
+
+  reviewer:
+    prompt: |
+      You are a senior code reviewer. Review this code implementation:
+      
+      {{ nodes.coder.response }}
+      
+      Evaluate on a scale of 0-100:
+      - Correctness (40 points)
+      - Code quality (30 points)
+      - Performance (20 points)
+      - Documentation (10 points)
+      
+      Format response:
+      Score: <number>
+      
+      Feedback:
+      - <specific issues or praise>
+      
+      Recommendation: <APPROVE if score >= 80, otherwise REVISE>
+
+  finalizer:
+    prompt: |
+      You are finalizing this code implementation:
+      
+      Code: {{ nodes.coder.response }}
+      Review: {{ nodes.reviewer.response }}
+      
+      Provide:
+      1. Final implementation summary
+      2. Test coverage recommendations
+      3. Deployment checklist
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 4  # Limit revisions to prevent infinite loop
+    
+    nodes:
+      write_code:
+        agent: coder
+        input: "{{ input_task }}"
+      
+      review:
+        agent: reviewer
+      
+      finalize:
+        agent: finalizer
+    
+    edges:
+      # Entry: write_code
+      - from: write_code
+        to: [review]
+      
+      # Review decision: approve or request revision
+      - from: review
+        choose:
+          - when: "{{ 'approve' in nodes.review.response.lower() }}"
+            to: finalize
+          - when: "{{ nodes.write_code.iteration >= 3 }}"
+            to: finalize  # Force completion after 3 attempts
+          - when: else
+            to: write_code  # Loop back for revision
+      
+      # finalize is terminal (no outgoing edges)
+
+inputs:
+  values:
+    input_task: |+
+      Problem: Implement a function to find the longest palindromic substring in a given string.
+      
+      Requirements:
+      - Handle empty strings and single characters
+      - Optimize for both time and space efficiency
+      - Include comprehensive docstring with examples
+      - Handle edge cases (unicode, special characters)
+
+outputs:
+  artifacts:
+    - path: ./refined_code.md
+      from: |
+        # Code Review Refinement Session
+        
+        **Task**: {{ name }}
+        **Timestamp**: {{ timestamp }}
+        
+        ## Original Problem
+        {{ input_task }}
+        
+        ## Development Iterations
+        
+        {% for node_id, node_data in nodes.items() %}
+        {% if node_id == 'write_code' %}
+        ### Iteration {{ node_data.iteration }}: Implementation
+        {{ node_data.response }}
+        {% elif node_id == 'review' %}
+        ### Review Feedback (Iteration {{ node_data.iteration }})
+        {{ node_data.response }}
+        {% endif %}
+        {% endfor %}
+        
+        ## Final Result
+        {{ nodes.finalize.response }}
+        
+        ## Process Metrics
+        - **Total Revisions**: {{ nodes.write_code.iteration }}
+        - **Final Score**: {% if 'score:' in nodes.review.response.lower() %}{{ nodes.review.response | regex_search('score:\s*(\d+)') }}{% else %}N/A{% endif %}
+        - **Total Steps**: {{ total_steps }}
+        - **Terminal Node**: {{ terminal_node }}
+        - **Outcome**: {% if nodes.write_code.iteration >= 3 %}Maximum iterations reached{% else %}Quality threshold met{% endif %}
+
+    - path: ./iteration_log.json
+      from: |
+        {
+          "workflow": "{{ name }}",
+          "task": {{ input_task | tojson }},
+          "iterations": {{ nodes.write_code.iteration }},
+          "steps": {{ total_steps }},
+          "terminal_node": "{{ terminal_node }}",
+          "node_history": {{ nodes | tojson }}
+        }

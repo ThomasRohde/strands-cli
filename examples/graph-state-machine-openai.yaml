@@ -1,0 +1,161 @@
+version: 0
+name: customer-support-router
+description: |
+  Graph pattern example: Customer support ticket routing using a state machine.
+  Demonstrates conditional edges and terminal nodes for multi-path workflows.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_steps: 20
+    max_tokens: 100000
+
+agents:
+  intake:
+    prompt: |
+      You are a customer support intake specialist. Analyze the customer's request and classify it.
+      
+      Request: {{ input_request }}
+      
+      Provide:
+      1. Priority (low/medium/high)
+      2. Category (technical/billing/general)
+      3. Brief summary (1 sentence)
+      
+      Format your response exactly as:
+      Priority: <priority>
+      Category: <category>
+      Summary: <summary>
+
+  technical_support:
+    prompt: |
+      You are a technical support engineer. Address this technical issue:
+      
+      {{ nodes.intake.response }}
+      
+      Provide step-by-step troubleshooting guidance.
+
+  billing_support:
+    prompt: |
+      You are a billing specialist. Handle this billing inquiry:
+      
+      {{ nodes.intake.response }}
+      
+      Explain the billing details clearly and suggest next steps.
+
+  general_support:
+    prompt: |
+      You are a customer service representative. Handle this general inquiry:
+      
+      {{ nodes.intake.response }}
+      
+      Provide helpful information and guide the customer appropriately.
+
+  escalation:
+    prompt: |
+      You are a senior support manager. This high-priority case requires escalation:
+      
+      Original classification: {{ nodes.intake.response }}
+      Specialist response: {{ last_response }}
+      
+      Provide executive-level resolution and follow-up plan.
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 5  # Prevent infinite loops in case of misconfiguration
+    
+    nodes:
+      intake:
+        agent: intake
+        input: "{{ input_request }}"
+      
+      technical:
+        agent: technical_support
+      
+      billing:
+        agent: billing_support
+      
+      general:
+        agent: general_support
+      
+      escalate:
+        agent: escalation
+    
+    edges:
+      # Entry: Always start with intake
+      - from: intake
+        choose:
+          - when: "{{ 'technical' in nodes.intake.response.lower() }}"
+            to: technical
+          - when: "{{ 'billing' in nodes.intake.response.lower() }}"
+            to: billing
+          - when: else
+            to: general
+      
+      # Route to escalation if high priority
+      - from: technical
+        choose:
+          - when: "{{ 'high' in nodes.intake.response.lower() }}"
+            to: escalate
+          # Otherwise terminal (implicitly)
+      
+      - from: billing
+        choose:
+          - when: "{{ 'high' in nodes.intake.response.lower() }}"
+            to: escalate
+          # Otherwise terminal
+      
+      - from: general
+        choose:
+          - when: "{{ 'high' in nodes.intake.response.lower() }}"
+            to: escalate
+          # Otherwise terminal
+      
+      # escalate is always terminal (no outgoing edges)
+
+inputs:
+  values:
+    input_request: "My API calls are failing with 500 errors and this is blocking our production deployment!"
+
+outputs:
+  artifacts:
+    - path: ./support_transcript.md
+      from: |
+        # Customer Support Transcript
+        
+        **Timestamp**: {{ timestamp }}
+        **Ticket**: {{ name }}
+        
+        ## Customer Request
+        {{ input_request }}
+        
+        ## Intake Classification
+        {{ nodes.intake.response }}
+        
+        ## Resolution Path
+        {% if nodes.technical %}
+        ### Technical Support Response
+        {{ nodes.technical.response }}
+        {% endif %}
+        
+        {% if nodes.billing %}
+        ### Billing Support Response
+        {{ nodes.billing.response }}
+        {% endif %}
+        
+        {% if nodes.general %}
+        ### General Support Response
+        {{ nodes.general.response }}
+        {% endif %}
+        
+        {% if nodes.escalate %}
+        ### Escalation (Senior Manager)
+        {{ nodes.escalate.response }}
+        {% endif %}
+        
+        ## Final Status
+        - Terminal Node: {{ terminal_node }}
+        - Total Steps: {{ total_steps }}
+        - Resolution Level: {% if nodes.escalate %}Executive Escalation{% else %}Standard Resolution{% endif %}

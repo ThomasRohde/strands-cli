@@ -1,0 +1,56 @@
+version: 0
+name: "test-graph-conditional-choice"
+description: "Graph with conditional edges and quality threshold"
+
+runtime:
+  provider: ollama
+  host: "http://localhost:11434"
+  model_id: "gpt-oss"
+
+agents:
+  analyzer:
+    prompt: |
+      Analyze the input and provide a quality score (0-100).
+      Return in format: "Score: <number>"
+  
+  refiner:
+    prompt: "Improve the analysis based on: {{ nodes.analyze.response }}"
+  
+  publisher:
+    prompt: "Publish final analysis: {{ nodes.analyze.response }}"
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 5
+    
+    nodes:
+      analyze:
+        agent: analyzer
+        input: "Analyze: {{ content }}"
+      refine:
+        agent: refiner
+        input: "Improve: {{ nodes.analyze.response }}"
+      publish:
+        agent: publisher
+        input: "Finalize: {{ nodes.analyze.response }}"
+    
+    edges:
+      - from: analyze
+        choose:
+          - when: "{{ nodes.analyze.response is search('Score: [89]\\d|100') }}"
+            to: publish
+          - when: "else"
+            to: refine
+      - from: refine
+        to: [analyze]  # Loop back for another iteration
+      # publish is terminal
+
+inputs:
+  values:
+    content: "Sample content for analysis"
+
+outputs:
+  artifacts:
+    - path: "./artifacts/graph-conditional-result.md"
+      from: "{{ last_response }}"

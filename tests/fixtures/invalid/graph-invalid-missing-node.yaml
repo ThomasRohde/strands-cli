@@ -1,0 +1,28 @@
+version: 0
+name: "test-graph-invalid-missing-node"
+description: "Invalid graph with edge referencing non-existent node"
+
+runtime:
+  provider: ollama
+  host: "http://localhost:11434"
+  model_id: "gpt-oss"
+
+agents:
+  agent1:
+    prompt: "Agent 1"
+
+pattern:
+  type: graph
+  config:
+    nodes:
+      node1:
+        agent: agent1
+    
+    edges:
+      - from: node1
+        to: [nonexistent]  # This node doesn't exist
+
+outputs:
+  artifacts:
+    - path: "./artifacts/invalid-graph.md"
+      from: "{{ last_response }}"

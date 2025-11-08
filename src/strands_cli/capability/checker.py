@@ -26,6 +26,7 @@ from typing import Any
 from strands_cli.types import (
     CapabilityIssue,
     CapabilityReport,
+    GraphEdge,
     OrchestratorLimits,
     PatternConfig,
     PatternType,
@@ -187,12 +188,13 @@ def _validate_pattern_type(spec: Spec, issues: list[CapabilityIssue]) -> None:
         PatternType.PARALLEL,
         PatternType.EVALUATOR_OPTIMIZER,
         PatternType.ORCHESTRATOR_WORKERS,
+        PatternType.GRAPH,
     }:
         issues.append(
             CapabilityIssue(
                 pointer="/pattern/type",
                 reason=f"Pattern type '{spec.pattern.type}' not supported yet",
-                remediation="Use 'chain', 'workflow', 'routing', 'parallel', 'evaluator_optimizer', or 'orchestrator_workers'",
+                remediation="Use 'chain', 'workflow', 'routing', 'parallel', 'evaluator_optimizer', 'orchestrator_workers', or 'graph'",
             )
         )
 
@@ -389,6 +391,152 @@ def _validate_writeup_agent(
                 remediation=f"Add agent '{config.writeup.agent}' to agents section or use existing agent",
             )
         )
+
+
+def _validate_graph_pattern(spec: Spec, issues: list[CapabilityIssue]) -> None:  # noqa: C901
+    """Validate graph pattern configuration.
+
+    Args:
+        spec: Workflow spec
+        issues: List to append issues to
+    """
+    if spec.pattern.type != PatternType.GRAPH:
+        return
+
+    config = spec.pattern.config
+
+    # Check nodes exist
+    if not config.nodes:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/nodes",
+                reason="Graph pattern requires at least one node",
+                remediation="Add nodes to pattern.config.nodes",
+            )
+        )
+        return  # Can't validate further without nodes
+
+    # Check edges exist
+    if not config.edges:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/edges",
+                reason="Graph pattern requires at least one edge",
+                remediation="Add edges to pattern.config.edges",
+            )
+        )
+        return  # Can't validate further without edges
+
+    # Validate node agents exist
+    for node_id, node in config.nodes.items():
+        if node.agent not in spec.agents:
+            issues.append(
+                CapabilityIssue(
+                    pointer=f"/pattern/config/nodes/{node_id}/agent",
+                    reason=f"Node '{node_id}' references non-existent agent '{node.agent}'",
+                    remediation=f"Add agent '{node.agent}' to agents section or use existing agent",
+                )
+            )
+
+    # Collect all node IDs for edge validation
+    node_ids = set(config.nodes.keys())
+
+    # Validate edges
+    for edge_idx, edge in enumerate(config.edges):
+        # Validate 'from' node exists
+        if edge.from_ not in node_ids:
+            issues.append(
+                CapabilityIssue(
+                    pointer=f"/pattern/config/edges/{edge_idx}/from",
+                    reason=f"Edge references non-existent node '{edge.from_}'",
+                    remediation=f"Use existing node ID from: {', '.join(sorted(node_ids))}",
+                )
+            )
+
+        # Validate static 'to' nodes if present
+        if edge.to:
+            for to_node in edge.to:
+                if to_node not in node_ids:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer=f"/pattern/config/edges/{edge_idx}/to",
+                            reason=f"Edge 'to' references non-existent node '{to_node}'",
+                            remediation=f"Use existing node ID from: {', '.join(sorted(node_ids))}",
+                        )
+                    )
+
+        # Validate conditional 'choose' targets if present
+        if edge.choose:
+            for choice_idx, choice in enumerate(edge.choose):
+                if choice.to not in node_ids:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer=f"/pattern/config/edges/{edge_idx}/choose/{choice_idx}/to",
+                            reason=f"Conditional choice references non-existent node '{choice.to}'",
+                            remediation=f"Use existing node ID from: {', '.join(sorted(node_ids))}",
+                        )
+                    )
+
+    # Check for at least one terminal node (no outgoing edges)
+    nodes_with_outgoing = set()
+    for edge in config.edges:
+        nodes_with_outgoing.add(edge.from_)
+
+    terminal_nodes = node_ids - nodes_with_outgoing
+    if not terminal_nodes:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/edges",
+                reason="Graph has no terminal nodes (all nodes have outgoing edges)",
+                remediation="Ensure at least one node has no outgoing edges to serve as workflow completion point",
+            )
+        )
+
+    # Check for unreachable nodes (nodes not reachable from entry node)
+    entry_node = next(iter(config.nodes.keys()))  # First node in YAML order
+    reachable = _find_reachable_nodes(entry_node, config.edges)
+    unreachable = node_ids - reachable
+    if unreachable:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/nodes",
+                reason=f"Unreachable nodes detected: {', '.join(sorted(unreachable))}",
+                remediation=f"Add edges to make these nodes reachable from entry node '{entry_node}', or remove them",
+            )
+        )
+
+
+def _find_reachable_nodes(entry_node: str, edges: list[GraphEdge]) -> set[str]:
+    """Find all nodes reachable from entry node via BFS.
+
+    Args:
+        entry_node: Starting node ID
+        edges: List of GraphEdge objects
+
+    Returns:
+        Set of reachable node IDs
+    """
+    reachable = {entry_node}
+    queue = [entry_node]
+
+    while queue:
+        current = queue.pop(0)
+        for edge in edges:
+            if edge.from_ == current:
+                # Add static targets
+                if edge.to:
+                    for target in edge.to:
+                        if target not in reachable:
+                            reachable.add(target)
+                            queue.append(target)
+                # Add conditional targets
+                if edge.choose:
+                    for choice in edge.choose:
+                        if choice.to not in reachable:
+                            reachable.add(choice.to)
+                            queue.append(choice.to)
+
+    return reachable
 
 
 def _validate_secrets(spec: Spec, issues: list[CapabilityIssue]) -> None:
@@ -778,6 +926,7 @@ def check_capability(spec: Spec) -> CapabilityReport:
     _validate_parallel_pattern(spec, issues)
     _validate_evaluator_optimizer_pattern(spec, issues)
     _validate_orchestrator_workers_pattern(spec, issues)
+    _validate_graph_pattern(spec, issues)
     _validate_secrets(spec, issues)
     _validate_tools(spec, issues)
 

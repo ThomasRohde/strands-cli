@@ -121,6 +121,24 @@ def _filter_title(text: str) -> str:
     return text.title()
 
 
+def _filter_regex_search(text: str, pattern: str) -> str:
+    """Search for a regex pattern in text and return the first match.
+
+    Custom Jinja2 filter for extracting data from text with regex.
+
+    Args:
+        text: Text to search in
+        pattern: Regex pattern to search for (should include capture group)
+
+    Returns:
+        First captured group match, or empty string if no match
+    """
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match and match.groups():
+        return match.group(1)
+    return ""
+
+
 def render_template(
     template_str: str,
     variables: dict[str, Any],
@@ -158,6 +176,7 @@ def render_template(
     env.filters["truncate"] = _filter_truncate
     env.filters["tojson"] = _filter_tojson
     env.filters["title"] = _filter_title
+    env.filters["regex_search"] = _filter_regex_search
 
     # Clear globals to prevent access to builtins
     env.globals.clear()
@@ -223,6 +242,7 @@ class TemplateRenderer:
         self.env.filters["truncate"] = _filter_truncate
         self.env.filters["tojson"] = _filter_tojson
         self.env.filters["title"] = _filter_title
+        self.env.filters["regex_search"] = _filter_regex_search
         # Clear globals to prevent access to builtins
         self.env.globals.clear()
 

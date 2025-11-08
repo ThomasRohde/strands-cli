@@ -216,8 +216,14 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
         from strands_cli.exec.orchestrator_workers import run_orchestrator_workers
 
         return asyncio.run(run_orchestrator_workers(spec, variables))
+    elif spec.pattern.type == PatternType.GRAPH:
+        # Graph pattern - use async graph executor
+        # Phase 8: Wrap with asyncio.run() for single event loop
+        from strands_cli.exec.graph import run_graph
+
+        return asyncio.run(run_graph(spec, variables))
     else:
-        # Other patterns (graph, etc.) - not yet supported
+        # Other patterns - not yet supported
         console.print(f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet")
         sys.exit(EX_UNSUPPORTED)
 
@@ -534,6 +540,14 @@ def _display_plan_markdown(spec: Spec, capability_report: CapabilityReport) -> N
 
     # Pattern info
     console.print(f"\n[bold]Pattern:[/bold] {spec.pattern.type}")
+
+    # Graph visualization if graph pattern
+    if spec.pattern.type == PatternType.GRAPH:
+        from strands_cli.visualization.graph_viz import generate_text_visualization
+
+        console.print("\n[bold]Graph Structure:[/bold]")
+        viz = generate_text_visualization(spec)
+        console.print(f"[dim]{viz}[/dim]")
 
     # Capability status
     if capability_report.supported:

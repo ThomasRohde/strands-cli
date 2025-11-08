@@ -1,0 +1,54 @@
+version: 0
+name: "test-graph-loop-with-break"
+description: "Graph with loop and iteration tracking"
+
+runtime:
+  provider: ollama
+  host: "http://localhost:11434"
+  model_id: "gpt-oss"
+
+agents:
+  processor:
+    prompt: "Process iteration {{ nodes.process.iteration if 'process' in nodes else 1 }}"
+  
+  checker:
+    prompt: "Check if iteration limit reached"
+  
+  finalizer:
+    prompt: "Finalize processing"
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 3  # Per-node limit
+    
+    nodes:
+      process:
+        agent: processor
+        input: "Process data: {{ data }}"
+      check:
+        agent: checker
+        input: "Check iteration {{ nodes.process.iteration }}"
+      finalize:
+        agent: finalizer
+        input: "Finalize: {{ nodes.process.response }}"
+    
+    edges:
+      - from: process
+        to: [check]
+      - from: check
+        choose:
+          - when: "{{ nodes.process.iteration >= 3 }}"
+            to: finalize
+          - when: "else"
+            to: process  # Loop back
+      # finalize is terminal
+
+inputs:
+  values:
+    data: "Test data"
+
+outputs:
+  artifacts:
+    - path: "./artifacts/graph-loop-result.md"
+      from: "{{ last_response }}"

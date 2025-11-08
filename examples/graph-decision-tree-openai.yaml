@@ -1,0 +1,168 @@
+version: 0
+name: expense-approval-workflow
+description: |
+  Graph pattern example: Multi-level expense approval using decision tree logic.
+  Demonstrates numeric comparisons and hierarchical routing.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_steps: 15
+    max_tokens: 50000
+
+agents:
+  validator:
+    prompt: |
+      You are an expense report validator. Review this expense request:
+      
+      {{ input_expense_details }}
+      
+      Validate:
+      1. Has receipt attached? (yes/no)
+      2. Within policy limits? (yes/no)
+      3. Business purpose clear? (yes/no)
+      4. Amount: Extract the dollar amount as a number
+      
+      Format response:
+      Receipt: <yes/no>
+      Policy: <yes/no>
+      Purpose: <yes/no>
+      Amount: <number>
+      Valid: <yes/no>
+
+  auto_approve:
+    prompt: |
+      You are the automated approval system. This expense meets auto-approval criteria:
+      
+      {{ nodes.validator.response }}
+      
+      Generate approval notice with confirmation number and processing timeline.
+
+  manager_review:
+    prompt: |
+      You are a department manager reviewing this expense:
+      
+      {{ nodes.validator.response }}
+      
+      Make approval decision with justification. Consider budget impact and business value.
+
+  director_review:
+    prompt: |
+      You are a director reviewing this high-value expense:
+      
+      Validation: {{ nodes.validator.response }}
+      Manager Recommendation: {{ nodes.manager.response }}
+      
+      Make final approval decision. Assess strategic value and budget allocation.
+
+  rejection_handler:
+    prompt: |
+      You are processing a rejected expense claim:
+      
+      {{ nodes.validator.response }}
+      
+      Provide clear rejection reason and guidance for resubmission.
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 3
+    
+    nodes:
+      validate:
+        agent: validator
+        input: "{{ input_expense_details }}"
+      
+      reject:
+        agent: rejection_handler
+      
+      auto_approve_node:
+        agent: auto_approve
+      
+      manager:
+        agent: manager_review
+      
+      director:
+        agent: director_review
+    
+    edges:
+      # Entry: validation
+      - from: validate
+        choose:
+          - when: "{{ 'valid: no' in nodes.validate.response.lower() }}"
+            to: reject
+          - when: "{{ 'amount: 50' in nodes.validate.response or 'amount: 25' in nodes.validate.response }}"
+            to: auto_approve_node
+          - when: "{{ 'amount: 500' in nodes.validate.response or 'amount: 750' in nodes.validate.response }}"
+            to: manager
+          - when: else
+            to: director
+      
+      # manager routes to director for high amounts
+      - from: manager
+        choose:
+          - when: "{{ 'approve' in nodes.manager.response.lower() }}"
+            to: director
+          - when: else
+            to: reject
+      
+      # Terminal nodes: reject, auto_approve_node, director (no outgoing edges)
+
+inputs:
+  values:
+    input_expense_details: |+
+      Expense Report #EXP-2024-1234
+      Employee: Jane Smith
+      Department: Engineering
+      Date: 2024-11-08
+      
+      Item: Conference Registration - AWS re:Invent 2024
+      Amount: $750.00
+      Category: Professional Development
+      
+      Business Justification: Annual AWS conference for cloud architecture training.
+      Critical for Q1 2025 infrastructure modernization project.
+      
+      Receipt: Conference_Receipt_2024.pdf (attached)
+
+outputs:
+  artifacts:
+    - path: ./approval_decision.md
+      from: |
+        # Expense Approval Decision
+        
+        **Workflow**: {{ name }}
+        **Timestamp**: {{ timestamp }}
+        
+        ## Submitted Expense
+        {{ input_expense_details }}
+        
+        ## Validation Result
+        {{ nodes.validate.response }}
+        
+        ## Approval Path
+        {% if nodes.auto_approve_node %}
+        ### ✅ Auto-Approved
+        {{ nodes.auto_approve_node.response }}
+        {% endif %}
+        
+        {% if nodes.manager %}
+        ### 👤 Manager Review
+        {{ nodes.manager.response }}
+        {% endif %}
+        
+        {% if nodes.director %}
+        ### 👔 Director Review
+        {{ nodes.director.response }}
+        {% endif %}
+        
+        {% if nodes.reject %}
+        ### ❌ Rejected
+        {{ nodes.reject.response }}
+        {% endif %}
+        
+        ## Final Decision
+        - **Terminal Node**: {{ terminal_node }}
+        - **Approval Level**: {% if terminal_node == 'auto_approve_node' %}Automatic{% elif terminal_node == 'director' %}Director{% elif terminal_node == 'reject' %}Rejected{% endif %}
+        - **Processing Steps**: {{ total_steps }}

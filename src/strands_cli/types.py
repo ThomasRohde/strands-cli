@@ -418,6 +418,53 @@ class EvaluatorDecision(BaseModel):
     fixes: list[str] | None = None  # Suggested fixes (optional)
 
 
+class ConditionalChoice(BaseModel):
+    """Conditional edge choice for graph pattern.
+
+    Represents a single condition-target pair in a conditional edge.
+    The 'when' field is either an expression or the literal string "else".
+
+    Attributes:
+        when: Condition expression or "else" for default fallback
+        to: Target node ID to transition to if condition is true
+    """
+
+    when: str  # Condition expression or "else"
+    to: str  # Target node ID
+
+
+class GraphEdge(BaseModel):
+    """Edge definition for graph pattern.
+
+    Represents a transition between nodes. Must have either 'to' (static)
+    or 'choose' (conditional), but not both.
+
+    Attributes:
+        from_: Source node ID
+        to: Static target node IDs (sequential execution)
+        choose: Conditional choices with expressions
+    """
+
+    from_: str = Field(alias="from")  # Source node ID
+    to: list[str] | None = None  # Static targets (sequential)
+    choose: list[ConditionalChoice] | None = None  # Conditional choices
+
+
+class GraphNode(BaseModel):
+    """Node definition for graph pattern.
+
+    Represents a single execution node in the graph.
+    Each node executes an agent with optional input.
+
+    Attributes:
+        agent: Agent ID to execute at this node
+        input: Optional input template (defaults to auto-generated)
+    """
+
+    agent: str  # Agent ID (required)
+    input: str | None = None  # Optional input template
+
+
 class OrchestratorLimits(BaseModel):
     """Orchestrator execution limits.
 
@@ -482,6 +529,11 @@ class PatternConfig(BaseModel):
     orchestrator: OrchestratorConfig | None = None  # Orchestrator config
     worker_template: WorkerTemplate | None = None  # Worker template
     writeup: ChainStep | None = None  # Optional final synthesis step
+
+    # Graph fields
+    nodes: dict[str, GraphNode] | None = None  # For graph pattern
+    edges: list[GraphEdge] | None = None  # For graph pattern
+    max_iterations: int = Field(default=10, ge=1)  # Per-node iteration limit
 
 
 class Pattern(BaseModel):

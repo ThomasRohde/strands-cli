@@ -1,0 +1,48 @@
+version: 0
+name: "test-graph-linear-3node"
+description: "Simple linear graph with 3 nodes (no conditionals)"
+
+runtime:
+  provider: ollama
+  host: "http://localhost:11434"
+  model_id: "gpt-oss"
+
+agents:
+  researcher:
+    prompt: "You are a research assistant. Analyze the topic thoroughly."
+  
+  analyst:
+    prompt: "You are an analyst. Extract key insights from research."
+  
+  writer:
+    prompt: "You are a technical writer. Write a concise summary."
+
+pattern:
+  type: graph
+  config:
+    nodes:
+      research:
+        agent: researcher
+        input: "Research topic: {{ topic }}"
+      analyze:
+        agent: analyst
+        input: "Analyze findings: {{ nodes.research.response }}"
+      write:
+        agent: writer
+        input: "Write summary based on: {{ nodes.analyze.response }}"
+    
+    edges:
+      - from: research
+        to: [analyze]
+      - from: analyze
+        to: [write]
+      # write has no outgoing edge (terminal node)
+
+inputs:
+  values:
+    topic: "artificial intelligence"
+
+outputs:
+  artifacts:
+    - path: "./artifacts/graph-linear-result.md"
+      from: "{{ last_response }}"
