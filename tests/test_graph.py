@@ -190,6 +190,66 @@ def test_evaluate_condition_undefined_variable():
         evaluate_condition("{{ undefined_var > 0 }}", {})
 
 
+def test_evaluate_condition_blocks_class_access():
+    """Test that __class__ access is blocked for security."""
+    context = {"obj": {"value": 42}}
+    # Direct __class__ access
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ obj.__class__ }}", context)
+
+
+def test_evaluate_condition_blocks_mro_access():
+    """Test that __mro__ access is blocked for security."""
+    context = {"obj": {"value": 42}}
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ obj.__mro__ }}", context)
+
+
+def test_evaluate_condition_blocks_globals_access():
+    """Test that __globals__ access is blocked for security."""
+    context = {"obj": {"value": 42}}
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ __globals__ }}", context)
+
+
+def test_evaluate_condition_blocks_builtins_access():
+    """Test that __builtins__ access is blocked for security."""
+    context = {"obj": {"value": 42}}
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ __builtins__ }}", context)
+
+
+def test_evaluate_condition_blocks_eval():
+    """Test that eval is blocked for security."""
+    context = {"code": "1+1"}
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ eval(code) }}", context)
+
+
+def test_evaluate_condition_blocks_exec():
+    """Test that exec is blocked for security."""
+    context = {"code": "print('hello')"}
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ exec(code) }}", context)
+
+
+def test_evaluate_condition_blocks_import():
+    """Test that import is blocked for security."""
+    with pytest.raises(ConditionEvaluationError, match="Security violation"):
+        evaluate_condition("{{ import os }}", {})
+
+
+def test_evaluate_condition_allows_safe_builtins():
+    """Test that safe builtins like len, str, int are allowed."""
+    context = {"items": [1, 2, 3], "num": "42"}
+    # len should work
+    assert evaluate_condition("{{ len(items) == 3 }}", context) is True
+    # str should work
+    assert evaluate_condition("{{ str(42) == '42' }}", context) is True
+    # int should work
+    assert evaluate_condition("{{ int('5') == 5 }}", context) is True
+
+
 def test_validate_condition_syntax_valid():
     """Test syntax validation for valid expressions."""
     valid, error = validate_condition_syntax("{{ score >= 85 }}")
@@ -435,7 +495,7 @@ async def test_run_graph_loop_with_iteration_limit(loop_graph_spec: Spec, mocker
 
 @pytest.mark.asyncio
 async def test_run_graph_exceeds_global_max_steps(linear_graph_spec: Spec, mocker):
-    """Test that global max_steps limit prevents runaway execution."""
+    """Test that global max_steps limit raises error to prevent runaway execution."""
     # Set low max_steps
     linear_graph_spec.runtime.budgets = {"max_steps": 2}
 
@@ -453,18 +513,9 @@ async def test_run_graph_exceeds_global_max_steps(linear_graph_spec: Spec, mocke
         "Response B",
     ]
 
-    result = await run_graph(linear_graph_spec)
-
-    # Should stop after 2 steps (max_steps limit)
-    assert result.execution_context["total_steps"] == 2
-    # Should only execute node_a and node_b (node_c gets initialized but not executed)
-    executed_nodes = [
-        k for k, v in result.execution_context["nodes"].items()
-        if v["status"] == "success"
-    ]
-    assert len(executed_nodes) == 2
-    assert "node_a" in executed_nodes
-    assert "node_b" in executed_nodes
+    # Should raise error when max_steps is reached
+    with pytest.raises(GraphExecutionError, match="exceeded max_steps limit"):
+        await run_graph(linear_graph_spec)
 
 
 @pytest.mark.asyncio

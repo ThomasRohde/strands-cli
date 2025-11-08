@@ -379,3 +379,46 @@ class TestTextVisualization:
         # Both node2 and node3 are terminals
         assert "node2" in text
         assert "node3" in text
+
+    def test_dot_single_node_graph(self):
+        """Test DOT generation for single-node terminal graph."""
+        # Single-node graph needs at least one edge (can be from node to itself)
+        # Or test that validation rejects edgeless graphs
+        spec = Spec(
+            version=0,
+            name="single-node",
+            runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+            agents={"agent1": Agent(prompt="Test")},
+            pattern={
+                "type": PatternType.GRAPH,
+                "config": PatternConfig(
+                    nodes={"only_node": GraphNode(agent="agent1")},
+                    edges=[],  # No edges - triggers invalid graph handling
+                ),
+            },
+        )
+        dot = generate_dot(spec)
+
+        # Should indicate invalid graph (no edges)
+        assert "Invalid graph" in dot
+
+    def test_text_viz_single_node_graph(self):
+        """Test text visualization for single-node terminal graph."""
+        # Single-node graph needs at least one edge
+        spec = Spec(
+            version=0,
+            name="single-node",
+            runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+            agents={"agent1": Agent(prompt="Test")},
+            pattern={
+                "type": PatternType.GRAPH,
+                "config": PatternConfig(
+                    nodes={"only_node": GraphNode(agent="agent1")},
+                    edges=[],
+                ),
+            },
+        )
+        text = generate_text_visualization(spec)
+
+        # Should indicate invalid graph (no edges)
+        assert "Invalid graph" in text

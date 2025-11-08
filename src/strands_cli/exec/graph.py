@@ -180,20 +180,21 @@ def _check_token_budget(
     cumulative_tokens: int,
     max_tokens: int | None,
     node_id: str,
-) -> bool:
-    """Check token budget and log warning if threshold exceeded.
+) -> None:
+    """Check token budget and raise error if hard limit exceeded.
 
     Args:
         cumulative_tokens: Total tokens used so far
         max_tokens: Maximum allowed tokens (None if no limit)
         node_id: Current node ID (for logging)
 
-    Returns:
-        True if warning threshold exceeded (80%), False otherwise
+    Raises:
+        GraphExecutionError: If cumulative tokens >= 100% of max_tokens
     """
     if not max_tokens:
-        return False
+        return
 
+    # Warning threshold at 80%
     if cumulative_tokens >= max_tokens * TOKEN_WARNING_THRESHOLD:
         logger.warning(
             "token_budget_warning",
@@ -202,8 +203,19 @@ def _check_token_budget(
             max_tokens=max_tokens,
             percent=round(cumulative_tokens / max_tokens * 100, 1),
         )
-        return True
-    return False
+
+    # Hard limit at 100%
+    if cumulative_tokens >= max_tokens:
+        logger.error(
+            "token_budget_exceeded",
+            node=node_id,
+            cumulative=cumulative_tokens,
+            max_tokens=max_tokens,
+        )
+        raise GraphExecutionError(
+            f"Token budget exceeded at node '{node_id}' ({cumulative_tokens}/{max_tokens} tokens). "
+            f"Consider increasing budgets.max_tokens or optimizing prompts."
+        )
 
 
 async def _execute_graph_node(
@@ -392,6 +404,9 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             "iteration": 0,
         }
 
+    # Track the last successfully executed node (actual terminal node)
+    last_executed_node: str | None = None
+
     iteration_counts: dict[str, int] = {}
     total_steps = 0
     cumulative_tokens = 0
@@ -433,6 +448,9 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 "iteration": iteration_counts[current_node_id],
             }
 
+            # Track last successfully executed node
+            last_executed_node = current_node_id
+
             # Find next node via edge traversal
             next_node_id = _get_next_node(current_node_id, spec.pattern.config.edges, node_results)
 
@@ -445,17 +463,24 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
             current_node_id = next_node_id
 
-        # Check if we hit max_steps limit
+        # Check if we hit max_steps limit - this is an error condition
         if total_steps >= max_steps:
-            logger.warning(
-                "graph_max_steps_reached",
+            logger.error(
+                "graph_max_steps_exceeded",
                 total_steps=total_steps,
                 max_steps=max_steps,
-                last_node=list(node_results.keys())[-1] if node_results else None,
+                last_node=last_executed_node,
+            )
+            raise GraphExecutionError(
+                f"Graph execution exceeded max_steps limit ({max_steps}). "
+                f"Possible infinite loop detected. Last executed node: '{last_executed_node}'"
             )
 
-        # Find terminal node for final response
-        terminal_node = list(node_results.keys())[-1]  # Last executed node
+        # Find terminal node for final response - use actual last executed node
+        if not last_executed_node:
+            raise GraphExecutionError("No nodes were executed in graph")
+
+        terminal_node = last_executed_node
         final_response = node_results[terminal_node]["response"]
         final_agent_id = spec.pattern.config.nodes[terminal_node].agent
 

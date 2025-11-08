@@ -15,19 +15,32 @@ logger = structlog.get_logger(__name__)
 
 # Dangerous patterns that could lead to code execution
 DANGEROUS_PATTERNS = [
-    r"__class__",
-    r"__mro__",
-    r"__subclasses__",
-    r"__globals__",
-    r"__init__",
-    r"__builtins__",
-    r"__import__",
+    r"__\w+__",  # Any double-underscore attribute (catches __class__, __mro__, __globals__, etc.)
     r"\beval\b",
     r"\bexec\b",
     r"\bcompile\b",
     r"\bopen\b",
     r"\bfile\b",
+    r"\bimport\b",
 ]
+
+
+# Safe builtins whitelist for Jinja2 sandbox
+SAFE_BUILTINS: dict[str, object] = {
+    "True": True,
+    "False": False,
+    "None": None,
+    "range": range,
+    "len": len,
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "list": list,
+    "dict": dict,
+    "tuple": tuple,
+    "set": set,
+}
 
 
 class ConditionEvaluationError(Exception):
@@ -85,10 +98,14 @@ def evaluate_condition(when_expr: str, context: dict[str, Any]) -> bool:
                 f"Security violation: Forbidden pattern '{pattern}' detected in condition expression"
             )
 
-    # Create sandboxed Jinja2 environment
+    # Create sandboxed Jinja2 environment with restricted namespace
     env = SandboxedEnvironment(autoescape=False)
-    env.globals = {}  # No global functions
-    env.filters = {  # Only safe filters
+
+    # Whitelist-based namespace with only safe builtins
+    env.globals = SAFE_BUILTINS.copy()
+
+    # Only safe filters
+    env.filters = {
         "default": lambda v, d: v if v is not None else d,
         "length": len,
         "lower": str.lower,
@@ -181,7 +198,7 @@ def validate_condition_syntax(when_expr: str) -> tuple[bool, str | None]:
             return False, f"Security violation: Forbidden pattern '{pattern}' detected"
 
     env = SandboxedEnvironment(autoescape=False)
-    env.globals = {}
+    env.globals = SAFE_BUILTINS.copy()
     env.filters = {
         "default": lambda v, d: v if v is not None else d,
         "length": len,

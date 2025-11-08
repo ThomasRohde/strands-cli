@@ -7,6 +7,8 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 ## Features
 
 ### Core Capabilities (v0.4.0)
+- ✅ **Graph pattern** - Explicit control flow with conditionals, loops, and cycle protection
+- ✅ **Evaluator-Optimizer pattern** - Iterative refinement with quality gates and convergence detection
 - ✅ **Parallel execution pattern** - Concurrent branch execution with optional reduce step for aggregation
 - ✅ **Multi-agent workflows** - Support for multiple agents in chain, workflow, routing, and parallel patterns
 - ✅ **Routing pattern** - Dynamic agent selection based on input classification with JSON-based routing
@@ -36,7 +38,6 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 
 ### Future Roadmap
 - ✅ **Orchestrator-workers pattern** - Dynamic task delegation with worker pools (Phase 7 - Completed)
-- 🚧 Graph pattern with conditional logic
 - 🚧 MCP tools integration
 - 🚧 Guardrails enforcement
 - 🚧 Context policy execution
@@ -485,7 +486,7 @@ Presets merge with existing configuration - your custom values take precedence. 
 | Feature | Support | Notes |
 |---------|---------|-------|
 | **Agents** | Multiple agents | Single or multi-agent workflows |
-| **Patterns** | `chain`, `workflow`, `routing`, `parallel` | Multi-step/task/branch supported |
+| **Patterns** | `chain`, `workflow`, `routing`, `parallel`, `evaluator_optimizer`, `graph` | All patterns fully supported |
 | **Providers** | `bedrock`, `ollama`, `openai` | Full authentication support |
 | **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time` (both old and new path formats supported) |
 | **HTTP Executors** | ✅ Full support | Timeout, retries, headers |
@@ -494,11 +495,11 @@ Presets merge with existing configuration - your custom values take precedence. 
 | **Budgets** | ✅ Enforced | Cumulative token tracking with warnings/hard limits |
 | **Concurrency** | ✅ Semaphore control | Via `runtime.max_parallel` |
 | **Retries** | ✅ Exponential backoff | Configurable via `failure_policy` |
-| **Artifacts** | Template support | `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}` |
+| **Artifacts** | Template support | `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`, `{{ nodes.<id>.response }}` |
 | **OTEL** | Parsed (scaffolding) | Full tracing activation → future |
 
 ### Unsupported Patterns (exit code 18)
-- Graph pattern with conditional logic
+- Orchestrator-workers pattern
 - MCP tools (`tools.mcp`)
 - Guardrails enforcement
 - Context policy execution

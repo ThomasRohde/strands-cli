@@ -4,9 +4,9 @@ Analyzes validated workflow specs to determine if they can be executed
 with current capabilities. Gracefully rejects unsupported features with
 structured error reports rather than silently ignoring them.
 
-Supported Features (Phase 3):
-    - Multiple agents (for routing and parallel patterns)
-    - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, OR parallel
+Supported Features (Phase 8):
+    - Multiple agents (for all pattern types)
+    - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, parallel, evaluator_optimizer, graph
     - Providers: bedrock, ollama, openai
     - Python tools: strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}
     - HTTP executors: full support
@@ -14,7 +14,7 @@ Supported Features (Phase 3):
     - Skills: metadata injection (no code execution)
 
 Unsupported (with remediation):
-    - Patterns: orchestrator_workers, evaluator_optimizer, graph
+    - Patterns: orchestrator_workers
     - MCP tools
     - Non-env secret sources
     - Non-allowlisted Python callables
