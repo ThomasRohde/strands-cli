@@ -55,7 +55,7 @@ async def test_agent_cache_miss_builds_new_agent(minimal_spec: Spec, mock_agent:
             agent_config,
         )
 
-        # Verify build_agent was called
+        # Verify build_agent was called (with agent_cache parameter added in Phase 9)
         mock_build.assert_called_once_with(
             minimal_spec,
             agent_id,
@@ -64,6 +64,7 @@ async def test_agent_cache_miss_builds_new_agent(minimal_spec: Spec, mock_agent:
             conversation_manager=None,
             hooks=None,
             injected_notes=None,
+            agent_cache=cache,  # Phase 9: added for MCP client tracking
         )
 
         # Verify returned agent

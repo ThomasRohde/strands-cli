@@ -4,18 +4,17 @@ Analyzes validated workflow specs to determine if they can be executed
 with current capabilities. Gracefully rejects unsupported features with
 structured error reports rather than silently ignoring them.
 
-Supported Features (Phase 8):
+Supported Features (Phase 9):
     - Multiple agents (for all pattern types)
-    - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, parallel, evaluator_optimizer, graph
+    - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, parallel, evaluator_optimizer, orchestrator_workers, graph
     - Providers: bedrock, ollama, openai
     - Python tools: strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}
     - HTTP executors: full support
+    - MCP tools: stdio and HTTPS transports
     - Secrets: source=env only
     - Skills: metadata injection (no code execution)
 
 Unsupported (with remediation):
-    - Patterns: orchestrator_workers
-    - MCP tools
     - Non-env secret sources
     - Non-allowlisted Python callables
 """
@@ -578,7 +577,7 @@ def _build_available_tools_set(spec: Spec) -> set[str]:
         spec: Workflow spec
 
     Returns:
-        Set of tool IDs (Python callables and HTTP executor IDs)
+        Set of tool IDs (Python callables, HTTP executor IDs, and MCP server IDs)
     """
     available_tools: set[str] = set()
     if spec.tools:
@@ -586,6 +585,8 @@ def _build_available_tools_set(spec: Spec) -> set[str]:
             available_tools.update(tool.callable for tool in spec.tools.python)
         if spec.tools.http_executors:
             available_tools.update(executor.id for executor in spec.tools.http_executors)
+        if spec.tools.mcp:
+            available_tools.update(server.id for server in spec.tools.mcp)
     return available_tools
 
 

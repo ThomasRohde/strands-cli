@@ -219,8 +219,8 @@ class AgentCache:
         self._http_executors: dict[str, Any] = {}
 
         # Track MCP clients for proper cleanup (Phase 9)
-        # List of MCPClient instances that need explicit cleanup
-        self._mcp_clients: list[Any] = []
+        # Dict: server_id -> MCPClient instance (deduplicated)
+        self._mcp_clients: dict[str, Any] = {}
 
         logger.debug("agent_cache_initialized")
 
@@ -347,7 +347,27 @@ class AgentCache:
             mcp_clients=len(self._mcp_clients),
         )
 
-        # Close all HTTP executor tool modules
+        # Phase 9: Stop MCP clients FIRST (before HTTP cleanup)
+        # MCP servers may use HTTP internally (streamable_http transport)
+        # Closing HTTP clients first could break MCP cleanup
+        for server_id, mcp_client in self._mcp_clients.items():
+            try:
+                # MCPClient uses context manager protocol - call __exit__ with None args
+                if hasattr(mcp_client, "__exit__"):
+                    mcp_client.__exit__(None, None, None)
+                    logger.debug("mcp_client_stopped", server_id=server_id)
+                elif hasattr(mcp_client, "stop"):
+                    # Fallback: try stop() with context manager args
+                    mcp_client.stop(None, None, None)
+                    logger.debug("mcp_client_stopped", server_id=server_id)
+            except Exception as e:
+                logger.warning(
+                    "mcp_client_stop_failed",
+                    server_id=server_id,
+                    error=str(e),
+                )
+
+        # THEN close HTTP executor tool modules (after MCP cleanup)
         for executor_id, tool_module in self._http_executors.items():
             try:
                 close_http_executor_tool(tool_module)
@@ -356,23 +376,6 @@ class AgentCache:
                 logger.warning(
                     "http_executor_cleanup_failed",
                     executor_id=executor_id,
-                    error=str(e),
-                )
-
-        # Phase 9: Explicitly stop MCP clients to terminate server processes
-        for mcp_client in self._mcp_clients:
-            try:
-                # MCPClient uses context manager protocol - call __exit__ with None args
-                if hasattr(mcp_client, "__exit__"):
-                    mcp_client.__exit__(None, None, None)
-                    logger.debug("mcp_client_stopped")
-                elif hasattr(mcp_client, "stop"):
-                    # Fallback: try stop() with context manager args
-                    mcp_client.stop(None, None, None)
-                    logger.debug("mcp_client_stopped")
-            except Exception as e:
-                logger.warning(
-                    "mcp_client_stop_failed",
                     error=str(e),
                 )
 

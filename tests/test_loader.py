@@ -309,3 +309,90 @@ class TestParseVariables:
         """Test that later variables override earlier ones."""
         vars_dict = parse_variables(["topic=First", "topic=Second"])
         assert vars_dict == {"topic": "Second"}
+
+
+@pytest.mark.unit
+class TestPythonToolFormats:
+    """Test that both Python tool formats are accepted by schema and loader."""
+
+    def test_python_tools_object_format_validates(self, tmp_path: Path) -> None:
+        """Test that Python tools with 'callable' object format pass schema validation."""
+        spec_content = """
+version: 0
+name: "python-object-format"
+runtime:
+  provider: ollama
+  host: http://localhost:11434
+  model_id: gpt-oss
+
+tools:
+  python:
+    - callable: "strands_tools.file_read.file_read"
+
+agents:
+  test:
+    prompt: "Test agent"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "python-object.yaml"
+        spec_file.write_text(spec_content)
+
+        # Should NOT raise SchemaValidationError
+        spec = load_spec(str(spec_file), {})
+        assert spec.tools is not None
+        assert spec.tools.python is not None
+        assert len(spec.tools.python) == 1
+        assert spec.tools.python[0].callable == "strands_tools.file_read.file_read"
+
+    def test_python_tools_mixed_formats_validates(self, tmp_path: Path) -> None:
+        """Test that mixing string and object formats works correctly."""
+        spec_content = """
+version: 0
+name: "python-mixed-format"
+runtime:
+  provider: ollama
+  host: http://localhost:11434
+  model_id: gpt-oss
+
+tools:
+  python:
+    - callable: "strands_tools.file_read.file_read"
+    - strands_tools.file_write.file_write
+
+agents:
+  test:
+    prompt: "Test agent"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "python-mixed.yaml"
+        spec_file.write_text(spec_content)
+
+        # Should NOT raise SchemaValidationError
+        spec = load_spec(str(spec_file), {})
+        assert spec.tools is not None
+        assert spec.tools.python is not None
+        assert len(spec.tools.python) == 2
+        assert spec.tools.python[0].callable == "strands_tools.file_read.file_read"
+        assert spec.tools.python[1].callable == "strands_tools.file_write.file_write"

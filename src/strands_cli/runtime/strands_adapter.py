@@ -12,6 +12,7 @@ The adapter pattern isolates Strands SDK specifics from workflow spec logic,
 making it easier to support alternative agent frameworks in the future.
 """
 
+import os
 from typing import Any
 
 from strands.agent import Agent
@@ -210,7 +211,7 @@ def _load_native_tools(tools_to_use: list[str] | None) -> list[Any]:
     return tools
 
 
-def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
+def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[tuple[str, Any]]:
     """Load MCP server tools using Strands SDK MCPClient.
 
     Phase 9: Uses native Strands SDK MCP support with MCPClient.
@@ -227,16 +228,24 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
                      all tools from configured MCP servers are loaded)
 
     Returns:
-        List of MCPClient instances (ToolProvider interface)
+        List of tuples: (server_id, MCPClient instance) for deduplication
 
     Raises:
         AdapterError: If MCP dependencies not installed or client creation fails
     """
     import structlog
+    from rich.console import Console
 
     logger = structlog.get_logger(__name__)
+    console = Console()
 
-    mcp_clients: list[Any] = []
+    # Get MCP startup timeout from environment (default 30s)
+    # Note: Actual timeout enforcement requires async refactoring (Phase 9.1)
+    # This is configured but not yet enforced - servers may still hang
+    mcp_timeout = int(os.getenv("MCP_STARTUP_TIMEOUT_S", "30"))
+    
+    mcp_clients: list[tuple[str, Any]] = []
+    failed_servers: list[tuple[str, str]] = []
 
     if not spec.tools or not spec.tools.mcp:
         return mcp_clients
@@ -259,6 +268,9 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
                 )
 
                 # Create MCPClient with stdio transport
+                # TODO Phase 9.1: Add timeout enforcement via asyncio.wait_for
+                # Current limitation: MCP SDK uses sync client creation, hung servers will block
+                # Configured timeout: {mcp_timeout}s (via MCP_STARTUP_TIMEOUT_S env var)
                 mcp_client = MCPClient(lambda params=server_params: stdio_client(params))
 
                 logger.info(
@@ -267,6 +279,7 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
                     transport="stdio",
                     command=mcp_config.command,
                     args=mcp_config.args,
+                    timeout_s=mcp_timeout,
                 )
 
             elif mcp_config.url:
@@ -296,9 +309,12 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
                     id=mcp_config.id,
                     error="MCP config must have either 'command' or 'url'",
                 )
+                failed_servers.append(
+                    (mcp_config.id, "MCP config must have either 'command' or 'url'")
+                )
                 continue
 
-            mcp_clients.append(mcp_client)
+            mcp_clients.append((mcp_config.id, mcp_client))
 
         except Exception as e:
             logger.warning(
@@ -308,8 +324,13 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
                 url=mcp_config.url if mcp_config.url else None,
                 error=str(e),
             )
-            # Continue with other MCP servers if one fails
-            # Do not raise - graceful degradation
+            failed_servers.append((mcp_config.id, str(e)))
+
+    # Warn user about failed servers (visible in console, not just logs)
+    if failed_servers:
+        console.print("[yellow]⚠ Warning: Failed to load MCP servers:[/yellow]")
+        for server_id, error in failed_servers:
+            console.print(f"  - {server_id}: {error}")
 
     return mcp_clients
 
@@ -421,20 +442,28 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
     tools.extend(_load_native_tools(tools_to_use))
     tools.extend(_load_python_tools(spec, tools_to_use, loaded_tool_ids))
     tools.extend(_load_http_executors(spec, tools_to_use))
+    
     # Phase 9: Load MCP server tools (uses Strands SDK MCPClient with ToolProvider interface)
-    mcp_clients = _load_mcp_tools(spec, tools_to_use)
-    tools.extend(mcp_clients)
-
-    # Track MCP clients in agent cache for cleanup (before Agent construction wraps them)
-    if agent_cache and mcp_clients:
-        for mcp_client in mcp_clients:
-            if mcp_client not in agent_cache._mcp_clients:
-                agent_cache._mcp_clients.append(mcp_client)
+    # Returns list of (server_id, client) tuples for deduplication
+    mcp_clients_with_ids = _load_mcp_tools(spec, tools_to_use)
+    
+    # Extract clients for agent tools and track in cache by server_id (deduplication)
+    if agent_cache and mcp_clients_with_ids:
+        for server_id, mcp_client in mcp_clients_with_ids:
+            # Deduplicate by server_id (prevents duplicate server processes)
+            if server_id not in agent_cache._mcp_clients:
+                agent_cache._mcp_clients[server_id] = mcp_client
                 logger.debug(
                     "mcp_client_tracked_pre_agent",
                     agent_id=agent_id,
+                    server_id=server_id,
                     mcp_clients_count=len(agent_cache._mcp_clients),
                 )
+            # Always add to tools (even if cached) so agent has access
+            tools.append(mcp_client)
+    else:
+        # No cache - just add clients to tools
+        tools.extend([client for _, client in mcp_clients_with_ids])
 
     # Create the agent
     try:

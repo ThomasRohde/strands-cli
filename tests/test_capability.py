@@ -99,6 +99,48 @@ class TestCapabilityChecker:
         mcp_issues = [issue for issue in report.issues if "/tools/mcp" in issue.pointer]
         assert len(mcp_issues) == 0
 
+    def test_mcp_tool_overrides_supported(self, tmp_path: Path) -> None:
+        """Test that MCP tool IDs are recognized in tool_overrides (Phase 9 critical fix)."""
+        spec_content = """
+version: 0
+name: "mcp-tool-override-test"
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+tools:
+  mcp:
+    - id: filesystem
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+agents:
+  worker:
+    prompt: "File worker"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: worker
+        input: "Test"
+        tool_overrides: ["filesystem"]  # Should recognize MCP tool ID
+
+outputs:
+  artifacts:
+    - path: ./output.txt
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "mcp-override.yaml"
+        spec_file.write_text(spec_content)
+
+        spec = load_spec(str(spec_file), {})
+        report = check_capability(spec)
+
+        # Should pass without "undefined tool" errors
+        assert report.supported is True
+        assert len(report.issues) == 0
+
     def test_bedrock_requires_region(self, temp_output_dir: Path) -> None:
         """Test that Bedrock without region is rejected."""
         spec_file = temp_output_dir / "bedrock-no-region.yaml"

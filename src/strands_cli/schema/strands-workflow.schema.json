@@ -462,9 +462,26 @@
       "properties": {
         "python": {
           "type": "array",
-          "description": "Fully qualified callables or module paths.",
+          "description": "Python tools as strings or objects with callable field.",
           "items": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Shorthand: bare import path (e.g., 'strands_tools.http_request.http_request')"
+              },
+              {
+                "type": "object",
+                "required": ["callable"],
+                "additionalProperties": false,
+                "properties": {
+                  "callable": {
+                    "type": "string",
+                    "description": "Import path (e.g., 'strands_tools.http_request.http_request')"
+                  }
+                },
+                "description": "Object format with callable field (for backward compatibility and future extensibility)"
+              }
+            ]
           }
         },
         "mcp": {
