@@ -980,7 +980,8 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/identifier"
-                }
+                },
+                "description": "Static target node IDs. Only the FIRST target is executed (sequential execution of multiple targets not yet supported). Use separate edges or conditional 'choose' for multi-target transitions."
               },
               "choose": {
                 "type": "array",

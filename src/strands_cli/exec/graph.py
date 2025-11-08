@@ -42,6 +42,7 @@ import structlog
 
 from strands_cli.exec.conditions import ConditionEvaluationError, evaluate_condition
 from strands_cli.exec.utils import (
+    TOKEN_WARNING_THRESHOLD,
     AgentCache,
     estimate_tokens,
     get_retry_config,
@@ -175,6 +176,149 @@ def _get_next_node(
     )
 
 
+def _check_token_budget(
+    cumulative_tokens: int,
+    max_tokens: int | None,
+    node_id: str,
+) -> bool:
+    """Check token budget and log warning if threshold exceeded.
+
+    Args:
+        cumulative_tokens: Total tokens used so far
+        max_tokens: Maximum allowed tokens (None if no limit)
+        node_id: Current node ID (for logging)
+
+    Returns:
+        True if warning threshold exceeded (80%), False otherwise
+    """
+    if not max_tokens:
+        return False
+
+    if cumulative_tokens >= max_tokens * TOKEN_WARNING_THRESHOLD:
+        logger.warning(
+            "token_budget_warning",
+            node=node_id,
+            cumulative=cumulative_tokens,
+            max_tokens=max_tokens,
+            percent=round(cumulative_tokens / max_tokens * 100, 1),
+        )
+        return True
+    return False
+
+
+async def _execute_graph_node(
+    node_id: str,
+    spec: Spec,
+    cache: AgentCache,
+    node_results: dict[str, dict[str, Any]],
+    variables: dict[str, str] | None,
+    iteration_count: int,
+) -> tuple[str, int]:
+    """Execute a single graph node and return response and token count.
+
+    Args:
+        node_id: ID of node being executed
+        spec: Workflow spec
+        cache: Agent cache for reuse
+        node_results: Dictionary of prior node execution results
+        variables: User-provided variables from --var flags
+        iteration_count: Number of times this node has executed
+
+    Returns:
+        Tuple of (response_text, estimated_token_count)
+
+    Raises:
+        GraphExecutionError: If node execution fails
+    """
+    # Type safety: nodes cannot be None if we got past capability checking
+    nodes = spec.pattern.config.nodes
+    if nodes is None:
+        raise GraphExecutionError("Graph pattern has no nodes defined")
+
+    node = nodes[node_id]
+
+    logger.info(
+        "node_execution_start",
+        node=node_id,
+        agent=node.agent,
+        iteration=iteration_count,
+    )
+
+    # Build context with prior node results
+    context = _build_node_context(spec, node_results, variables)
+
+    # Render node input (or use default)
+    if node.input:
+        try:
+            input_text = render_template(node.input, context)
+        except Exception as e:
+            raise GraphExecutionError(
+                f"Failed to render input for node '{node_id}': {e}"
+            ) from e
+    else:
+        # Default input references prior nodes
+        input_text = f"Execute task for node '{node_id}'."
+        if node_results:
+            prior_nodes = ", ".join(node_results.keys())
+            input_text += f" Prior nodes: {prior_nodes}."
+
+    # Get agent config
+    agent_config = spec.agents.get(node.agent)
+    if not agent_config:
+        raise GraphExecutionError(
+            f"Node '{node_id}' references non-existent agent '{node.agent}'"
+        )
+
+    # Build or reuse agent
+    agent = await cache.get_or_build_agent(
+        spec=spec,
+        agent_id=node.agent,
+        agent_config=agent_config,
+        tool_overrides=None,  # Graph nodes don't support tool overrides
+    )
+
+    # Execute agent with retry
+    max_attempts, wait_min, wait_max = get_retry_config(spec)
+    try:
+        result = await invoke_agent_with_retry(
+            agent=agent,
+            input_text=input_text,
+            max_attempts=max_attempts,
+            wait_min=wait_min,
+            wait_max=wait_max,
+        )
+    except Exception as e:
+        logger.error(
+            "node_execution_failed",
+            node=node_id,
+            agent=node.agent,
+            error=str(e),
+        )
+        # Store error result
+        node_results[node_id] = {
+            "response": f"ERROR: {e}",
+            "agent": node.agent,
+            "status": "error",
+            "iteration": iteration_count,
+        }
+        raise GraphExecutionError(f"Node '{node_id}' execution failed: {e}") from e
+
+    # Extract response text
+    response_text = result if isinstance(result, str) else str(result)
+
+    # Track tokens
+    response_tokens = estimate_tokens(input_text, response_text)
+
+    logger.info(
+        "node_execution_complete",
+        node=node_id,
+        response_length=len(response_text),
+        tokens=response_tokens,
+    )
+
+    return response_text, response_tokens
+
+
 def _check_iteration_limit(
     node_id: str,
     iteration_counts: dict[str, int],
@@ -206,7 +350,7 @@ def _check_iteration_limit(
         )
 
 
-async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
+async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
     """Execute a graph pattern workflow.
 
     Executes nodes via edge traversal with condition evaluation and cycle protection.
@@ -266,107 +410,28 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Check per-node iteration limit
             _check_iteration_limit(current_node_id, iteration_counts, max_iterations)
 
-            # Get node config
-            node = spec.pattern.config.nodes[current_node_id]
-
-            logger.info(
-                "node_execution_start",
-                node=current_node_id,
-                agent=node.agent,
-                iteration=iteration_counts[current_node_id],
-                total_steps=total_steps + 1,
-            )
-
-            # Build context with prior node results
-            context = _build_node_context(spec, node_results, variables)
-
-            # Render node input (or use default)
-            if node.input:
-                try:
-                    input_text = render_template(node.input, context)
-                except Exception as e:
-                    raise GraphExecutionError(
-                        f"Failed to render input for node '{current_node_id}': {e}"
-                    ) from e
-            else:
-                # Default input references prior nodes
-                input_text = f"Execute task for node '{current_node_id}'."
-                if node_results:
-                    prior_nodes = ", ".join(node_results.keys())
-                    input_text += f" Prior nodes: {prior_nodes}."
-
-            # Get agent config
-            agent_config = spec.agents.get(node.agent)
-            if not agent_config:
-                raise GraphExecutionError(
-                    f"Node '{current_node_id}' references non-existent agent '{node.agent}'"
-                )
-
-            # Build or reuse agent
-            agent = await cache.get_or_build_agent(
+            # Execute node
+            response_text, response_tokens = await _execute_graph_node(
+                node_id=current_node_id,
                 spec=spec,
-                agent_id=node.agent,
-                agent_config=agent_config,
-                tool_overrides=None,  # Graph nodes don't support tool overrides
+                cache=cache,
+                node_results=node_results,
+                variables=variables,
+                iteration_count=iteration_counts[current_node_id],
             )
 
-            # Execute agent with retry
-            max_attempts, wait_min, wait_max = get_retry_config(spec)
-            try:
-                result = await invoke_agent_with_retry(
-                    agent=agent,
-                    input_text=input_text,
-                    max_attempts=max_attempts,
-                    wait_min=wait_min,
-                    wait_max=wait_max,
-                )
-            except Exception as e:
-                logger.error(
-                    "node_execution_failed",
-                    node=current_node_id,
-                    agent=node.agent,
-                    error=str(e),
-                )
-                # Store error result
-                node_results[current_node_id] = {
-                    "response": f"ERROR: {e}",
-                    "agent": node.agent,
-                    "status": "error",
-                    "iteration": iteration_counts[current_node_id],
-                }
-                raise GraphExecutionError(f"Node '{current_node_id}' execution failed: {e}") from e
-
-            # Extract response text
-            response_text = result if isinstance(result, str) else str(result)
-
-            # Track tokens
-            response_tokens = estimate_tokens(input_text, response_text)
+            # Track budget
             cumulative_tokens += response_tokens
-
-            # Budget warning at 80%
-            if max_tokens and cumulative_tokens >= max_tokens * 0.8:
-                logger.warning(
-                    "token_budget_warning",
-                    cumulative=cumulative_tokens,
-                    max_tokens=max_tokens,
-                    percent=round(cumulative_tokens / max_tokens * 100, 1),
-                )
+            _check_token_budget(cumulative_tokens, max_tokens, current_node_id)
 
             # Store node result
+            node = spec.pattern.config.nodes[current_node_id]
             node_results[current_node_id] = {
                 "response": response_text,
                 "agent": node.agent,
                 "status": "success",
                 "iteration": iteration_counts[current_node_id],
             }
-
-            logger.info(
-                "node_execution_complete",
-                node=current_node_id,
-                response_length=len(response_text),
-                tokens=response_tokens,
-                cumulative_tokens=cumulative_tokens,
-            )
 
             # Find next node via edge traversal
             next_node_id = _get_next_node(current_node_id, spec.pattern.config.edges, node_results)

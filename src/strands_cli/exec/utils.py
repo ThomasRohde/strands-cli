@@ -29,6 +29,9 @@ from strands_cli.types import Spec
 
 logger = structlog.get_logger(__name__)
 
+# Token budget warning threshold (warn at 80% usage)
+TOKEN_WARNING_THRESHOLD = 0.8
+
 # Transient errors that should trigger retries across all executors
 TRANSIENT_ERRORS = (
     TimeoutError,

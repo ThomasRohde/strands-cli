@@ -4,12 +4,30 @@ Provides safe evaluation of conditional expressions in graph edges.
 Uses Jinja2 template engine for expression evaluation with restricted environment.
 """
 
+import re
 from typing import Any
 
 import structlog
-from jinja2 import Environment, TemplateSyntaxError, UndefinedError
+from jinja2 import TemplateSyntaxError, UndefinedError
+from jinja2.sandbox import SandboxedEnvironment
 
 logger = structlog.get_logger(__name__)
+
+# Dangerous patterns that could lead to code execution
+DANGEROUS_PATTERNS = [
+    r"__class__",
+    r"__mro__",
+    r"__subclasses__",
+    r"__globals__",
+    r"__init__",
+    r"__builtins__",
+    r"__import__",
+    r"\beval\b",
+    r"\bexec\b",
+    r"\bcompile\b",
+    r"\bopen\b",
+    r"\bfile\b",
+]
 
 
 class ConditionEvaluationError(Exception):
@@ -21,11 +39,15 @@ class ConditionEvaluationError(Exception):
 def evaluate_condition(when_expr: str, context: dict[str, Any]) -> bool:
     """Evaluate a conditional expression using Jinja2.
 
+    Security: Uses SandboxedEnvironment to prevent code execution.
+    Blocks dangerous patterns like __class__, eval, exec, etc.
+
     Supports:
     - Comparisons: ==, !=, <, <=, >, >=
     - Boolean operators: and, or, not
     - Template variables: {{ nodes.analyze.score }}
     - Special keyword: "else" (always true)
+    - Safe filters: default, length, lower, upper, search
 
     Args:
         when_expr: Condition expression or "else"
@@ -35,7 +57,8 @@ def evaluate_condition(when_expr: str, context: dict[str, Any]) -> bool:
         True if condition evaluates to true, False otherwise
 
     Raises:
-        ConditionEvaluationError: If expression is malformed or evaluation fails
+        ConditionEvaluationError: If expression is malformed, contains dangerous
+            patterns, or evaluation fails
 
     Examples:
         >>> evaluate_condition("else", {})
@@ -50,8 +73,28 @@ def evaluate_condition(when_expr: str, context: dict[str, Any]) -> bool:
         logger.debug("condition_else", result=True)
         return True
 
-    # Create Jinja2 environment with minimal features for safety
-    env = Environment(autoescape=False)
+    # Security check: reject dangerous patterns
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, when_expr, re.IGNORECASE):
+            logger.error(
+                "condition_security_violation",
+                expression=when_expr,
+                forbidden_pattern=pattern,
+            )
+            raise ConditionEvaluationError(
+                f"Security violation: Forbidden pattern '{pattern}' detected in condition expression"
+            )
+
+    # Create sandboxed Jinja2 environment
+    env = SandboxedEnvironment(autoescape=False)
+    env.globals = {}  # No global functions
+    env.filters = {  # Only safe filters
+        "default": lambda v, d: v if v is not None else d,
+        "length": len,
+        "lower": str.lower,
+        "upper": str.upper,
+        "search": lambda s, p: re.search(p, str(s)) is not None,
+    }
 
     try:
         # Strip {{ }} if present (conditions can be written with or without them)
@@ -132,7 +175,20 @@ def validate_condition_syntax(when_expr: str) -> tuple[bool, str | None]:
     if when_expr.strip().lower() == "else":
         return True, None
 
-    env = Environment(autoescape=False)
+    # Security check: reject dangerous patterns
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, when_expr, re.IGNORECASE):
+            return False, f"Security violation: Forbidden pattern '{pattern}' detected"
+
+    env = SandboxedEnvironment(autoescape=False)
+    env.globals = {}
+    env.filters = {
+        "default": lambda v, d: v if v is not None else d,
+        "length": len,
+        "lower": str.lower,
+        "upper": str.upper,
+        "search": lambda s, p: re.search(p, str(s)) is not None,
+    }
 
     try:
         # Strip {{ }} if present

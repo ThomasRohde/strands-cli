@@ -455,6 +455,16 @@ def _validate_graph_pattern(spec: Spec, issues: list[CapabilityIssue]) -> None: 
 
         # Validate static 'to' nodes if present
         if edge.to:
+            # Warn if multiple targets (only first is executed)
+            if len(edge.to) > 1:
+                issues.append(
+                    CapabilityIssue(
+                        pointer=f"/pattern/config/edges/{edge_idx}/to",
+                        reason=f"Static edge has {len(edge.to)} targets, but only first will execute",
+                        remediation="Use multiple separate edges or conditional 'choose' for multi-target transitions",
+                    )
+                )
+
             for to_node in edge.to:
                 if to_node not in node_ids:
                     issues.append(

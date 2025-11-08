@@ -328,15 +328,18 @@ async def test_run_graph_linear_execution(linear_graph_spec: Spec, mocker):
     # Mock agent building and execution
     mock_cache = mocker.patch("strands_cli.exec.graph.AgentCache")
     mock_agent = MagicMock()
-    mock_agent.invoke_async = AsyncMock(side_effect=[
-        MagicMock(text="Response A"),
-        MagicMock(text="Response B"),
-        MagicMock(text="Response C"),
-    ])
 
     mock_cache_instance = mock_cache.return_value
     mock_cache_instance.get_or_build_agent = AsyncMock(return_value=mock_agent)
     mock_cache_instance.close = AsyncMock()
+
+    # Mock invoke_agent_with_retry to return string responses
+    mock_invoke = mocker.patch("strands_cli.exec.graph.invoke_agent_with_retry")
+    mock_invoke.side_effect = [
+        "Response A",
+        "Response B",
+        "Response C",
+    ]
 
     # Execute graph
     result = await run_graph(linear_graph_spec)
@@ -353,8 +356,8 @@ async def test_run_graph_linear_execution(linear_graph_spec: Spec, mocker):
     assert result.execution_context["terminal_node"] == "node_c"
     assert result.execution_context["total_steps"] == 3
 
-    # Verify agent called 3 times
-    assert mock_agent.invoke_async.call_count == 3
+    # Verify invoke_agent_with_retry called 3 times
+    assert mock_invoke.call_count == 3
     mock_cache_instance.close.assert_called_once()
 
 
@@ -364,24 +367,31 @@ async def test_run_graph_conditional_path_selection(conditional_graph_spec: Spec
     mock_cache = mocker.patch("strands_cli.exec.graph.AgentCache")
     mock_agent = MagicMock()
 
-    # First call (checker) returns high score
-    mock_agent.invoke_async = AsyncMock(side_effect=[
-        MagicMock(text="Analysis result"),
-        MagicMock(text="Path A response"),
-    ])
-
     mock_cache_instance = mock_cache.return_value
     mock_cache_instance.get_or_build_agent = AsyncMock(return_value=mock_agent)
     mock_cache_instance.close = AsyncMock()
+
+    # Mock invoke_agent_with_retry
+    mock_invoke = mocker.patch("strands_cli.exec.graph.invoke_agent_with_retry")
+    mock_invoke.side_effect = [
+        "Analysis result",
+        "Path A response",
+    ]
 
     # Mock condition evaluation to choose path A
     mocker.patch("strands_cli.exec.graph.evaluate_condition", return_value=True)
 
     result = await run_graph(conditional_graph_spec)
 
-    # Should execute check -> handle_a
-    assert list(result.execution_context["nodes"].keys()) == ["check", "handle_a"]
-    assert mock_agent.invoke_async.call_count == 2
+    # Should execute check -> handle_a (not handle_b)
+    # Note: All nodes get initialized, but only check and handle_a should be executed
+    executed_nodes = [
+        k for k, v in result.execution_context["nodes"].items()
+        if v["status"] == "success"
+    ]
+    assert executed_nodes == ["check", "handle_a"]
+    assert mock_invoke.call_count == 2
+    mock_cache_instance.close.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -431,20 +441,30 @@ async def test_run_graph_exceeds_global_max_steps(linear_graph_spec: Spec, mocke
 
     mock_cache = mocker.patch("strands_cli.exec.graph.AgentCache")
     mock_agent = MagicMock()
-    mock_agent.invoke_async = AsyncMock(side_effect=[
-        MagicMock(text="Response A"),
-        MagicMock(text="Response B"),
-    ])
 
     mock_cache_instance = mock_cache.return_value
     mock_cache_instance.get_or_build_agent = AsyncMock(return_value=mock_agent)
     mock_cache_instance.close = AsyncMock()
 
+    # Mock invoke_agent_with_retry
+    mock_invoke = mocker.patch("strands_cli.exec.graph.invoke_agent_with_retry")
+    mock_invoke.side_effect = [
+        "Response A",
+        "Response B",
+    ]
+
     result = await run_graph(linear_graph_spec)
 
     # Should stop after 2 steps (max_steps limit)
     assert result.execution_context["total_steps"] == 2
-    assert len(result.execution_context["nodes"]) == 2
+    # Should only execute node_a and node_b (node_c gets initialized but not executed)
+    executed_nodes = [
+        k for k, v in result.execution_context["nodes"].items()
+        if v["status"] == "success"
+    ]
+    assert len(executed_nodes) == 2
+    assert "node_a" in executed_nodes
+    assert "node_b" in executed_nodes
 
 
 @pytest.mark.asyncio
