@@ -140,9 +140,9 @@ def routing_pattern_spec(valid_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
-def mcp_tools_spec(unsupported_fixtures_dir: Path) -> Path:
-    """Path to MCP tools spec (unsupported)."""
-    return unsupported_fixtures_dir / "mcp-tools.yaml"
+def mcp_tools_spec(valid_fixtures_dir: Path) -> Path:
+    """Path to MCP tools spec (Phase 9 - now supported)."""
+    return valid_fixtures_dir / "mcp-tools.yaml"
 
 
 @pytest.fixture

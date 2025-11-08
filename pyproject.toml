@@ -159,6 +159,9 @@ addopts = "-ra -q"
 testpaths = ["tests"]
 xfail_strict = true
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "mcp: marks tests requiring MCP server infrastructure (deselect with '-m \"not mcp\"')",
+]
 
 # ---- Coverage ----
 [tool.coverage.run]

@@ -1,0 +1,68 @@
+# MCP Filesystem Server Example - OpenAI Provider
+# 
+# This example demonstrates how to use the Model Context Protocol (MCP) with the
+# filesystem server to enable file operations. The agent can read, write, and list
+# files within the configured directory.
+#
+# Prerequisites:
+# - Install MCP package: pip install mcp strands-agents[mcp]
+# - Install MCP filesystem server: npm install -g @modelcontextprotocol/server-filesystem
+# - Set OPENAI_API_KEY environment variable
+#
+# Usage:
+#   strands run examples/mcp-filesystem-openai.yaml --var topic="your topic"
+#
+# Note: The filesystem server is limited to the directory specified in args.
+# This example uses the current working directory (`.`).
+
+version: 0
+name: "mcp-filesystem-demo"
+description: "Demonstrate MCP filesystem server integration with OpenAI"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 10000
+
+# MCP Server Configuration
+tools:
+  mcp:
+    - id: "filesystem"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+      env:
+        MCP_LOG_LEVEL: "info"
+
+agents:
+  file_assistant:
+    prompt: |
+      You are a helpful file operations assistant with access to filesystem tools.
+      You can read, write, and list files in the workspace directory.
+      
+      When working with files:
+      1. Always check if a file exists before reading
+      2. Use appropriate file paths (relative to workspace root)
+      3. Be careful with write operations
+      
+      Respond clearly about what operations you performed.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: file_assistant
+        input: |
+          Please perform the following tasks:
+          1. List all files in the current directory
+          2. Check if README.md exists and read its first 10 lines if it does
+          3. Create a new file called 'mcp-test.txt' with the text: "MCP filesystem integration works!"
+          4. Confirm the file was created by listing files again
+          
+          Report what you did at each step.
+
+outputs:
+  artifacts:
+    - path: "./mcp-filesystem-demo.md"
+      from: "{{ last_response }}"
+

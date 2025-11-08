@@ -1,0 +1,75 @@
+# MCP Multiple Servers Example - OpenAI Provider
+#
+# This example demonstrates how to use multiple MCP servers simultaneously.
+# The agent can access both filesystem operations and Microsoft Learn documentation.
+#
+# Prerequisites:
+# - Install MCP package: pip install mcp strands-agents[mcp]
+# - Install MCP filesystem server:
+#   npm install -g @modelcontextprotocol/server-filesystem
+# - Set OPENAI_API_KEY environment variable
+# - Microsoft Learn MCP Server is a public HTTPS endpoint (no installation needed)
+#
+# Usage:
+#   strands run examples/mcp-multi-server-openai.yaml
+#
+# This example shows how multiple MCP servers can be combined to give the
+# agent access to different capabilities (file operations + Microsoft Learn documentation).
+
+version: 0
+name: "mcp-multi-server-demo"
+description: "Demonstrate multiple MCP servers with OpenAI"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 15000
+
+# Multiple MCP Servers Configuration
+tools:
+  mcp:
+    # Filesystem operations (stdio)
+    - id: "filesystem"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+      env:
+        MCP_LOG_LEVEL: "info"
+    
+    # Microsoft Learn documentation (HTTPS endpoint)
+    - id: "mslearn"
+      url: "https://learn.microsoft.com/api/mcp"
+
+agents:
+  research_assistant:
+    prompt: |
+      You are a helpful research assistant with access to:
+      1. Filesystem tools - to read and write files
+      2. Microsoft Learn documentation - to search Microsoft Learn content
+      
+      When researching information:
+      - Use the Microsoft Learn tools to search documentation
+      - Save your findings to files for later reference
+      - Structure your research clearly
+      
+      Always explain what tools you're using and why.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: research_assistant
+        input: |
+          Please research MCP support in Microsoft Learn and create a summary document:
+          
+          1. Use the Microsoft Learn tools to search for information about MCP (Model Context Protocol)
+          2. Summarize key information about MCP support in Microsoft Learn
+          3. Save your summary to a file called 'microsoft-learn-mcp-summary.md'
+          4. Confirm the file was created successfully
+          
+          Provide a brief overview of what you found and where you saved it.
+
+outputs:
+  artifacts:
+    - path: "./mcp-multi-server-demo.md"
+      from: "{{ last_response }}"

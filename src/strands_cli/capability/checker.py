@@ -869,15 +869,7 @@ def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
                     )
                 )
 
-    # MCP tools not supported
-    if spec.tools and spec.tools.mcp:
-        issues.append(
-            CapabilityIssue(
-                pointer="/tools/mcp",
-                reason="MCP tools not supported in MVP",
-                remediation="Remove tools.mcp section",
-            )
-        )
+    # MCP tools are now supported (Phase 9) - no validation needed
 
 
 def _build_normalized_values(spec: Spec) -> dict[str, Any]:

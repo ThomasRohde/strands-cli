@@ -15,6 +15,16 @@ from typing import Any
 
 import structlog
 from strands.agent import Agent
+
+# Phase 9: Import MCPClient for instance checking and cleanup
+try:
+    from strands.tools.mcp import MCPClient
+
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    MCPClient = None  # type: ignore
+
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -208,6 +218,10 @@ class AgentCache:
         # Key: executor ID -> Module with _http_client
         self._http_executors: dict[str, Any] = {}
 
+        # Track MCP clients for proper cleanup (Phase 9)
+        # List of MCPClient instances that need explicit cleanup
+        self._mcp_clients: list[Any] = []
+
         logger.debug("agent_cache_initialized")
 
     async def get_or_build_agent(
@@ -277,6 +291,7 @@ class AgentCache:
             worker_index=worker_index,
         )
 
+        # Pass self to build_agent so it can track MCP clients
         agent = build_agent(
             spec,
             agent_id,
@@ -285,13 +300,21 @@ class AgentCache:
             conversation_manager=conversation_manager,
             hooks=hooks,
             injected_notes=injected_notes,
+            agent_cache=self,  # Pass cache for MCP client tracking
         )
 
         # Cache the agent
         self._agents[cache_key] = agent
 
         # Track HTTP executor tool modules for cleanup (extract from agent.tools)
+        # Note: MCP clients are tracked in build_agent before Agent construction
         if hasattr(agent, "tools") and agent.tools:
+            logger.debug(
+                "inspecting_agent_tools",
+                agent_id=agent_id,
+                tool_count=len(agent.tools),
+                tool_types=[type(t).__name__ for t in agent.tools],
+            )
             for tool in agent.tools:
                 # Check for module-based HTTP executor tools (created by factory)
                 if (
@@ -308,16 +331,20 @@ class AgentCache:
     async def close(self) -> None:
         """Clean up cached resources.
 
-        Closes all HTTP executor clients to release sockets and prevent
-        resource leaks. Should be called in finally block of executor.
+        Closes all HTTP executor clients and MCP server connections to release
+        sockets and prevent resource leaks. Should be called in finally block of executor.
+
+        Phase 9: MCP clients need explicit cleanup despite ToolProvider interface.
+        Without this, MCP server processes remain running and the program hangs.
 
         This is critical for long-running workflows with many agents/tools
-        to avoid socket exhaustion.
+        to avoid socket exhaustion and hanging processes.
         """
         logger.debug(
             "agent_cache_cleanup",
             cached_agents=len(self._agents),
             http_executors=len(self._http_executors),
+            mcp_clients=len(self._mcp_clients),
         )
 
         # Close all HTTP executor tool modules
@@ -332,6 +359,24 @@ class AgentCache:
                     error=str(e),
                 )
 
+        # Phase 9: Explicitly stop MCP clients to terminate server processes
+        for mcp_client in self._mcp_clients:
+            try:
+                # MCPClient uses context manager protocol - call __exit__ with None args
+                if hasattr(mcp_client, "__exit__"):
+                    mcp_client.__exit__(None, None, None)
+                    logger.debug("mcp_client_stopped")
+                elif hasattr(mcp_client, "stop"):
+                    # Fallback: try stop() with context manager args
+                    mcp_client.stop(None, None, None)
+                    logger.debug("mcp_client_stopped")
+            except Exception as e:
+                logger.warning(
+                    "mcp_client_stop_failed",
+                    error=str(e),
+                )
+
         # Clear caches
         self._agents.clear()
         self._http_executors.clear()
+        self._mcp_clients.clear()

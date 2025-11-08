@@ -471,31 +471,58 @@
           "type": "array",
           "items": {
             "type": "object",
-            "additionalProperties": false,
             "required": [
-              "id",
-              "command"
+              "id"
             ],
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/identifier"
-              },
-              "command": {
-                "type": "string"
-              },
-              "args": {
-                "type": "array",
-                "items": {
-                  "type": "string"
+            "oneOf": [
+              {
+                "description": "MCP server using stdio transport",
+                "additionalProperties": false,
+                "required": ["command"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/identifier"
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
                 }
               },
-              "env": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string"
+              {
+                "description": "MCP server using HTTPS transport",
+                "additionalProperties": false,
+                "required": ["url"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/identifier"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "HTTPS endpoint for the MCP server (e.g., https://learn.microsoft.com/api/mcp)"
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Optional HTTP headers to include in requests"
+                  }
                 }
               }
-            }
+            ]
           }
         },
         "http_executors": {

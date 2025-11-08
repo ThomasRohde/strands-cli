@@ -1,0 +1,45 @@
+# MCP Tools - Simple File Operations with OpenAI
+#
+# This example demonstrates MCP filesystem server integration using OpenAI
+# as the LLM provider (for local, cost-free execution).
+#
+# Prerequisites:
+# - Install MCP package: pip install mcp strands-agents[mcp]
+# - Install MCP filesystem server: npm install -g @modelcontextprotocol/server-filesystem
+#
+# Usage:
+#   strands run examples/mcp-simple-openai.yaml
+#
+# This is a minimal MCP example perfect for testing and learning.
+
+version: 0
+name: "mcp-simple-openai"
+description: "Simple MCP filesystem demo with OpenAI"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+tools:
+  mcp:
+    - id: "filesystem"
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+agents:
+  helper:
+    prompt: "You are a helpful assistant that can work with files. Be concise and clear."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: helper
+        input: |
+          Please list all .yaml files in the current directory.
+          If you find any, read the first one and tell me what it's about.
+
+outputs:
+  artifacts:
+    - path: "./mcp-output.txt"
+      from: "{{ last_response }}"

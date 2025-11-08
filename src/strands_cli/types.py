@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Any
 
 import structlog
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 logger = structlog.get_logger(__name__)
 
@@ -232,11 +232,34 @@ class HttpExecutor(BaseModel):
 
 
 class McpServer(BaseModel):
-    """MCP server configuration (future)."""
+    """MCP server configuration (Phase 9).
+    
+    Supports two transport types:
+    1. stdio: command-based MCP servers (npx, uvx, etc.)
+    2. HTTPS: remote MCP servers via HTTPS endpoint
+    """
 
-    command: str
+    id: str
+    # stdio transport fields
+    command: str | None = None
     args: list[str] | None = None
     env: dict[str, str] | None = None
+    # HTTPS transport fields
+    url: str | None = None
+    headers: dict[str, str] | None = None
+
+    @model_validator(mode="after")
+    def validate_transport(self) -> "McpServer":
+        """Validate that either command or url is provided, but not both."""
+        has_command = self.command is not None
+        has_url = self.url is not None
+        
+        if not has_command and not has_url:
+            raise ValueError("MCP server must have either 'command' or 'url'")
+        if has_command and has_url:
+            raise ValueError("MCP server cannot have both 'command' and 'url'")
+        
+        return self
 
 
 class Tools(BaseModel):

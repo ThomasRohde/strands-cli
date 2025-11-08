@@ -292,14 +292,14 @@ pattern:
 class TestCLIExplainCommand:
     """Test the 'explain' command."""
 
-    def test_explain_unsupported_features(self, cli_runner: CliRunner, tmp_path: Path):
-        """Test explain command for unsupported features."""
-        # Use a spec with MCP tools (valid schema, unsupported)
-        unsupported_spec = tmp_path / "unsupported.yaml"
-        unsupported_spec.write_text(
+    def test_explain_mcp_now_supported(self, cli_runner: CliRunner, tmp_path: Path):
+        """Test explain command shows MCP tools are now supported (Phase 9)."""
+        # Use a spec with MCP tools (now supported in Phase 9)
+        mcp_spec = tmp_path / "mcp-supported.yaml"
+        mcp_spec.write_text(
             """
 version: 0
-name: unsupported-mcp-tools
+name: mcp-tools-supported
 runtime:
   provider: ollama
   model_id: gpt
@@ -328,12 +328,13 @@ outputs:
             encoding="utf-8",
         )
 
-        result = cli_runner.invoke(app, ["explain", str(unsupported_spec)])
+        result = cli_runner.invoke(app, ["explain", str(mcp_spec)])
 
-        assert result.exit_code == 0  # explain shows issues but doesn't fail
-        # Check that output mentions unsupported features
-        assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
-        assert "mcp" in result.stdout.lower()
+        assert result.exit_code == 0
+        # MCP tools should now be supported (not unsupported)
+        assert "MVP Compatible" in result.stdout or "compatible" in result.stdout.lower()
+        # Should NOT show unsupported features message
+        assert "Unsupported" not in result.stdout
 
     def test_explain_supported_spec(self, cli_runner: CliRunner, multi_step_chain_yaml: Path):
         """Test explain command for supported spec."""

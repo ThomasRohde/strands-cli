@@ -87,18 +87,17 @@ class TestCapabilityChecker:
         assert report.supported is True
         assert len(report.issues) == 0
 
-    def test_mcp_tools_unsupported(self, mcp_tools_spec: Path) -> None:
-        """Test that MCP tools are rejected."""
+    def test_mcp_tools_supported(self, mcp_tools_spec: Path) -> None:
+        """Test that MCP tools are now supported (Phase 9)."""
         spec = load_spec(mcp_tools_spec)
         report = check_capability(spec)
 
-        assert report.supported is False
+        # MCP tools should now be supported
+        assert report.supported is True
 
-        # Find the MCP tools issue
-        mcp_issue = next((issue for issue in report.issues if "/tools/mcp" in issue.pointer), None)
-        assert mcp_issue is not None
-        assert "MCP" in mcp_issue.reason
-        assert "not supported" in mcp_issue.reason
+        # Verify no MCP-related issues
+        mcp_issues = [issue for issue in report.issues if "/tools/mcp" in issue.pointer]
+        assert len(mcp_issues) == 0
 
     def test_bedrock_requires_region(self, temp_output_dir: Path) -> None:
         """Test that Bedrock without region is rejected."""

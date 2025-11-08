@@ -16,6 +16,20 @@ from typing import Any
 
 from strands.agent import Agent
 
+# Phase 9: MCP integration using Strands SDK native support
+try:
+    from mcp import StdioServerParameters, stdio_client
+    from mcp.client.streamable_http import streamablehttp_client
+    from strands.tools.mcp import MCPClient
+
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    MCPClient = None  # type: ignore
+    stdio_client = None  # type: ignore
+    streamablehttp_client = None  # type: ignore
+    StdioServerParameters = None  # type: ignore
+
 from strands_cli.runtime.providers import create_model
 from strands_cli.runtime.tools import load_python_callable
 from strands_cli.tools import get_registry
@@ -196,6 +210,110 @@ def _load_native_tools(tools_to_use: list[str] | None) -> list[Any]:
     return tools
 
 
+def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
+    """Load MCP server tools using Strands SDK MCPClient.
+
+    Phase 9: Uses native Strands SDK MCP support with MCPClient.
+    The MCPClient implements ToolProvider interface and can be passed directly
+    to Agent(tools=[...]) for automatic lifecycle management (experimental).
+
+    Supports two transport types:
+    1. stdio: Command-based MCP servers (npx, uvx, python, etc.)
+    2. HTTPS: Remote MCP servers via streamable HTTP
+
+    Args:
+        spec: Full workflow spec (for spec.tools.mcp configuration)
+        tools_to_use: Optional list of tool IDs to filter by (currently ignored for MCP -
+                     all tools from configured MCP servers are loaded)
+
+    Returns:
+        List of MCPClient instances (ToolProvider interface)
+
+    Raises:
+        AdapterError: If MCP dependencies not installed or client creation fails
+    """
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+
+    mcp_clients: list[Any] = []
+
+    if not spec.tools or not spec.tools.mcp:
+        return mcp_clients
+
+    if not MCP_AVAILABLE:
+        raise AdapterError(
+            "MCP tools configured but 'mcp' package not installed. "
+            "Install with: pip install mcp strands-agents[mcp]"
+        )
+
+    for mcp_config in spec.tools.mcp:
+        try:
+            # Determine transport type based on config
+            if mcp_config.command:
+                # stdio transport
+                server_params = StdioServerParameters(
+                    command=mcp_config.command,
+                    args=mcp_config.args or [],
+                    env=mcp_config.env or {},
+                )
+
+                # Create MCPClient with stdio transport
+                mcp_client = MCPClient(lambda params=server_params: stdio_client(params))
+
+                logger.info(
+                    "mcp_client_created",
+                    id=mcp_config.id,
+                    transport="stdio",
+                    command=mcp_config.command,
+                    args=mcp_config.args,
+                )
+
+            elif mcp_config.url:
+                # HTTPS transport (streamable HTTP)
+                url = mcp_config.url
+                headers = mcp_config.headers or None
+
+                # Create transport callable for streamable HTTP
+                def create_http_transport(
+                    endpoint: str = url, custom_headers: dict[str, str] | None = headers
+                ) -> Any:
+                    return streamablehttp_client(endpoint, headers=custom_headers)
+
+                # Create MCPClient with HTTPS transport
+                mcp_client = MCPClient(create_http_transport)
+
+                logger.info(
+                    "mcp_client_created",
+                    id=mcp_config.id,
+                    transport="https",
+                    url=mcp_config.url,
+                )
+
+            else:
+                logger.warning(
+                    "mcp_config_invalid",
+                    id=mcp_config.id,
+                    error="MCP config must have either 'command' or 'url'",
+                )
+                continue
+
+            mcp_clients.append(mcp_client)
+
+        except Exception as e:
+            logger.warning(
+                "mcp_client_creation_failed",
+                id=mcp_config.id,
+                command=mcp_config.command if mcp_config.command else None,
+                url=mcp_config.url if mcp_config.url else None,
+                error=str(e),
+            )
+            # Continue with other MCP servers if one fails
+            # Do not raise - graceful degradation
+
+    return mcp_clients
+
+
 def build_agent(  # noqa: C901 - Complexity acceptable for agent construction orchestration
     spec: Spec,
     agent_id: str,
@@ -204,6 +322,7 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
     conversation_manager: Any | None = None,
     hooks: list[Any] | None = None,
     injected_notes: str | None = None,
+    agent_cache: Any | None = None,
 ) -> Agent:
     """Build a Strands Agent from a spec.
 
@@ -224,6 +343,7 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
         conversation_manager: Optional conversation manager for context compaction
         hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
         injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
+        agent_cache: Optional AgentCache instance for tracking MCP clients (Phase 9)
 
     Returns:
         Configured Strands Agent ready for invoke_async()
@@ -301,6 +421,20 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
     tools.extend(_load_native_tools(tools_to_use))
     tools.extend(_load_python_tools(spec, tools_to_use, loaded_tool_ids))
     tools.extend(_load_http_executors(spec, tools_to_use))
+    # Phase 9: Load MCP server tools (uses Strands SDK MCPClient with ToolProvider interface)
+    mcp_clients = _load_mcp_tools(spec, tools_to_use)
+    tools.extend(mcp_clients)
+
+    # Track MCP clients in agent cache for cleanup (before Agent construction wraps them)
+    if agent_cache and mcp_clients:
+        for mcp_client in mcp_clients:
+            if mcp_client not in agent_cache._mcp_clients:
+                agent_cache._mcp_clients.append(mcp_client)
+                logger.debug(
+                    "mcp_client_tracked_pre_agent",
+                    agent_id=agent_id,
+                    mcp_clients_count=len(agent_cache._mcp_clients),
+                )
 
     # Create the agent
     try:

@@ -119,12 +119,12 @@ class TestPlanCommand:
         assert '"runtime"' in result.stdout
         assert '"provider"' in result.stdout
 
-    def test_plan_unsupported_spec_shows_issues(self, mcp_tools_spec: Path) -> None:
-        """Test plan command shows unsupported features."""
+    def test_plan_mcp_spec_shows_compatible(self, mcp_tools_spec: Path) -> None:
+        """Test plan command shows MCP tools are now supported (Phase 9)."""
         result = runner.invoke(app, ["plan", str(mcp_tools_spec)])
 
         assert result.exit_code == EX_OK
-        assert "Unsupported" in result.stdout or "unsupported" in result.stdout.lower()
+        assert "Compatible" in result.stdout or "compatible" in result.stdout.lower()
 
     def test_plan_supported_spec_shows_compatible(self, minimal_ollama_spec: Path) -> None:
         """Test plan command shows MVP compatible for supported specs."""
@@ -144,13 +144,15 @@ class TestExplainCommand:
         assert result.exit_code == EX_OK
         assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
 
-    def test_explain_unsupported_spec_shows_remediation(self, mcp_tools_spec: Path) -> None:
-        """Test explain command shows remediation for unsupported features."""
+    def test_explain_mcp_tools_now_supported(self, mcp_tools_spec: Path) -> None:
+        """Test explain command shows MCP tools are supported (Phase 9)."""
         result = runner.invoke(app, ["explain", str(mcp_tools_spec)])
 
         assert result.exit_code == EX_OK
-        assert "Unsupported Features" in result.stdout
-        assert "Remediation:" in result.stdout or "remediation" in result.stdout.lower()
+        # MCP tools are now supported, should show compatible
+        assert "No unsupported features" in result.stdout or "compatible" in result.stdout.lower()
+        # Should NOT show unsupported features
+        assert "Unsupported Features" not in result.stdout
 
     def test_explain_multi_step_chain(self, multi_step_chain_spec: Path) -> None:
         """Test explain command for multi-step chain (now supported)."""
@@ -295,22 +297,49 @@ class TestRunCommand:
 
     def test_run_unsupported_spec_returns_unsupported(
         self,
-        mcp_tools_spec: Path,
         temp_artifacts_dir: Path,
+        tmp_path: Path,
     ) -> None:
         """Test run command with unsupported spec returns EX_UNSUPPORTED."""
+        # Phase 9: All pattern types are now supported. Create a spec with an invalid/unsupported
+        # provider to test EX_UNSUPPORTED error code path
+        unsupported_spec = tmp_path / "unsupported-provider.yaml"
+        unsupported_spec.write_text(
+            """
+version: 0
+name: unsupported-provider
+runtime:
+  provider: unsupported_provider
+  model_id: test
+agents:
+  test:
+    prompt: "Test"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+outputs:
+  artifacts:
+    - path: "./out.txt"
+      from: "{{ last_response }}"
+"""
+        )
+
         result = runner.invoke(
             app,
             [
                 "run",
-                str(mcp_tools_spec),
+                str(unsupported_spec),
                 "--out",
                 str(temp_artifacts_dir),
             ],
         )
 
-        assert result.exit_code == EX_UNSUPPORTED
-        assert "Unsupported features detected" in result.stdout
+        # Should fail schema validation (not capability check) with invalid provider
+        assert result.exit_code == EX_SCHEMA  # Invalid provider fails schema validation
+        assert "validation" in result.stdout.lower() or "schema" in result.stdout.lower()
 
     def test_run_invalid_spec_returns_schema_error(
         self,

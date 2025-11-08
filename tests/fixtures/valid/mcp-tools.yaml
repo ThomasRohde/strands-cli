@@ -3,9 +3,8 @@ name: mcp-tools
 description: MCP tools (unsupported in MVP)
 
 runtime:
-  provider: ollama
-  model_id: gpt-oss
-  host: http://localhost:11434
+  provider: openai
+  model_id: gpt-5-nano
 
 tools:
   mcp:
@@ -28,5 +27,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/output.txt
+    - path: ./output.txt
       from: "{{ last_response }}"

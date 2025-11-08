@@ -216,16 +216,19 @@ class TestUnsupportedFeaturesE2E:
         assert capability_report.supported is True
         assert len(capability_report.issues) == 0
 
-    def test_mcp_tools_rejected(
+    def test_mcp_tools_now_supported(
         self,
         mcp_tools_spec: Path,
     ) -> None:
-        """Test MCP tools spec fails capability check."""
+        """Test MCP tools spec passes capability check (Phase 9)."""
         spec = load_spec(str(mcp_tools_spec))
 
         capability_report = check_capability(spec)
-        assert not capability_report.supported
-        assert any("mcp" in issue.reason.lower() for issue in capability_report.issues)
+        # MCP tools are now supported in Phase 9
+        assert capability_report.supported
+        # Should have no issues related to MCP
+        mcp_issues = [issue for issue in capability_report.issues if "mcp" in issue.reason.lower()]
+        assert len(mcp_issues) == 0
 
 
 class TestSchemaValidationE2E:
