@@ -32,14 +32,16 @@ from typing import Any
 
 import structlog
 
+from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
 try:
@@ -158,6 +160,9 @@ async def _execute_task(
     wait_min: int,
     wait_max: int,
     cache: AgentCache,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> tuple[str, int]:
     """Execute a single task asynchronously.
 
@@ -197,8 +202,22 @@ async def _execute_task(
         tools_for_task = (
             task.tool_overrides if hasattr(task, 'tool_overrides') and task.tool_overrides else None
         )
+
+        # Phase 6.2: Inject last N notes into agent context
+        injected_notes = None
+        if notes_manager and spec.context_policy and spec.context_policy.notes:
+            injected_notes = notes_manager.get_last_n_for_injection(
+                spec.context_policy.notes.include_last
+            )
+
         agent = await cache.get_or_build_agent(
-            spec, task_agent_id, task_agent_config, tool_overrides=tools_for_task
+            spec,
+            task_agent_id,
+            task_agent_config,
+            tool_overrides=tools_for_task,
+            conversation_manager=context_manager,
+            hooks=hooks,
+            injected_notes=injected_notes,
         )
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e
@@ -267,6 +286,9 @@ async def _execute_workflow_layer(
     wait_min: int,
     wait_max: int,
     cache: AgentCache,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> list[tuple[str, int]]:
     """Execute all tasks in a workflow layer (potentially in parallel).
 
@@ -316,6 +338,9 @@ async def _execute_workflow_layer(
                         wait_min,
                         wait_max,
                         cache,
+                        context_manager,
+                        hooks,
+                        notes_manager,
                     )
             else:
                 return await _execute_task(
@@ -326,9 +351,10 @@ async def _execute_workflow_layer(
                     wait_min,
                     wait_max,
                     cache,
-                )
-
-        # Execute all tasks in layer (parallel where possible)
+                    context_manager,
+                    hooks,
+                    notes_manager,
+                )        # Execute all tasks in layer (parallel where possible)
         results = await asyncio.gather(
             *[_execute_with_semaphore(tid, tobj, ctx) for tid, tobj, ctx in tasks_with_context],
             return_exceptions=False,  # Fail-fast on first error
@@ -388,6 +414,40 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     task_results: dict[str, dict[str, Any]] = {}
     started_at = datetime.now(UTC).isoformat()
 
+    # Phase 6.1: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    hooks: list[Any] = []
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
+        logger.info("compaction_enabled", threshold_tokens=threshold)
+
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens_val = spec.runtime.budgets["max_tokens"]
+        # Ensure max_tokens is int (spec validation should guarantee this)
+        max_tokens = int(max_tokens_val) if max_tokens_val is not None else 0
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
+
+    # Phase 6.2: Initialize notes manager and hook for structured notes
+    notes_manager = None
+    task_counter = [0]  # Mutable container for hook to track task count
+    if spec.context_policy and spec.context_policy.notes:
+        notes_manager = NotesManager(spec.context_policy.notes.file)
+
+        # Build agent_id → tools mapping for notes hook
+        agent_tools: dict[str, list[str]] = {}
+        for agent_id, agent_config in spec.agents.items():
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+        hooks.append(NotesAppenderHook(notes_manager, task_counter, agent_tools))
+        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
     # Phase 5: Create AgentCache for agent reuse across tasks
     cache = AgentCache()
     try:
@@ -411,6 +471,9 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                     wait_min,
                     wait_max,
                     cache,
+                    context_manager,
+                    hooks,
+                    notes_manager,
                 )
             except Exception as e:
                 raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e
@@ -420,10 +483,6 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                 layer_task_ids, layer_results, strict=True
             ):
                 cumulative_tokens += estimated_tokens
-
-                # Check budget
-                if max_tokens:
-                    check_budget_threshold(cumulative_tokens, max_tokens, task_id)
 
                 # Store result with agent ID for tracking
                 task_results[task_id] = {

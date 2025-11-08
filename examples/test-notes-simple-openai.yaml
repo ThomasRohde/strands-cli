@@ -1,0 +1,37 @@
+version: 0
+name: "Simple Notes Test"
+description: "Quick 3-step chain to test structured notes functionality"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+context_policy:
+  notes:
+    file: "./artifacts/test-notes.md"
+    include_last: 2
+
+agents:
+  assistant:
+    prompt: |
+      You are a helpful assistant. Provide concise, clear responses.
+      If you see "Previous Workflow Steps" in your context, acknowledge what was done before.
+    tools: []
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: assistant
+        input: "What is 2+2? Just give the answer."
+      
+      - agent: assistant
+        input: "What is 5*3? Just give the answer."
+      
+      - agent: assistant
+        input: "What is the sum of the two previous answers? Explain your reasoning."
+
+outputs:
+  artifacts:
+    - path: "./final-answer.txt"
+      from: "{{ last_response }}"

@@ -219,12 +219,168 @@ context_policy:
     file: "./artifacts/NOTES.md"
     include_last: 10
   retrieval:
-    jit_tools: ["grep", "head", "tail"]
+    jit_tools: ["grep", "head", "tail", "search"]
 ```
 
 - **Compaction**: trigger a summarization/compaction policy when token count passes a threshold.
 - **Notes**: structured note-taking for continuity and memory.
-- **JIT Retrieval**: prefer small, targeted retrieval tools to keep context lean.
+- **JIT Retrieval**: Just-In-Time retrieval tools provide file system access during agent execution.
+
+### 8.1 Compaction
+
+Compaction reduces context size when token counts exceed limits. When `enabled: true` and conversation tokens surpass `when_tokens_over`, the system triggers a summarization policy.
+
+### 8.2 Notes
+
+Structured note-taking helps agents maintain continuity across runs. The `notes` configuration:
+- `file`: Path to markdown file where notes are stored
+- `include_last`: Number of most recent notes to include in agent context
+
+### 8.3 JIT Retrieval Tools
+
+**Phase 6.3 Feature**: Just-In-Time (JIT) retrieval tools are automatically injected into agents when `context_policy.retrieval.jit_tools` is configured. These tools provide safe, read-only file system access without pre-loading large files into context.
+
+#### Configuration
+
+```yaml
+context_policy:
+  retrieval:
+    jit_tools:
+      - "grep"    # Pattern search with context lines
+      - "head"    # Read first N lines
+      - "tail"    # Read last N lines
+      - "search"  # Keyword/regex search with highlighting
+```
+
+#### Available JIT Tools
+
+All JIT tools are **cross-platform** (Windows, macOS, Linux) and use **pure Python** implementations (no shell commands).
+
+**1. grep** - Pattern search with context
+- **Purpose**: Search files for regex/literal patterns with surrounding context
+- **Parameters**:
+  - `path` (required): Absolute file path
+  - `pattern` (required): Search pattern (regex or literal string)
+  - `context_lines` (optional, default=2): Lines before/after matches
+  - `is_regex` (optional, default=true): Treat pattern as regex
+  - `case_sensitive` (optional, default=false): Case-sensitive matching
+  - `max_matches` (optional, default=100): Maximum matches to return
+- **Returns**: Matched lines with line numbers and context
+- **Example**: "Use grep to search for 'TODO' in src/main.py with 5 lines of context"
+
+**2. head** - Read first N lines
+- **Purpose**: Read beginning of file without loading entire contents
+- **Parameters**:
+  - `path` (required): Absolute file path
+  - `lines` (optional, default=10): Number of lines to read
+  - `encoding` (optional, default="utf-8"): File encoding
+- **Returns**: First N lines with line numbers
+- **Example**: "Use head to read the first 20 lines of README.md"
+
+**3. tail** - Read last N lines
+- **Purpose**: Read end of file (useful for logs, recent changes)
+- **Parameters**:
+  - `path` (required): Absolute file path
+  - `lines` (optional, default=10): Number of lines to read
+  - `encoding` (optional, default="utf-8"): File encoding
+- **Returns**: Last N lines with line numbers
+- **Example**: "Use tail to check the last 50 lines of error.log"
+
+**4. search** - Keyword/regex search
+- **Purpose**: Multi-keyword search with match highlighting
+- **Parameters**:
+  - `path` (required): Absolute file path
+  - `keywords` (required): Search terms (string or array)
+  - `is_regex` (optional, default=false): Treat keywords as regex
+  - `case_sensitive` (optional, default=false): Case-sensitive matching
+  - `context_lines` (optional, default=1): Lines around matches
+  - `max_results` (optional, default=50): Maximum results
+- **Returns**: Matches with highlighting (→ markers)
+- **Example**: "Search config.yaml for 'database' or 'connection'"
+
+#### Security & Path Validation
+
+All JIT tools enforce strict path validation:
+- **Absolute paths only**: Relative paths are rejected
+- **Symlink prevention**: Symlinks are blocked to prevent directory traversal
+- **Binary file detection**: Binary files are rejected (only text files allowed)
+- **Encoding handling**: Graceful fallback to latin-1 for mixed-encoding files
+
+#### Usage Patterns
+
+**Pattern 1: Research & Analysis**
+```yaml
+agents:
+  researcher:
+    prompt: "Analyze repository structure and recent changes"
+    tools: []  # No explicit tools - use JIT only
+
+context_policy:
+  retrieval:
+    jit_tools: ["grep", "head", "tail", "search"]
+```
+
+The agent can now:
+- `grep` for function definitions
+- `head` to read file headers
+- `tail` to check recent log entries
+- `search` for configuration keys
+
+**Pattern 2: Debugging Workflows**
+```yaml
+agents:
+  debugger:
+    prompt: "Find TODO comments and error messages"
+
+context_policy:
+  retrieval:
+    jit_tools: ["grep", "search"]
+```
+
+**Pattern 3: Mixed Tools**
+```yaml
+agents:
+  analyzer:
+    prompt: "Analyze code and make API calls"
+    tools: ["http_request"]  # Explicit tool
+
+context_policy:
+  retrieval:
+    jit_tools: ["grep", "head"]  # Auto-injected
+
+tools:
+  python:
+    - callable: "strands_tools.http_request"
+```
+
+The agent gets both `http_request` (from `tools.python`) and JIT retrieval tools (auto-injected).
+
+#### Best Practices
+
+1. **Explicit opt-in**: JIT tools are only available when `context_policy.retrieval.jit_tools` is configured
+2. **Tool selection**: Only enable tools you need (e.g., just `["grep", "search"]` for code analysis)
+3. **No duplicates**: If a tool is in both `agent.tools` and `jit_tools`, it's only loaded once
+4. **Cross-platform**: All tools use pure Python - no shell command dependencies
+5. **Read-only**: All JIT tools are read-only (no file modification capabilities)
+
+#### Limitations (Phase 6 Scope)
+
+- **Read-only**: No file writing, moving, or deletion
+- **Text files only**: Binary files are rejected
+- **No directory operations**: Can't list directories or create folders
+- **No shell execution**: All operations use pure Python
+- **MCP servers**: `mcp_servers` field is reserved for Phase 9 (not yet implemented)
+
+#### Future: MCP Servers (Phase 9)
+
+```yaml
+context_policy:
+  retrieval:
+    jit_tools: ["grep", "head"]
+    mcp_servers: ["filesystem", "github"]  # Phase 9 feature
+```
+
+Model Context Protocol (MCP) servers will provide extended retrieval capabilities in Phase 9, including directory operations, git integration, and custom data sources.
 
 ---
 

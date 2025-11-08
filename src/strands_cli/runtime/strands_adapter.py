@@ -18,6 +18,7 @@ from strands.agent import Agent
 
 from strands_cli.runtime.providers import create_model
 from strands_cli.runtime.tools import load_python_callable
+from strands_cli.tools import get_registry
 from strands_cli.tools.http_executor_factory import create_http_executor_tool
 from strands_cli.types import Agent as AgentConfig
 from strands_cli.types import Spec
@@ -29,13 +30,16 @@ class AdapterError(Exception):
     pass
 
 
-def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) -> str:
+def build_system_prompt(
+    agent_config: AgentConfig, spec: Spec, agent_id: str, injected_notes: str | None = None
+) -> str:
     """Build the system prompt for an agent.
 
     Combines multiple sources into a comprehensive system prompt:
     1. Agent's base prompt (agent.prompt) - core instructions
-    2. Skills metadata injection - available tools/capabilities
-    3. Runtime banner - workflow context, budgets, tags
+    2. Structured notes (optional) - previous workflow steps for continuity
+    3. Skills metadata injection - available tools/capabilities
+    4. Runtime banner - workflow context, budgets, tags
 
     Skills are injected as metadata only (id, path, description).
     No code execution occurs; this provides context to the LLM.
@@ -44,6 +48,7 @@ def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) ->
         agent_config: Agent configuration from spec.agents[agent_id]
         spec: Full workflow spec for context
         agent_id: ID of this agent
+        injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
 
     Returns:
         Complete system prompt for agent initialization
@@ -53,7 +58,11 @@ def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) ->
     # 1. Base agent prompt
     sections.append(agent_config.prompt)
 
-    # 2. Skills metadata injection
+    # 2. Structured notes injection (Phase 6.2)
+    if injected_notes:
+        sections.append(f"\n# Previous Workflow Steps\n{injected_notes}")
+
+    # 3. Skills metadata injection
     if spec.skills:
         skills_lines = ["", "# Available Skills", ""]
         for skill in spec.skills:
@@ -65,7 +74,7 @@ def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) ->
             skills_lines.append(skill_line)
         sections.append("\n".join(skills_lines))
 
-    # 3. Runtime banner
+    # 4. Runtime banner
     banner_lines = ["", "# Runtime Context", ""]
     banner_lines.append(f"- **Workflow:** {spec.name}")
     if spec.description:
@@ -85,12 +94,15 @@ def build_system_prompt(agent_config: AgentConfig, spec: Spec, agent_id: str) ->
     return "\n\n".join(sections)
 
 
-def _load_python_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
+def _load_python_tools(
+    spec: Spec, tools_to_use: list[str] | None, loaded_tool_ids: set[str] | None = None
+) -> list[Any]:
     """Load Python callable tools based on spec and filter.
 
     Args:
         spec: Workflow spec containing tool definitions
         tools_to_use: Optional list of tool IDs to filter by
+        loaded_tool_ids: Set of tool IDs already loaded from native registry (to avoid duplicates)
 
     Returns:
         List of loaded Python callable objects
@@ -98,9 +110,16 @@ def _load_python_tools(spec: Spec, tools_to_use: list[str] | None) -> list[Any]:
     Raises:
         AdapterError: If tool loading fails
     """
+    if loaded_tool_ids is None:
+        loaded_tool_ids = set()
+
     tools: list[Any] = []
     if spec.tools and spec.tools.python:
         for py_tool in spec.tools.python:
+            # Skip if tool was already loaded from native registry
+            if py_tool.callable in loaded_tool_ids:
+                continue
+
             if tools_to_use is None or py_tool.callable in tools_to_use:
                 try:
                     callable_obj = load_python_callable(py_tool.callable)
@@ -140,20 +159,61 @@ def _load_http_executors(spec: Spec, tools_to_use: list[str] | None) -> list[Any
     return tools
 
 
-def build_agent(
+def _load_native_tools(tools_to_use: list[str] | None) -> list[Any]:
+    """Load native tools from the registry.
+
+    Native tools are auto-discovered via TOOL_SPEC exports and include
+    JIT retrieval tools (grep, head, tail, search).
+
+    Args:
+        tools_to_use: Optional list of tool IDs to filter by
+
+    Returns:
+        List of loaded native tool module objects
+
+    Raises:
+        AdapterError: If tool loading fails
+    """
+    import importlib
+
+    tools: list[Any] = []
+    if tools_to_use is None:
+        return tools
+
+    registry = get_registry()
+    for tool_id in tools_to_use:
+        tool_info = registry.get(tool_id)
+        if tool_info:
+            try:
+                # Import the actual module
+                module = importlib.import_module(tool_info.module_path)
+                tools.append(module)
+            except Exception as e:
+                raise AdapterError(
+                    f"Failed to load native tool '{tool_id}' from '{tool_info.module_path}': {e}"
+                ) from e
+
+    return tools
+
+
+def build_agent(  # noqa: C901 - Complexity acceptable for agent construction orchestration
     spec: Spec,
     agent_id: str,
     agent_config: AgentConfig,
     tool_overrides: list[str] | None = None,
+    conversation_manager: Any | None = None,
+    hooks: list[Any] | None = None,
+    injected_notes: str | None = None,
 ) -> Agent:
     """Build a Strands Agent from a spec.
 
     Complete agent construction workflow:
     1. Create provider-specific model client (Bedrock or Ollama)
-    2. Build system prompt from agent config, skills, and runtime context
+    2. Build system prompt from agent config, skills, notes, and runtime context
     3. Load and validate Python callable tools (allowlist check)
     4. Create HTTP executor adapters
     5. Assemble Strands Agent with all components
+    6. Attach conversation manager and hooks (for context management)
 
     Args:
         spec: Full workflow spec (used for runtime, tools, skills)
@@ -161,6 +221,9 @@ def build_agent(
         agent_config: Configuration for this agent
         tool_overrides: Optional list of tool IDs to use instead of agent's default tools
                        (used for per-step tool_overrides in chain pattern)
+        conversation_manager: Optional conversation manager for context compaction
+        hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
+        injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
 
     Returns:
         Configured Strands Agent ready for invoke_async()
@@ -196,15 +259,47 @@ def build_agent(
     except Exception as e:
         raise AdapterError(f"Failed to create model: {e}") from e
 
-    # Build system prompt
-    system_prompt = build_system_prompt(agent_config, spec, agent_id)
+    # Build system prompt with optional notes injection
+    system_prompt = build_system_prompt(agent_config, spec, agent_id, injected_notes)
 
     # Determine which tools to use
     tools_to_use = tool_overrides if tool_overrides is not None else agent_config.tools
 
-    # Load all tools
+    # Phase 6.3: Auto-inject JIT retrieval tools if context_policy.retrieval is set
+    if spec.context_policy and spec.context_policy.retrieval:
+        retrieval = spec.context_policy.retrieval
+        if retrieval.jit_tools:
+            # Merge JIT tools into tools_to_use (preserving None if no tools)
+            if tools_to_use is None:
+                tools_to_use = retrieval.jit_tools.copy()
+            else:
+                # Avoid duplicates
+                existing_tools = set(tools_to_use)
+                for jit_tool in retrieval.jit_tools:
+                    if jit_tool not in existing_tools:
+                        tools_to_use.append(jit_tool)
+
+            logger.info(
+                "jit_tools_injected",
+                agent=agent_id,
+                jit_tools=retrieval.jit_tools,
+                final_tools=tools_to_use
+            )
+
+    # Load all tools (native/JIT, Python callables, HTTP executors)
+    # Track which tool IDs have been loaded from native registry to avoid duplicates
     tools: list[Any] = []
-    tools.extend(_load_python_tools(spec, tools_to_use))
+    loaded_tool_ids: set[str] = set()
+
+    # Load native tools first (JIT tools, python_exec, etc.)
+    registry = get_registry()
+    if tools_to_use:
+        for tool_id in tools_to_use:
+            if registry.get(tool_id):
+                loaded_tool_ids.add(tool_id)
+
+    tools.extend(_load_native_tools(tools_to_use))
+    tools.extend(_load_python_tools(spec, tools_to_use, loaded_tool_ids))
     tools.extend(_load_http_executors(spec, tools_to_use))
 
     # Create the agent
@@ -214,6 +309,8 @@ def build_agent(
             model=model,
             system_prompt=system_prompt,
             tools=tools if tools else None,
+            conversation_manager=conversation_manager,
+            hooks=hooks,
         )
     except Exception as e:
         raise AdapterError(f"Failed to create Strands Agent: {e}") from e

@@ -55,6 +55,25 @@ This allows graceful degradation: parse the full schema but reject unsupported
 features with actionable guidance rather than silently ignoring them.
 """
 
+EX_BUDGET_EXCEEDED = 19
+"""Token budget exhausted during workflow execution.
+
+The workflow exceeded the configured `budgets.max_tokens` limit and was aborted
+to prevent cost overruns. This exit code is returned when:
+- Cumulative token usage reaches 100% of max_tokens
+- Budget enforcement is enabled (budgets.max_tokens is set)
+
+A warning is logged at the configured threshold (default 80%) before abort.
+If context compaction is enabled, it will be triggered automatically on warning
+to attempt extending the workflow runway.
+
+To resolve:
+- Increase budgets.max_tokens if the workflow legitimately needs more tokens
+- Enable context_policy.compaction to reduce context size during execution
+- Optimize prompts and agent responses to use fewer tokens
+- Split complex workflows into multiple smaller workflows
+"""
+
 # System errors
 EX_UNKNOWN = 70
 """Unexpected exception not handled by specific error codes.

@@ -41,14 +41,15 @@ from typing import Any
 import structlog
 from pydantic import ValidationError
 
+from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.types import EvaluatorDecision, PatternType, RunResult, Spec
 
 
@@ -272,7 +273,7 @@ def _validate_evaluator_optimizer_config(spec: Spec) -> None:
         )
 
 
-async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
     """Execute evaluator-optimizer pattern workflow.
 
     Phase 4 Implementation:
@@ -342,19 +343,47 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
     current_draft = ""
     final_score = 0
 
+    # Phase 6: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    hooks: list[Any] = []
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
+        logger.info("compaction_enabled", threshold_tokens=threshold)
+
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens = spec.runtime.budgets["max_tokens"]
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
+
     # Create AgentCache
     cache = AgentCache()
     try:
         # Get or build agents (reuse cached agents)
-        producer_agent = await cache.get_or_build_agent(spec, producer_agent_id, producer_config)
-        evaluator_agent = await cache.get_or_build_agent(spec, evaluator_agent_id, evaluator_config)
+        producer_agent = await cache.get_or_build_agent(
+            spec,
+            producer_agent_id,
+            producer_config,
+            conversation_manager=context_manager,
+            hooks=hooks,
+        )
+        evaluator_agent = await cache.get_or_build_agent(
+            spec,
+            evaluator_agent_id,
+            evaluator_config,
+            conversation_manager=context_manager,
+            hooks=hooks,
+        )
 
         # Iteration 1: Initial production
         current_draft, estimated_tokens = await _run_initial_production(
             producer_agent, initial_prompt, max_attempts, wait_min, wait_max
         )
         cumulative_tokens += estimated_tokens
-        check_budget_threshold(cumulative_tokens, max_tokens, "iteration_1_production")
 
         # Evaluation loop
         for iteration in range(1, max_iters + 1):
@@ -365,9 +394,6 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
                 evaluator_agent, current_draft, config, variables, max_attempts, wait_min, wait_max
             )
             cumulative_tokens += estimated_tokens
-            check_budget_threshold(
-                cumulative_tokens, max_tokens, f"iteration_{iteration}_evaluation"
-            )
 
             # Parse evaluator response (retry once on malformed JSON)
             evaluation: EvaluatorDecision | None = None
@@ -402,9 +428,6 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
                         # Estimate tokens for retry
                         estimated_tokens = estimate_tokens(clarification_prompt, evaluator_response)
                         cumulative_tokens += estimated_tokens
-                        check_budget_threshold(
-                            cumulative_tokens, max_tokens, f"iteration_{iteration}_evaluation_retry"
-                        )
                     else:
                         # Both attempts failed
                         raise EvaluatorOptimizerExecutionError(
@@ -473,7 +496,6 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
             # Estimate tokens for revision
             estimated_tokens = estimate_tokens(revision_prompt, current_draft)
             cumulative_tokens += estimated_tokens
-            check_budget_threshold(cumulative_tokens, max_tokens, f"iteration_{iteration}_revision")
 
         # Build result
         completed_at = datetime.now(UTC).isoformat()

@@ -468,12 +468,100 @@ class Security(BaseModel):
     guardrails: dict[str, Any] | None = None
 
 
-class ContextPolicy(BaseModel):
-    """Context management policy (parsed but no-op in MVP)."""
+class Compaction(BaseModel):
+    """Context compaction configuration.
 
-    compaction: dict[str, Any] | None = None
-    notes: dict[str, Any] | None = None
-    retrieval: dict[str, Any] | None = None
+    Controls when and how conversation context is compressed using
+    SummarizingConversationManager to prevent token overflow.
+
+    Attributes:
+        enabled: Enable proactive context compaction (default: True)
+        when_tokens_over: Trigger compaction before reaching this token threshold
+        summary_ratio: Proportion of older messages to summarize (0.0-1.0, default: 0.35)
+        preserve_recent_messages: Number of recent messages to keep intact (default: 12)
+        summarization_model: Optional cheaper model for summarization (e.g., "gpt-4o-mini")
+    """
+
+    enabled: bool = True
+    when_tokens_over: int | None = Field(None, ge=1000)  # Minimum 1K tokens
+    summary_ratio: float = Field(0.35, ge=0.0, le=1.0)  # 0-100% of context
+    preserve_recent_messages: int = Field(12, ge=1)  # At least 1 message
+    summarization_model: str | None = None  # Optional cheaper model
+
+
+class Notes(BaseModel):
+    """Structured notes configuration.
+
+    Enables persistent note-taking across workflow execution steps for
+    cross-step continuity and multi-session workflow resumption.
+
+    Attributes:
+        file: Path to notes file (e.g., "artifacts/notes.md")
+        include_last: Number of recent notes to inject into agent context (default: 12)
+        format: Output format for notes (default: "markdown")
+    """
+
+    file: str  # Path to notes file
+    include_last: int = Field(12, ge=1)  # At least 1 note
+    format: str = "markdown"  # Future: support JSON
+
+
+class Retrieval(BaseModel):
+    """JIT retrieval configuration.
+
+    Enables just-in-time context retrieval tools for workflows to access
+    file and shell operations without loading entire files into context.
+    Tools are explicitly enabled via jit_tools list for security.
+
+    Attributes:
+        jit_tools: List of JIT tool IDs to enable (e.g., ["grep", "head", "tail", "search"])
+        mcp_servers: List of MCP server IDs from tools.mcp (Phase 9 - not yet implemented)
+    """
+
+    jit_tools: list[str] | None = Field(
+        None,
+        description="JIT tool IDs to enable (grep, head, tail, search)"
+    )
+    mcp_servers: list[str] | None = Field(
+        None,
+        description="MCP server IDs (Phase 9 - not yet implemented)"
+    )
+
+    @field_validator("jit_tools")
+    @classmethod
+    def validate_jit_tools(cls, v: list[str] | None) -> list[str] | None:
+        """Validate JIT tool names to prevent injection attacks."""
+        if v is None:
+            return None
+
+        # Allowed tool IDs (alphanumeric, underscore, hyphen only)
+        import re
+        valid_pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+        for tool_id in v:
+            if not valid_pattern.match(tool_id):
+                raise ValueError(
+                    f"Invalid JIT tool ID '{tool_id}': must contain only "
+                    "alphanumeric characters, underscores, or hyphens"
+                )
+
+        return v
+
+
+class ContextPolicy(BaseModel):
+    """Context management policy.
+
+    Configures intelligent context management for long-running workflows:
+    - Compaction: Automatic context compression when token thresholds are reached
+    - Notes: Structured note-taking for cross-step continuity
+    - Retrieval: JIT context retrieval tools for on-demand file access
+
+    Phase 6.1 implements compaction; Phase 6.2 implements notes; Phase 6.3 implements retrieval.
+    """
+
+    compaction: Compaction | None = None
+    notes: Notes | None = None
+    retrieval: Retrieval | None = None
 
 
 class Environment(BaseModel):

@@ -36,14 +36,16 @@ from typing import Any
 
 import structlog
 
+from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
 
 try:
@@ -108,6 +110,9 @@ async def _execute_branch(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> tuple[str, int]:
     """Execute all steps in a branch sequentially.
 
@@ -162,11 +167,22 @@ async def _execute_branch(
             )
 
         agent_config = spec.agents[step.agent]
+
+        # Phase 6.2: Inject last N notes into agent context
+        injected_notes = None
+        if notes_manager and spec.context_policy and spec.context_policy.notes:
+            injected_notes = notes_manager.get_last_n_for_injection(
+                spec.context_policy.notes.include_last
+            )
+
         agent = await cache.get_or_build_agent(
             spec=spec,
             agent_id=step.agent,
             agent_config=agent_config,
             tool_overrides=step.tool_overrides,
+            conversation_manager=context_manager,
+            hooks=hooks,
+            injected_notes=injected_notes,
         )
 
         # Execute with retry logic
@@ -229,6 +245,9 @@ async def _execute_reduce_step(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> tuple[str, int]:
     """Execute reduce step to aggregate branch results.
 
@@ -266,11 +285,22 @@ async def _execute_reduce_step(
         )
 
     reduce_agent_config = spec.agents[reduce_config.agent]
+
+    # Phase 6.2: Inject last N notes into agent context
+    injected_notes = None
+    if notes_manager and spec.context_policy and spec.context_policy.notes:
+        injected_notes = notes_manager.get_last_n_for_injection(
+            spec.context_policy.notes.include_last
+        )
+
     reduce_agent = await cache.get_or_build_agent(
         spec=spec,
         agent_id=reduce_config.agent,
         agent_config=reduce_agent_config,
         tool_overrides=reduce_config.tool_overrides,
+        conversation_manager=context_manager,
+        hooks=hooks,
+        injected_notes=injected_notes,
     )
 
     # Execute reduce with retry
@@ -307,6 +337,9 @@ async def _execute_all_branches_async(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    context_manager: Any = None,
+    hooks: list[Any] | None = None,
+    notes_manager: Any = None,
 ) -> list[tuple[str, int]]:
     """Execute all branches with semaphore control.
 
@@ -333,11 +366,29 @@ async def _execute_all_branches_async(
         if semaphore:
             async with semaphore:
                 return await _execute_branch(
-                    spec, branch, user_vars, cache, max_attempts, wait_min, wait_max
+                    spec,
+                    branch,
+                    user_vars,
+                    cache,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                    context_manager,
+                    hooks,
+                    notes_manager,
                 )
         else:
             return await _execute_branch(
-                spec, branch, user_vars, cache, max_attempts, wait_min, wait_max
+                spec,
+                branch,
+                user_vars,
+                cache,
+                max_attempts,
+                wait_min,
+                wait_max,
+                context_manager,
+                hooks,
+                notes_manager,
             )
 
     # Execute all branches in parallel (fail-fast with return_exceptions=False)
@@ -348,7 +399,7 @@ async def _execute_all_branches_async(
     return results
 
 
-async def run_parallel(
+async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch orchestration
     spec: Spec,
     variables: dict[str, str] | None = None,
 ) -> RunResult:
@@ -400,6 +451,38 @@ async def run_parallel(
         max_tokens=max_tokens,
     )
 
+    # Phase 6.1: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    hooks: list[Any] = []
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        hooks.append(ProactiveCompactionHook(threshold_tokens=threshold))
+        logger.info("compaction_enabled", threshold_tokens=threshold)
+
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens = spec.runtime.budgets["max_tokens"]
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
+
+    # Phase 6.2: Initialize notes manager and hook for structured notes
+    notes_manager = None
+    step_counter = [0]  # Mutable container for hook to track step count across all branches
+    if spec.context_policy and spec.context_policy.notes:
+        notes_manager = NotesManager(spec.context_policy.notes.file)
+
+        # Build agent_id → tools mapping for notes hook
+        agent_tools: dict[str, list[str]] = {}
+        for agent_id, agent_config in spec.agents.items():
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+        hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
     # Create AgentCache for this execution
     cache = AgentCache()
 
@@ -415,6 +498,9 @@ async def run_parallel(
                 max_attempts,
                 wait_min,
                 wait_max,
+                context_manager,
+                hooks,
+                notes_manager,
             )
         except Exception as e:
             end_time = datetime.now(UTC)
@@ -450,9 +536,6 @@ async def run_parallel(
                 "tokens_estimated": tokens,
             }
 
-        # Check budget after all branches complete
-        check_budget_threshold(cumulative_tokens, max_tokens, "all_branches")
-
         logger.info(
             "All branches completed",
             num_branches=len(branches_dict),
@@ -473,13 +556,13 @@ async def run_parallel(
                 max_attempts,
                 wait_min,
                 wait_max,
+                context_manager,
+                hooks,
+                notes_manager,
             )
             final_response = reduce_response
             final_agent_id = spec.pattern.config.reduce.agent
             cumulative_tokens += reduce_tokens
-
-            # Check budget after reduce
-            check_budget_threshold(cumulative_tokens, max_tokens, "reduce")
         else:
             # No reduce step - aggregate branch responses alphabetically
             logger.info("No reduce step - aggregating branch responses")

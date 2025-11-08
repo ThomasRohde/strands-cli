@@ -28,7 +28,7 @@ Key Design:
 import asyncio
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -257,6 +257,18 @@ def _dispatch_executor(
         if verbose:
             console.print_exception()
         sys.exit(EX_RUNTIME)
+    except Exception as e:
+        # Phase 6.4: Handle budget exceeded error
+        from strands_cli.runtime.budget_enforcer import BudgetExceededError
+
+        if isinstance(e, BudgetExceededError):
+            console.print(f"\n[red]Budget exceeded:[/red] {e}")
+            if verbose:
+                console.print(f"[dim]Tokens used: {e.cumulative_tokens}/{e.max_tokens}[/dim]")
+            sys.exit(e.exit_code)
+
+        # Re-raise other exceptions
+        raise
 
 
 def _write_and_report_artifacts(
@@ -286,7 +298,7 @@ def _write_and_report_artifacts(
 
     try:
         # Extract merged variables from spec.inputs.values (includes YAML defaults + CLI overrides)
-        merged_vars = {}
+        merged_vars: dict[str, Any] = {}
         if spec.inputs and isinstance(spec.inputs, dict) and "values" in spec.inputs:
             merged_vars = spec.inputs["values"] or {}
 

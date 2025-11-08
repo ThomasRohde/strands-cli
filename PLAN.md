@@ -231,61 +231,141 @@ Implemented iterative refinement pattern with producer-evaluator feedback loops,
 
 **Goal:** Intelligent context handling for long-running workflows
 
+**Status:** 📋 **PLANNED** (Implementation plan complete)  
 **Duration:** 2-3 weeks  
 **Complexity:** High  
-**Dependencies:** Phase 1 (multi-step context)
+**Dependencies:** Phase 1-5 (multi-step workflows, token tracking)  
+**Detailed Plan:** See `docs/PHASE6_IMPLEMENTATION_PLAN.md`
+
+### Overview
+
+Implement intelligent context management using **native Strands SDK primitives** with minimal custom glue:
+- **Native**: `SummarizingConversationManager` for context compaction
+- **Partial**: Community tools (`journal`, `file_ops`) + hooks for structured notes
+- **Partial**: JIT retrieval tools + MCP integration for external knowledge
+- **Partial**: Metrics + runtime guards for token budget enforcement
+
+Based on research in `docs/strands-phase6-context-research.md`.
 
 ### Features
 
 #### 6.1 Context Compaction
-- Activate `context_policy.compaction` (currently parsed but not executed)
-- **Trigger**: When token count > `when_tokens_over` threshold
-- **Strategy**: Summarize earlier conversation history
-- **Preservation**: Keep critical context (e.g., initial task, recent exchanges)
-- Configurable compaction agent (LLM-based summarization)
+- **Native Strands support**: Use `SummarizingConversationManager` with configurable `summary_ratio` and `preserve_recent_messages`
+- **Proactive trigger**: Custom hook monitors token count and triggers compaction before overflow
+- **Configurable summarization agent**: Optional cheaper model (e.g., GPT-4o-mini) for cost savings
+- **Preservation**: Maintains recent messages and tool-result pairs
 
 #### 6.2 Structured Notes
-- Implement `context_policy.notes` file management
-- Agents append to shared notes file between steps
-- Include last N notes in context (configurable)
-- Notes format: Markdown with timestamps and agent attribution
-- Enable continuity across sessions
+- **Community tools integration**: Use `strands-agents-tools` for file I/O (`journal`, `file_read`, `file_write`)
+- **Hook-based appending**: `NotesAppenderHook` writes Markdown entries after each step
+- **Context injection**: Include last N notes in agent context before each step
+- **Format**: Markdown with ISO8601 timestamps, agent attribution, tools used, and outcomes
+- **Cross-session continuity**: Persist notes file and reload on workflow resume
 
 #### 6.3 JIT Retrieval Tools
-- Add `context_policy.retrieval.jit_tools` (grep, head, tail, search)
-- Tools retrieve context on-demand instead of preloading
-- Integration with MCP servers for external knowledge
-- Smart context selection based on relevance
+- **Local tools**: `grep`, `head`, `tail`, `search` wrappers using community `shell` and `editor` tools
+- **MCP integration**: First-class support for external knowledge bases (Confluence, internal KB)
+- **Smart selection**: System prompt hints or hooks for relevance-based tool selection
+- **On-demand loading**: Retrieve context only when needed, not preloaded
 
 #### 6.4 Token Budget Management
-- Real-time token counting for prompts and completions
-- Enforce `budgets.max_tokens` at runtime
-- Warn when approaching limits
-- Automatic compaction when budget exhausted
+- **Real-time counting**: tiktoken-based token estimation for all providers
+- **Warning system**: Alert at 80% threshold with context message
+- **Auto-compaction**: Trigger compaction on warning to extend runway
+- **Hard limit**: Abort with `EX_BUDGET_EXCEEDED (19)` at 100%
+- **Metrics**: Export budget usage to OTEL (Phase 10 integration)
+
+### Architecture
+
+```
+New Modules:
+- runtime/context_manager.py      # Strands ConversationManager wrapper
+- runtime/token_counter.py        # tiktoken-based counting
+- runtime/budget_enforcer.py      # Budget guard hook
+- tools/jit_retrieval.py          # grep/search/head/tail adapters
+- tools/notes_manager.py          # Markdown notes I/O
+- exec/hooks.py                   # Context hooks (compaction, notes, budget)
+
+Modified:
+- exec/*.py (all executors)       # Integrate context hooks
+- exec/utils.py (AgentCache)      # Accept conversation_manager + hooks
+- types.py                        # Expand ContextPolicy models
+```
 
 ### Acceptance Criteria
 
-- [ ] Compaction triggers at 150K tokens and reduces context by ≥30%
-- [ ] Notes file persists across steps with correct format
-- [ ] JIT retrieval tools fetch context without full load
-- [ ] Token budget enforcement prevents over-limit calls
-- [ ] Compaction preserves task-critical information
+- [ ] Compaction triggers at configured threshold and reduces context by ≥30%
+- [ ] Notes file persists across steps with correct Markdown format
+- [ ] JIT retrieval tools fetch context without loading full files
+- [ ] Token budget enforcement prevents over-limit calls with warnings at 80%
+- [ ] Compaction preserves task-critical information (recent messages, tool results)
+- [ ] MCP integration connects to external knowledge bases
+- [ ] All existing tests pass (479 tests)
+- [ ] New tests: ≥40 tests for context features
 - [ ] Coverage ≥85%
-- [ ] New tests: `test_context.py` (compaction, notes, retrieval, budgets)
+- [ ] Documentation: Manual updated, 3+ example workflows
 
 ### Implementation Checklist
 
-- [ ] **Consult `strands-workflow-manual.md`** section 8 (Context Policy) for compaction/notes/retrieval
-- [ ] **Review schema** `contextPolicy` definition for all configuration options
-- [ ] **Use context7** to get tiktoken documentation for token counting
-- [ ] Create `exec/context.py` for compaction logic
-- [ ] Implement token counter using tiktoken
-- [ ] Add notes file I/O and templating
-- [ ] Create JIT retrieval tool adapters
-- [ ] Add compaction agent configuration
-- [ ] Update capability checker for context policy
-- [ ] Add long-running workflow examples
-- [ ] Document context management strategies
+**Week 1: Foundation & Compaction**
+- [ ] Install dependencies: `tiktoken`, `strands-agents-tools`, `filelock`
+- [ ] Expand `types.py` - detailed `ContextPolicy` models (Compaction, Notes, Retrieval)
+- [ ] Create `runtime/context_manager.py` - wrapper for `SummarizingConversationManager`
+- [ ] Create `exec/hooks.py` - `ProactiveCompactionHook` implementation
+- [ ] Unit + integration tests for compaction (3-step chain with summarization)
+
+**Week 2: Notes & Retrieval**
+- [ ] Create `tools/notes_manager.py` - Markdown I/O with file locking
+- [ ] Create `NotesAppenderHook` - append after each cycle
+- [ ] Implement notes injection in executors (before each step)
+- [ ] Create `tools/jit_retrieval.py` - grep/search/head/tail wrappers
+- [ ] Add MCP integration pattern for external KB
+- [ ] Unit + integration tests for notes and JIT tools
+
+**Week 3: Budgets & Integration**
+- [ ] Create `runtime/token_counter.py` - tiktoken integration
+- [ ] Create `runtime/budget_enforcer.py` - `BudgetEnforcerHook`
+- [ ] Add `EX_BUDGET_EXCEEDED = 19` to `exit_codes.py`
+- [ ] Update all 5 executors to integrate hooks
+- [ ] Update `AgentCache` to accept conversation manager and hooks
+- [ ] E2E tests with all features enabled
+- [ ] Update manual with context policy examples
+- [ ] Create 4+ example workflows
+- [ ] Performance benchmarking (compaction <500ms, notes <50ms)
+- [ ] Final CI run: `.\scripts\dev.ps1 ci`
+
+### Key Design Decisions
+
+1. **Strands-native approach**: Leverage SDK's `SummarizingConversationManager` instead of custom implementation
+2. **Proactive compaction**: Hook-based monitoring triggers compaction before overflow (reactive is too late)
+3. **Community tools**: Use `strands-agents-tools` for file ops and shell commands (don't reinvent)
+4. **Markdown notes**: Human-readable format with clear structure (JSON later if needed)
+5. **Budget warning flow**: Warn (80%) → auto-compact → warn again → hard limit (100%)
+6. **Token counting**: tiktoken for estimates, provider usage for ground truth
+7. **Hook pattern**: All context features implemented as composable hooks attached to agents
+
+### Dependencies
+
+```toml
+# New dependencies
+tiktoken = "^0.8.0"              # Token counting
+strands-agents-tools = "^0.1.0"   # Community tools (journal, file ops, shell)
+filelock = "^3.16.0"              # Cross-process file locking
+```
+
+### Examples to Create
+
+1. `examples/context-long-research-openai.yaml` - 5-step, 150K tokens, compaction demo
+2. `examples/context-notes-continuation-ollama.yaml` - Multi-session with notes persistence
+3. `examples/context-jit-retrieval-bedrock.yaml` - Large codebase with grep/search
+4. `examples/context-budget-constrained-openai.yaml` - Tight budget with auto-compaction
+
+### Documentation Updates
+
+- [ ] `docs/strands-workflow-manual.md` - Expand section 8 (Context Policy) with all features
+- [ ] `docs/CONTEXT_MANAGEMENT_GUIDE.md` - NEW: Deep dive guide with best practices
+- [ ] `README.md` - Add context management to features list
+- [ ] `CHANGELOG.md` - Document v0.7.0 changes
 
 ---
 

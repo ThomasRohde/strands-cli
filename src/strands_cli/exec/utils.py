@@ -84,50 +84,6 @@ def get_retry_config(spec: Spec) -> tuple[int, int, int]:
     return max_attempts, wait_min, wait_max
 
 
-def check_budget_threshold(
-    cumulative_tokens: int,
-    max_tokens: int | None,
-    context_id: str,
-    warn_threshold: float = 0.8,
-) -> None:
-    """Check token budget and log warnings or raise on exceed.
-
-    Args:
-        cumulative_tokens: Total tokens used so far
-        max_tokens: Maximum tokens allowed (from budgets.max_tokens)
-        context_id: Identifier for logging (step, task, branch)
-        warn_threshold: Threshold for warning (default 0.8 = 80%)
-
-    Raises:
-        ExecutionUtilsError: If budget exceeded (100%)
-    """
-    if max_tokens is None:
-        return
-
-    usage_pct = (cumulative_tokens / max_tokens) * 100
-
-    if usage_pct >= 100:
-        logger.error(
-            "token_budget_exceeded",
-            context=context_id,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_pct=usage_pct,
-        )
-        raise ExecutionUtilsError(
-            f"Token budget exceeded: {cumulative_tokens}/{max_tokens} tokens (100%)"
-        )
-    elif usage_pct >= (warn_threshold * 100):
-        logger.warning(
-            "token_budget_warning",
-            context=context_id,
-            cumulative=cumulative_tokens,
-            max=max_tokens,
-            usage_pct=f"{usage_pct:.1f}",
-            threshold=f"{warn_threshold * 100:.0f}%",
-        )
-
-
 def create_retry_decorator(
     max_attempts: int,
     wait_min: int,
@@ -238,8 +194,9 @@ class AgentCache:
 
     def __init__(self) -> None:
         """Initialize empty agent cache."""
-        # Cache key: (agent_id, frozenset(tool_ids)) -> Agent instance
-        self._agents: dict[tuple[str, frozenset[str]], Agent] = {}
+        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, notes_hash) -> Agent instance
+        # Notes hash allows caching agents with identical notes content
+        self._agents: dict[tuple[str, frozenset[str], str | None, str | None], Agent] = {}
 
         # Track HTTP executor tool modules separately for cleanup
         # Key: executor ID -> Module with _http_client
@@ -253,18 +210,27 @@ class AgentCache:
         agent_id: str,
         agent_config: AgentConfig,
         tool_overrides: list[str] | None = None,
+        conversation_manager: Any | None = None,
+        hooks: list[Any] | None = None,
+        injected_notes: str | None = None,
     ) -> Agent:
         """Get cached agent or build new one.
 
-        Checks cache for existing agent with matching (agent_id, tools).
+        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type).
         If found, returns cached instance (cache hit). Otherwise, builds
         new agent and caches it (cache miss).
+
+        Note: injected_notes is passed through to build_agent but NOT included in cache key,
+        as notes change per step. Agents are cached by identity and tools only.
 
         Args:
             spec: Full workflow spec for agent construction
             agent_id: Agent identifier from spec.agents
             agent_config: Agent configuration
             tool_overrides: Optional tool ID list (overrides agent_config.tools)
+            conversation_manager: Optional conversation manager for context compaction
+            hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
+            injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
 
         Returns:
             Cached or newly-built Agent instance
@@ -276,8 +242,16 @@ class AgentCache:
         tools_to_use = tool_overrides if tool_overrides is not None else agent_config.tools
         tools_key = frozenset(tools_to_use) if tools_to_use else frozenset()
 
-        # Create cache key
-        cache_key = (agent_id, tools_key)
+        # Include conversation manager type in cache key to prevent collisions
+        cm_type = type(conversation_manager).__name__ if conversation_manager else None
+
+        # Hash notes content for cache key (agents with same notes can be cached)
+        # This improves performance by avoiding rebuilds when notes content is identical
+        import hashlib
+        notes_hash = hashlib.md5(injected_notes.encode()).hexdigest() if injected_notes else None
+
+        # Create cache key including notes hash
+        cache_key = (agent_id, tools_key, cm_type, notes_hash)
 
         # Check cache
         if cache_key in self._agents:
@@ -285,6 +259,8 @@ class AgentCache:
                 "agent_cache_hit",
                 agent_id=agent_id,
                 tools=sorted(tools_key) if tools_key else None,
+                conversation_manager=cm_type,
+                notes_hash=notes_hash[:8] if notes_hash else None,
             )
             return self._agents[cache_key]
 
@@ -293,9 +269,19 @@ class AgentCache:
             "agent_cache_miss",
             agent_id=agent_id,
             tools=sorted(tools_key) if tools_key else None,
+            conversation_manager=cm_type,
+            notes_hash=notes_hash[:8] if notes_hash else None,
         )
 
-        agent = build_agent(spec, agent_id, agent_config, tool_overrides=tool_overrides)
+        agent = build_agent(
+            spec,
+            agent_id,
+            agent_config,
+            tool_overrides=tool_overrides,
+            conversation_manager=conversation_manager,
+            hooks=hooks,
+            injected_notes=injected_notes,
+        )
 
         # Cache the agent
         self._agents[cache_key] = agent

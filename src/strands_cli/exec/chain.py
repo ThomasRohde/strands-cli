@@ -31,14 +31,16 @@ from typing import Any
 
 import structlog
 
+from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
-    check_budget_threshold,
     estimate_tokens,
     get_retry_config,
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
 
@@ -91,7 +93,7 @@ def _build_step_context(
     return context
 
 
-async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
     """Execute a multi-step chain workflow.
 
     Executes steps sequentially with context passing. Each step receives
@@ -129,6 +131,38 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
     started_at = datetime.now(UTC).isoformat()
 
+    # Phase 6.1: Create context manager and hooks for compaction
+    context_manager = create_from_policy(spec.context_policy, spec)
+    shared_hooks: list[Any] = []
+    compaction_threshold: int | None = None
+    if spec.context_policy and spec.context_policy.compaction and spec.context_policy.compaction.enabled:
+        compaction_threshold = spec.context_policy.compaction.when_tokens_over or 60000
+        logger.info("compaction_enabled", threshold_tokens=compaction_threshold)
+
+    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+        max_tokens = spec.runtime.budgets["max_tokens"]
+        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+        shared_hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
+
+    # Phase 6.2: Initialize notes manager and hook for structured notes
+    notes_manager = None
+    step_counter = [0]  # Mutable container for hook to track step count
+    if spec.context_policy and spec.context_policy.notes:
+        notes_manager = NotesManager(spec.context_policy.notes.file)
+
+        # Build agent_id → tools mapping for notes hook
+        agent_tools: dict[str, list[str]] = {}
+        for agent_id, agent_config in spec.agents.items():
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+        shared_hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
     # Phase 4: Create AgentCache for agent reuse across steps
     cache = AgentCache()
     try:
@@ -159,8 +193,36 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Phase 4: Use cached agent instead of rebuilding per step
             # Use step's tool_overrides if provided, else use agent's tools
             tools_for_step = step.tool_overrides if step.tool_overrides else None
+
+            # Phase 6.2: Inject last N notes into agent context
+            injected_notes = None
+            if notes_manager and spec.context_policy and spec.context_policy.notes:
+                injected_notes = notes_manager.get_last_n_for_injection(spec.context_policy.notes.include_last)
+                if injected_notes:
+                    logger.debug(
+                        "notes_injected",
+                        step=step_index,
+                        notes_length=len(injected_notes),
+                    )
+
+            # Phase 6: Pass conversation manager, hooks, and notes for context management
+            hooks_for_agent: list[Any] | None = None
+            if compaction_threshold is not None or shared_hooks:
+                hooks_for_agent = []
+                if compaction_threshold is not None:
+                    hooks_for_agent.append(
+                        ProactiveCompactionHook(threshold_tokens=compaction_threshold)
+                    )
+                hooks_for_agent.extend(shared_hooks)
+
             agent = await cache.get_or_build_agent(
-                spec, step_agent_id, step_agent_config, tool_overrides=tools_for_step
+                spec,
+                step_agent_id,
+                step_agent_config,
+                tool_overrides=tools_for_step,
+                conversation_manager=context_manager,
+                hooks=hooks_for_agent,
+                injected_notes=injected_notes,
             )
 
             # Phase 4: Direct await instead of asyncio.run() per step
@@ -174,9 +236,6 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             # Track token usage using shared estimator
             estimated_tokens = estimate_tokens(step_input, response_text)
             cumulative_tokens += estimated_tokens
-
-            # Check budget using shared function
-            check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_index}")
 
             # Record step result
             step_result = {

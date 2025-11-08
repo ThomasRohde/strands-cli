@@ -14,7 +14,6 @@ import pytest
 
 from strands_cli.exec.utils import AgentCache
 from strands_cli.loader import load_spec
-from strands_cli.runtime.tools import HttpExecutorAdapter
 from strands_cli.types import Spec
 
 
@@ -62,13 +61,16 @@ async def test_agent_cache_miss_builds_new_agent(minimal_spec: Spec, mock_agent:
             agent_id,
             agent_config,
             tool_overrides=None,
+            conversation_manager=None,
+            hooks=None,
+            injected_notes=None,
         )
 
         # Verify returned agent
         assert agent is mock_agent
 
-        # Verify agent was cached (agent has no tools, so empty frozenset)
-        cache_key = (agent_id, frozenset())
+        # Verify agent was cached (agent has no tools, so empty frozenset, no CM, no notes)
+        cache_key = (agent_id, frozenset(), None, None)
         assert cache_key in cache._agents
         assert cache._agents[cache_key] is mock_agent
 
@@ -165,8 +167,8 @@ async def test_agent_cache_no_tools_uses_empty_frozenset(
             agent_config,
         )
 
-        # Verify cache key uses empty frozenset for no tools
-        cache_key = (agent_id, frozenset())
+        # Verify cache key uses empty frozenset for no tools, None for CM, None for notes
+        cache_key = (agent_id, frozenset(), None, None)
         assert cache_key in cache._agents
 
 
@@ -178,10 +180,12 @@ async def test_agent_cache_tracks_http_executors(minimal_spec: Spec) -> None:
     agent_id = "simple"
     agent_config = minimal_spec.agents[agent_id]
 
-    # Create mock agent with HTTP executor tool
-    mock_http_executor = Mock(spec=HttpExecutorAdapter)
-    mock_http_executor.config = Mock()
-    mock_http_executor.config.id = "http-exec-1"
+    # Create mock agent with HTTP executor tool (module-based)
+    mock_http_executor = Mock()  # Generic mock for HTTP executor
+    mock_http_executor.TOOL_SPEC = {"name": "http-exec-1"}
+    mock_http_executor._http_client = Mock()
+    mock_http_executor._http_config = Mock()
+    mock_http_executor._http_config.id = "http-exec-1"
 
     mock_agent = Mock()
     mock_agent.tools = [mock_http_executor]
@@ -206,10 +210,12 @@ async def test_agent_cache_deduplicates_http_executors(minimal_spec: Spec) -> No
     agent_id = "simple"
     agent_config = minimal_spec.agents[agent_id]
 
-    # Create shared HTTP executor
-    mock_http_executor = Mock(spec=HttpExecutorAdapter)
-    mock_http_executor.config = Mock()
-    mock_http_executor.config.id = "http-exec-shared"
+    # Create shared HTTP executor (module-based)
+    mock_http_executor = Mock()  # Generic mock for HTTP executor
+    mock_http_executor.TOOL_SPEC = {"name": "http-exec-shared"}
+    mock_http_executor._http_client = Mock()
+    mock_http_executor._http_config = Mock()
+    mock_http_executor._http_config.id = "http-exec-shared"
 
     mock_agent1 = Mock()
     mock_agent1.tools = [mock_http_executor]
@@ -245,16 +251,20 @@ async def test_agent_cache_close_cleans_up_http_executors(minimal_spec: Spec) ->
     agent_id = "simple"
     agent_config = minimal_spec.agents[agent_id]
 
-    # Create mock HTTP executors
-    mock_exec1 = Mock(spec=HttpExecutorAdapter)
-    mock_exec1.config = Mock()
-    mock_exec1.config.id = "http-1"
-    mock_exec1.close = Mock()
+    # Create mock HTTP executors (module-based)
+    mock_exec1 = Mock()  # Generic mock for HTTP executor 1
+    mock_exec1.TOOL_SPEC = {"name": "http-1"}
+    mock_exec1._http_client = Mock()
+    mock_exec1._http_client.close = Mock()
+    mock_exec1._http_config = Mock()
+    mock_exec1._http_config.id = "http-1"
 
-    mock_exec2 = Mock(spec=HttpExecutorAdapter)
-    mock_exec2.config = Mock()
-    mock_exec2.config.id = "http-2"
-    mock_exec2.close = Mock()
+    mock_exec2 = Mock()  # Generic mock for HTTP executor 2
+    mock_exec2.TOOL_SPEC = {"name": "http-2"}
+    mock_exec2._http_client = Mock()
+    mock_exec2._http_client.close = Mock()
+    mock_exec2._http_config = Mock()
+    mock_exec2._http_config.id = "http-2"
 
     mock_agent1 = Mock()
     mock_agent1.tools = [mock_exec1]
@@ -279,9 +289,9 @@ async def test_agent_cache_close_cleans_up_http_executors(minimal_spec: Spec) ->
         # Close the cache
         await cache.close()
 
-        # Verify close() called on both executors
-        mock_exec1.close.assert_called_once()
-        mock_exec2.close.assert_called_once()
+        # Verify close() called on both executors' _http_client
+        mock_exec1._http_client.close.assert_called_once()
+        mock_exec2._http_client.close.assert_called_once()
 
         # Verify caches cleared
         assert len(cache._agents) == 0
@@ -296,11 +306,13 @@ async def test_agent_cache_close_handles_cleanup_errors(minimal_spec: Spec) -> N
     agent_id = "simple"
     agent_config = minimal_spec.agents[agent_id]
 
-    # Create mock HTTP executor that raises on close
-    mock_exec = Mock(spec=HttpExecutorAdapter)
-    mock_exec.config = Mock()
-    mock_exec.config.id = "http-failing"
-    mock_exec.close = Mock(side_effect=RuntimeError("Cleanup failed"))
+    # Create mock HTTP executor that raises on close (module-based)
+    mock_exec = Mock()  # Generic mock for HTTP executor
+    mock_exec.TOOL_SPEC = {"name": "http-failing"}
+    mock_exec._http_client = Mock()
+    mock_exec._http_client.close = Mock(side_effect=RuntimeError("Cleanup failed"))
+    mock_exec._http_config = Mock()
+    mock_exec._http_config.id = "http-failing"
 
     mock_agent = Mock()
     mock_agent.tools = [mock_exec]

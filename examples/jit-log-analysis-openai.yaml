@@ -1,0 +1,103 @@
+version: 0
+name: "JIT Log Analysis - OpenAI"
+description: "Multi-step log file analysis using JIT retrieval tools for efficient inspection"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+context_policy:
+  retrieval:
+    jit_tools:
+      - grep
+      - head
+      - tail
+      - search
+  notes:
+    file: "./artifacts/log-analysis-notes.md"
+    include_last: 3
+
+agents:
+  log_inspector:
+    prompt: |
+      You are a log analysis specialist. Use JIT tools to efficiently analyze large log files:
+      
+      **Available Tools:**
+      - **head**: Preview file start (metadata, first entries)
+      - **tail**: Check recent entries (latest events)
+      - **grep**: Find patterns with context (errors, warnings with surrounding lines)
+      - **search**: Quick keyword search (find specific events without context)
+      
+      **Best Practices:**
+      - Start with head/tail to understand log structure
+      - Use grep for patterns needing context
+      - Use search for quick keyword location
+      - Don't load entire files - use targeted queries
+      
+      Provide concise findings with line numbers and context.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: log_inspector
+        input: |
+          Step 1: Initial Log Inspection
+          
+          Use 'head' to read the first 15 lines of CHANGELOG.md to understand:
+          - Log format and structure
+          - Version information
+          - Entry types present
+          
+          Report your findings concisely.
+
+      - agent: log_inspector
+        input: |
+          Step 2: Recent Changes Analysis
+          
+          Use 'tail' to read the last 30 lines of CHANGELOG.md to see:
+          - Most recent changes
+          - Latest version updates
+          - Recent feature additions
+          
+          Summarize the recent activity.
+
+      - agent: log_inspector
+        input: |
+          Step 3: Feature Search
+          
+          Use 'grep' to search for "Phase" in CHANGELOG.md (with 2 context lines) to find:
+          - All phase-related changes
+          - Development milestones
+          - Feature implementations
+          
+          List the phases found and their key changes.
+
+      - agent: log_inspector
+        input: |
+          Step 4: Error Investigation
+          
+          Use 'search' to look for "fix" or "bug" keywords in CHANGELOG.md to:
+          - Identify bug fixes
+          - Find resolved issues
+          - Note any patterns in fixes
+          
+          Provide a summary of bug fixes found.
+
+      - agent: log_inspector
+        input: |
+          Step 5: Final Report
+          
+          Based on all previous analysis steps (check your notes), provide:
+          
+          1. **Summary**: Overall state of the changelog
+          2. **Key Findings**: Most important changes/features
+          3. **Recommendations**: Any patterns or concerns noted
+          4. **Tool Efficiency**: How JIT tools helped analyze without loading full file
+          
+          Keep the report concise and actionable.
+
+outputs:
+  artifacts:
+    - path: "./log-analysis-report-openai.txt"
+      from: "{{ last_response }}"

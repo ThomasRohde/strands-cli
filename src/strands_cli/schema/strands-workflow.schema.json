@@ -150,6 +150,13 @@
             "max_duration_s": {
               "type": "integer",
               "minimum": 1
+            },
+            "warn_threshold": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "default": 0.8,
+              "description": "Percentage (0.0-1.0) at which to log token budget warning. Default is 0.8 (80%)."
             }
           }
         },
@@ -374,12 +381,24 @@
         },
         "retrieval": {
           "type": "object",
+          "description": "Configuration for Just-In-Time (JIT) retrieval tools that provide file system access during agent execution.",
           "additionalProperties": false,
           "properties": {
             "jit_tools": {
               "type": "array",
+              "description": "List of JIT tool IDs to auto-inject into agents. Supported tools: grep, head, tail, search.",
               "items": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "examples": ["grep", "head", "tail", "search"]
+              }
+            },
+            "mcp_servers": {
+              "type": "array",
+              "description": "List of Model Context Protocol (MCP) server IDs to enable (Phase 9 feature - placeholder).",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$"
               }
             }
           }

@@ -1,0 +1,50 @@
+version: 0
+name: "JIT Codebase Analysis - OpenAI"
+description: "Analyze codebase using JIT retrieval tools without loading entire files"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+context_policy:
+  retrieval:
+    jit_tools:
+      - grep
+      - head
+      - tail
+      - search
+
+agents:
+  code_analyzer:
+    prompt: |
+      You are an expert code analyzer. Use the available JIT retrieval tools efficiently:
+      
+      - **grep**: Search for patterns in files with context lines (use for finding function definitions, imports, etc.)
+      - **head**: Read first N lines of files (use for checking file headers, imports, module docstrings)
+      - **tail**: Read last N lines of files (use for checking recent additions, file endings)
+      - **search**: Find specific keywords or regex patterns (simpler than grep, no context lines)
+      
+      Analyze the code efficiently by using these tools to inspect only relevant parts of files.
+      Provide clear, actionable insights based on what you find.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: code_analyzer
+        input: |
+          Analyze the strands_cli codebase structure:
+          
+          1. Use 'head' to read the first 20 lines of src/strands_cli/__init__.py to understand the package structure
+          2. Use 'grep' to find all class definitions in src/strands_cli/types.py (search for "^class ")
+          3. Use 'search' to find TODO comments in src/strands_cli/runtime/strands_adapter.py
+          
+          Provide a brief summary of:
+          - Package exports and version
+          - Key type definitions found
+          - Any TODOs or technical debt noted
+
+outputs:
+  artifacts:
+    - path: "./codebase-analysis-openai.txt"
+      from: "{{ last_response }}"

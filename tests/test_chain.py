@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from strands_cli.exec.chain import _build_step_context, run_chain
-from strands_cli.exec.utils import check_budget_threshold
 from strands_cli.types import Spec
 
 
@@ -49,44 +48,8 @@ class TestBuildStepContext:
         assert context["topic"] == "test"
 
 
-class TestCheckBudgetWarning:
-    """Test budget threshold warnings."""
-
-    def test_no_warning_below_threshold(self) -> None:
-        """No warning when consumption below 80%."""
-        step_number = 1
-        cumulative_tokens = 700
-        max_tokens = 1000
-
-        # Should not raise
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
-
-    def test_warning_at_80_percent(self) -> None:
-        """Warning emitted at 80% consumption."""
-        step_number = 2
-        cumulative_tokens = 800
-        max_tokens = 1000
-
-        # Should not raise, but will log warning to structlog
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
-
-    def test_stops_at_100_percent(self) -> None:
-        """Should raise error at 100% consumption."""
-        step_number = 3
-        cumulative_tokens = 1000
-        max_tokens = 1000
-
-        with pytest.raises(Exception, match="Token budget exceeded"):
-            check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
-
-    def test_no_warning_when_no_budgets(self) -> None:
-        """No warning when budgets not configured."""
-        step_number = 1
-        cumulative_tokens = 999999
-        max_tokens = None
-
-        # Should not raise or warn
-        check_budget_threshold(cumulative_tokens, max_tokens, f"step_{step_number}")
+# Note: TestCheckBudgetWarning class removed in Phase 6.4
+# Budget enforcement now handled by BudgetEnforcerHook (see tests/test_token_budgets.py)
 
 
 class TestRunChain:
@@ -214,6 +177,7 @@ class TestRunChain:
 
         assert result.success is True
 
+    @pytest.mark.skip(reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py")
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     async def test_run_chain_budget_exceeded(
@@ -428,3 +392,89 @@ class TestSingleAgentRegression:
         assert captured_input is not None
         assert "cli_override" in captured_input
         assert "default" not in captured_input
+
+
+@pytest.mark.asyncio
+async def test_chain_with_notes_creates_and_injects(tmp_path: Path, mocker: Any) -> None:
+    """Test that chain executor creates notes file and attempts to inject into subsequent steps."""
+    import yaml
+
+    from strands_cli.exec.chain import run_chain
+    from strands_cli.loader.yaml_loader import load_spec
+
+    notes_file = tmp_path / "test-notes.md"
+
+    # Create a 3-step chain with notes enabled
+    spec_data = {
+        "version": 0,
+        "name": "Notes Test Chain",
+        "runtime": {
+            "provider": "ollama",
+            "model_id": "llama3.2",
+            "host": "http://localhost:11434"
+        },
+        "context_policy": {
+            "notes": {
+                "file": str(notes_file),
+                "include_last": 2
+            }
+        },
+        "agents": {
+            "agent1": {"prompt": "You are agent 1", "tools": []}
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    {"agent": "agent1", "input": "Step 1 input"},
+                    {"agent": "agent1", "input": "Step 2 input"},
+                    {"agent": "agent1", "input": "Step 3 input"}
+                ]
+            }
+        }
+    }
+
+    spec_file = tmp_path / "test.yaml"
+    with open(spec_file, "w") as f:  # noqa: ASYNC230
+        yaml.dump(spec_data, f)
+
+    spec = load_spec(str(spec_file))
+
+    # Mock agent
+    mock_agent = MagicMock()
+    mock_agent.name = "agent1"
+    mock_agent.invoke_async = AsyncMock(side_effect=["Response 1", "Response 2", "Response 3"])
+
+    # Mock AgentCache
+    mock_cache = mocker.AsyncMock()
+    mock_cache.get_or_build_agent.return_value = mock_agent
+    mock_cache.close.return_value = None
+    mocker.patch("strands_cli.exec.chain.AgentCache", return_value=mock_cache)
+
+    # Run chain
+    result = await run_chain(spec, variables=None)
+
+    assert result.success is True
+    assert result.last_response == "Response 3"
+
+    # Verify NotesManager was initialized (check logs show "notes_enabled")
+    # Verify that get_or_build_agent was called with hooks parameter
+    calls = mock_cache.get_or_build_agent.call_args_list
+    assert len(calls) == 3
+
+    # Check that hooks were passed (NotesAppenderHook should be in the list)
+    for call in calls:
+        hooks_arg = call.kwargs.get("hooks")
+        assert hooks_arg is not None, "hooks parameter should be passed to get_or_build_agent"
+        # Should contain NotesAppenderHook
+        from strands_cli.exec.hooks import NotesAppenderHook
+        has_notes_hook = any(isinstance(hook, NotesAppenderHook) for hook in hooks_arg)
+        assert has_notes_hook, "NotesAppenderHook should be in hooks list"
+
+    # Check that injected_notes parameter changes across steps
+    # Step 1: no notes yet (empty or None)
+    step1_notes = calls[0].kwargs.get("injected_notes")
+    assert step1_notes is None or step1_notes == "", "Step 1 should have no prior notes"
+
+    # Steps 2 and 3: NotesManager.read_last_n() is called (but returns empty since hooks didn't run)
+    # We can't verify file creation without actually running hooks, but we verify the plumbing exists
