@@ -6,15 +6,17 @@ Tests shared utilities used across all executors including:
 - Retry decorator creation
 - Agent invocation with retry logic
 - Token estimation
+- AgentCache with worker_index isolation
 """
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from strands_cli.exec.utils import (
     TRANSIENT_ERRORS,
+    AgentCache,
     ExecutionUtilsError,
     create_retry_decorator,
     estimate_tokens,
@@ -22,7 +24,8 @@ from strands_cli.exec.utils import (
     invoke_agent_with_retry,
 )
 from strands_cli.loader import load_spec
-from strands_cli.types import Spec
+from strands_cli.types import Agent as AgentConfig
+from strands_cli.types import ProviderType, Runtime, Spec
 
 # --- Fixtures ---
 
@@ -364,3 +367,218 @@ def test_execution_utils_error_inheritance() -> None:
 
     assert isinstance(error, Exception)
     assert str(error) == "Test error"
+
+
+# --- Tests for AgentCache ---
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_basic_caching() -> None:
+    """Test that AgentCache caches agents correctly."""
+    spec = Spec(
+        version=0,
+        name="test-cache",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent1": AgentConfig(prompt="Test prompt")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent = MagicMock()
+        mock_build.return_value = mock_agent
+
+        cache = AgentCache()
+
+        # First call should build agent
+        agent1 = await cache.get_or_build_agent(
+            spec,
+            "agent1",
+            spec.agents["agent1"],
+            worker_index=None,
+        )
+
+        # Second call with same parameters should return cached agent
+        agent2 = await cache.get_or_build_agent(
+            spec,
+            "agent1",
+            spec.agents["agent1"],
+            worker_index=None,
+        )
+
+        assert agent1 is agent2
+        assert mock_build.call_count == 1  # Only built once
+
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_worker_index_creates_unique_cache_keys() -> None:
+    """Test that different worker_index values create different cache keys."""
+    spec = Spec(
+        version=0,
+        name="test-worker-cache",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"worker": AgentConfig(prompt="Worker prompt")},
+        pattern={"type": "orchestrator_workers", "config": {}},
+    )
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        # Create different mock agents for each worker
+        mock_agent_0 = MagicMock()
+        mock_agent_1 = MagicMock()
+        mock_agent_2 = MagicMock()
+        mock_build.side_effect = [mock_agent_0, mock_agent_1, mock_agent_2]
+
+        cache = AgentCache()
+
+        # Build agent for worker 0
+        agent_0 = await cache.get_or_build_agent(
+            spec,
+            "worker",
+            spec.agents["worker"],
+            worker_index=0,
+        )
+
+        # Build agent for worker 1
+        agent_1 = await cache.get_or_build_agent(
+            spec,
+            "worker",
+            spec.agents["worker"],
+            worker_index=1,
+        )
+
+        # Build agent for worker 2
+        agent_2 = await cache.get_or_build_agent(
+            spec,
+            "worker",
+            spec.agents["worker"],
+            worker_index=2,
+        )
+
+        # All agents should be different
+        assert agent_0 is not agent_1
+        assert agent_1 is not agent_2
+        assert agent_0 is not agent_2
+
+        # build_agent should be called 3 times (no cache hits)
+        assert mock_build.call_count == 3
+
+        # Verify each agent is the correct mock
+        assert agent_0 is mock_agent_0
+        assert agent_1 is mock_agent_1
+        assert agent_2 is mock_agent_2
+
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_same_worker_index_returns_cached_agent() -> None:
+    """Test that same worker_index reuses cached agent."""
+    spec = Spec(
+        version=0,
+        name="test-worker-cache-hit",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"worker": AgentConfig(prompt="Worker prompt")},
+        pattern={"type": "orchestrator_workers", "config": {}},
+    )
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent = MagicMock()
+        mock_build.return_value = mock_agent
+
+        cache = AgentCache()
+
+        # Build agent for worker 0
+        agent_first = await cache.get_or_build_agent(
+            spec,
+            "worker",
+            spec.agents["worker"],
+            worker_index=0,
+        )
+
+        # Request same worker_index again
+        agent_second = await cache.get_or_build_agent(
+            spec,
+            "worker",
+            spec.agents["worker"],
+            worker_index=0,
+        )
+
+        # Should return same cached instance
+        assert agent_first is agent_second
+        assert mock_build.call_count == 1  # Only built once
+
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_none_worker_index_separate_from_indexed() -> None:
+    """Test that worker_index=None creates separate cache key from indexed workers."""
+    spec = Spec(
+        version=0,
+        name="test-none-vs-indexed",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent": AgentConfig(prompt="Agent prompt")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent_none = MagicMock()
+        mock_agent_0 = MagicMock()
+        mock_build.side_effect = [mock_agent_none, mock_agent_0]
+
+        cache = AgentCache()
+
+        # Build agent with worker_index=None
+        agent_none = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+        )
+
+        # Build agent with worker_index=0
+        agent_0 = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=0,
+        )
+
+        # Should be different agents (different cache keys)
+        assert agent_none is not agent_0
+        assert mock_build.call_count == 2
+
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_close_cleanup() -> None:
+    """Test that cache.close() cleans up resources."""
+    spec = Spec(
+        version=0,
+        name="test-cleanup",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent": AgentConfig(prompt="Test")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent = MagicMock()
+        mock_build.return_value = mock_agent
+
+        cache = AgentCache()
+
+        # Build some agents
+        await cache.get_or_build_agent(spec, "agent", spec.agents["agent"], worker_index=None)
+        await cache.get_or_build_agent(spec, "agent", spec.agents["agent"], worker_index=0)
+
+        # Verify cache has entries
+        assert len(cache._agents) == 2
+
+        # Close cache
+        await cache.close()
+
+        # Verify cache is cleared
+        assert len(cache._agents) == 0
+

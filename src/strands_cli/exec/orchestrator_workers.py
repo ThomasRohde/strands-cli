@@ -190,6 +190,7 @@ async def _invoke_orchestrator_with_retry(
             conversation_manager=context_manager,
             hooks=hooks,
             injected_notes=injected_notes,
+            worker_index=None,
         )
 
         # Invoke orchestrator
@@ -291,6 +292,7 @@ async def _execute_worker(
     )
 
     # Build or reuse agent with tool overrides
+    # Include worker_index to ensure each worker gets isolated agent instance
     agent = await cache.get_or_build_agent(
         spec,
         worker_agent_id,
@@ -299,6 +301,7 @@ async def _execute_worker(
         conversation_manager=context_manager,
         hooks=hooks,
         injected_notes=injected_notes,
+        worker_index=worker_index,
     )
 
     # Invoke worker with task description
@@ -680,6 +683,7 @@ async def _execute_reduce_step_if_needed(
         conversation_manager=context_manager,
         hooks=hooks,
         injected_notes=reduce_injected_notes,
+        worker_index=None,
     )
 
     max_attempts, wait_min, wait_max = get_retry_config(spec)
@@ -726,6 +730,7 @@ async def _execute_writeup_step_if_needed(
         conversation_manager=context_manager,
         hooks=hooks,
         injected_notes=writeup_injected_notes,
+        worker_index=None,
     )
 
     max_attempts, wait_min, wait_max = get_retry_config(spec)

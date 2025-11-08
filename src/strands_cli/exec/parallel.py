@@ -183,6 +183,7 @@ async def _execute_branch(
             conversation_manager=context_manager,
             hooks=hooks,
             injected_notes=injected_notes,
+            worker_index=None,
         )
 
         # Execute with retry logic
@@ -301,6 +302,7 @@ async def _execute_reduce_step(
         conversation_manager=context_manager,
         hooks=hooks,
         injected_notes=injected_notes,
+        worker_index=None,
     )
 
     # Execute reduce with retry

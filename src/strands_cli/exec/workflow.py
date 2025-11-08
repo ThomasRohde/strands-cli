@@ -218,6 +218,7 @@ async def _execute_task(
             conversation_manager=context_manager,
             hooks=hooks,
             injected_notes=injected_notes,
+            worker_index=None,
         )
     except Exception as e:
         raise WorkflowExecutionError(f"Failed to build agent for task '{task.id}': {e}") from e

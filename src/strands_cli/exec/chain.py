@@ -233,6 +233,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 conversation_manager=context_manager,
                 hooks=hooks_for_agent,
                 injected_notes=injected_notes,
+                worker_index=None,
             )
 
             # Phase 4: Direct await instead of asyncio.run() per step

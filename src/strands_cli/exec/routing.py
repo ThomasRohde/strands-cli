@@ -164,6 +164,7 @@ async def _execute_router_with_retry(
         conversation_manager=context_manager,
         hooks=hooks,
         injected_notes=injected_notes,
+        worker_index=None,
     )
 
     # Construct router task with output format instructions

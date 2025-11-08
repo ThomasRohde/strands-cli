@@ -135,7 +135,7 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
         cache = AgentCache()
         try:
             # Get or build the agent (cache enables future multi-step reuse)
-            agent = await cache.get_or_build_agent(spec, agent_id, agent_config)
+            agent = await cache.get_or_build_agent(spec, agent_id, agent_config, worker_index=None)
 
             # Run the agent with retry logic
             # Phase 3: Direct await instead of asyncio.run() (no event loop churn)

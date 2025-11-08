@@ -194,9 +194,10 @@ class AgentCache:
 
     def __init__(self) -> None:
         """Initialize empty agent cache."""
-        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, notes_hash) -> Agent instance
+        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, notes_hash, worker_index) -> Agent instance
         # Notes hash allows caching agents with identical notes content
-        self._agents: dict[tuple[str, frozenset[str], str | None, str | None], Agent] = {}
+        # Worker index ensures isolation for orchestrator-workers pattern
+        self._agents: dict[tuple[str, frozenset[str], str | None, str | None, int | None], Agent] = {}
 
         # Track HTTP executor tool modules separately for cleanup
         # Key: executor ID -> Module with _http_client
@@ -213,10 +214,11 @@ class AgentCache:
         conversation_manager: Any | None = None,
         hooks: list[Any] | None = None,
         injected_notes: str | None = None,
+        worker_index: int | None = None,
     ) -> Agent:
         """Get cached agent or build new one.
 
-        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type).
+        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type, worker_index).
         If found, returns cached instance (cache hit). Otherwise, builds
         new agent and caches it (cache miss).
 
@@ -231,6 +233,7 @@ class AgentCache:
             conversation_manager: Optional conversation manager for context compaction
             hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
             injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
+            worker_index: Optional worker index for orchestrator-workers pattern isolation
 
         Returns:
             Cached or newly-built Agent instance
@@ -251,8 +254,8 @@ class AgentCache:
 
         notes_hash = hashlib.md5(injected_notes.encode()).hexdigest() if injected_notes else None
 
-        # Create cache key including notes hash
-        cache_key = (agent_id, tools_key, cm_type, notes_hash)
+        # Create cache key including worker_index for orchestrator-workers isolation
+        cache_key = (agent_id, tools_key, cm_type, notes_hash, worker_index)
 
         # Check cache
         if cache_key in self._agents:
@@ -262,6 +265,7 @@ class AgentCache:
                 tools=sorted(tools_key) if tools_key else None,
                 conversation_manager=cm_type,
                 notes_hash=notes_hash[:8] if notes_hash else None,
+                worker_index=worker_index,
             )
             return self._agents[cache_key]
 
@@ -272,6 +276,7 @@ class AgentCache:
             tools=sorted(tools_key) if tools_key else None,
             conversation_manager=cm_type,
             notes_hash=notes_hash[:8] if notes_hash else None,
+            worker_index=worker_index,
         )
 
         agent = build_agent(

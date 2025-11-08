@@ -543,6 +543,127 @@ async def test_orchestrator_missing_config():
 
 
 # ============================================================================
+# Worker Isolation Tests (Phase 7 - Worker Index Cache Key)
+# ============================================================================
+
+
+@patch("strands_cli.exec.orchestrator_workers.AgentCache")
+@pytest.mark.asyncio
+async def test_orchestrator_workers_isolated_agents(mock_cache_class, minimal_orchestrator_spec):
+    """Test that each worker gets its own agent instance via worker_index cache key."""
+    mock_cache = MagicMock()
+    mock_cache.get_or_build_agent = AsyncMock()
+    mock_cache.close = AsyncMock()
+    mock_cache_class.return_value = mock_cache
+
+    # Track all get_or_build_agent calls to verify worker_index values
+    get_or_build_calls = []
+
+    async def track_get_or_build_agent(*args, **kwargs):
+        get_or_build_calls.append(kwargs.copy())
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock()
+        return mock_agent
+
+    mock_cache.get_or_build_agent.side_effect = track_get_or_build_agent
+
+    # Create mock agents for orchestrator and workers
+    orchestrator_agent = MagicMock()
+    orchestrator_agent.invoke_async = AsyncMock(
+        return_value='[{"task": "T1"}, {"task": "T2"}, {"task": "T3"}]'
+    )
+
+    worker_agent_1 = MagicMock()
+    worker_agent_1.invoke_async = AsyncMock(return_value="Worker 1 result")
+
+    worker_agent_2 = MagicMock()
+    worker_agent_2.invoke_async = AsyncMock(return_value="Worker 2 result")
+
+    worker_agent_3 = MagicMock()
+    worker_agent_3.invoke_async = AsyncMock(return_value="Worker 3 result")
+
+    # Setup cache to return different agents
+    mock_cache.get_or_build_agent.side_effect = [
+        orchestrator_agent,
+        worker_agent_1,
+        worker_agent_2,
+        worker_agent_3,
+    ]
+
+    result = await run_orchestrator_workers(minimal_orchestrator_spec, variables=None)
+
+    assert result.success is True
+    assert len(result.execution_context["workers"]) == 3
+
+    # Verify get_or_build_agent was called 4 times (1 orchestrator + 3 workers)
+    assert mock_cache.get_or_build_agent.call_count == 4
+
+    # Verify orchestrator has worker_index=None
+    orchestrator_call = mock_cache.get_or_build_agent.call_args_list[0]
+    assert orchestrator_call.kwargs.get("worker_index") is None
+
+    # Verify each worker has unique worker_index (0, 1, 2)
+    worker_calls = mock_cache.get_or_build_agent.call_args_list[1:]
+    worker_indices = [call.kwargs.get("worker_index") for call in worker_calls]
+    assert worker_indices == [0, 1, 2]
+
+    mock_cache.close.assert_called_once()
+
+
+@patch("strands_cli.exec.orchestrator_workers.AgentCache")
+@pytest.mark.asyncio
+async def test_orchestrator_workers_concurrent_state_isolation(
+    mock_cache_class, minimal_orchestrator_spec
+):
+    """Test that concurrent workers don't share conversation state."""
+    mock_cache = MagicMock()
+    mock_cache.get_or_build_agent = AsyncMock()
+    mock_cache.close = AsyncMock()
+    mock_cache_class.return_value = mock_cache
+
+    # Create separate mock agents for each worker to verify isolation
+    orchestrator_agent = MagicMock()
+    orchestrator_agent.invoke_async = AsyncMock(
+        return_value='[{"task": "Research A"}, {"task": "Research B"}]'
+    )
+
+    worker_agent_0 = MagicMock()
+    worker_agent_0.invoke_async = AsyncMock(return_value="Result about A")
+
+    worker_agent_1 = MagicMock()
+    worker_agent_1.invoke_async = AsyncMock(return_value="Result about B")
+
+    # Return different agent instances per worker
+    mock_cache.get_or_build_agent.side_effect = [
+        orchestrator_agent,
+        worker_agent_0,
+        worker_agent_1,
+    ]
+
+    result = await run_orchestrator_workers(minimal_orchestrator_spec, variables=None)
+
+    assert result.success is True
+    assert len(result.execution_context["workers"]) == 2
+
+    # Verify each worker agent was invoked exactly once with its own task
+    assert worker_agent_0.invoke_async.call_count == 1
+    assert worker_agent_1.invoke_async.call_count == 1
+
+    # Verify workers received different tasks (not shared conversation)
+    worker_0_call = worker_agent_0.invoke_async.call_args_list[0]
+    worker_1_call = worker_agent_1.invoke_async.call_args_list[0]
+
+    assert "Research A" in worker_0_call.args[0]
+    assert "Research B" in worker_1_call.args[0]
+
+    # Verify responses are correctly isolated
+    assert result.execution_context["workers"][0]["response"] == "Result about A"
+    assert result.execution_context["workers"][1]["response"] == "Result about B"
+
+    mock_cache.close.assert_called_once()
+
+
+# ============================================================================
 # Budget Tracking Tests
 # ============================================================================
 

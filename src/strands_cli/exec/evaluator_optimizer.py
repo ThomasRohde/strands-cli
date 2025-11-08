@@ -376,6 +376,7 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
             producer_config,
             conversation_manager=context_manager,
             hooks=hooks,
+            worker_index=None,
         )
         evaluator_agent = await cache.get_or_build_agent(
             spec,
@@ -383,6 +384,7 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
             evaluator_config,
             conversation_manager=context_manager,
             hooks=hooks,
+            worker_index=None,
         )
 
         # Iteration 1: Initial production

@@ -375,6 +375,7 @@ allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
 - **Default region**: `us-east-1` (configurable via `STRANDS_AWS_REGION` env or `runtime.region` in spec)
 - **Secrets**: MVP only supports `source: env`; production will add Secrets Manager/SSM
 - **Bedrock models**: Default to `anthropic.claude-3-sonnet-20240229-v1:0` (override via `runtime.model_id` or `STRANDS_BEDROCK_MODEL_ID`)
+- **OpenAI models**: Supports all OpenAI models including `gpt-4o`, `gpt-4o-mini`, `gpt-5-nano` (November 2025), and `o1-preview`/`o1-mini` (reasoning models)
 
 ## Observability
 
