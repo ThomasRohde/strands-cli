@@ -69,8 +69,8 @@ async def test_agent_cache_miss_builds_new_agent(minimal_spec: Spec, mock_agent:
         # Verify returned agent
         assert agent is mock_agent
 
-        # Verify agent was cached (agent has no tools, so empty frozenset, no CM, no notes, no worker_index)
-        cache_key = (agent_id, frozenset(), None, None, None)
+        # Verify agent was cached (agent has no tools, so empty frozenset, no CM, no worker_index)
+        cache_key = (agent_id, frozenset(), None, None)
         assert cache_key in cache._agents
         assert cache._agents[cache_key] is mock_agent
 
@@ -167,8 +167,8 @@ async def test_agent_cache_no_tools_uses_empty_frozenset(
             agent_config,
         )
 
-        # Verify cache key uses empty frozenset for no tools, None for CM, None for notes, None for worker_index
-        cache_key = (agent_id, frozenset(), None, None, None)
+        # Verify cache key uses empty frozenset for no tools, None for CM, None for worker_index
+        cache_key = (agent_id, frozenset(), None, None)
         assert cache_key in cache._agents
 
 

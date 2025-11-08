@@ -547,7 +547,6 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
             completed_at=completed_at,
             duration_seconds=duration,
             execution_context=execution_context,
-            context={"execution": execution_context},  # Add for artifact template access
         )
 
     finally:

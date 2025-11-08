@@ -145,7 +145,7 @@ async def _invoke_orchestrator_with_retry(
     orchestrator_agent_id: str,
     prompt: str,
     context_manager: Any,
-    hooks: list[Any] | None,
+    hook_factory: Any,
     notes_manager: Any,
     max_attempts: int,
     wait_min: int,
@@ -160,7 +160,7 @@ async def _invoke_orchestrator_with_retry(
         orchestrator_agent_id: Orchestrator agent ID
         prompt: Orchestrator prompt
         context_manager: Context manager instance
-        hooks: List of hooks
+        hook_factory: Factory function that creates fresh hooks
         notes_manager: Notes manager instance
         max_attempts: Max retry attempts
         wait_min: Min wait time (seconds)
@@ -180,7 +180,13 @@ async def _invoke_orchestrator_with_retry(
         else None
     )
 
+    # Track retry history for diagnostics
+    retry_history: list[dict[str, Any]] = []
+
     for retry_attempt in range(max_json_retries + 1):
+        # Create fresh hooks for this agent invocation
+        hooks = hook_factory()
+
         # Build or reuse agent
         agent = await cache.get_or_build_agent(
             spec,
@@ -211,11 +217,19 @@ async def _invoke_orchestrator_with_retry(
             )
             return subtasks, tokens_used
 
+        # Track failed attempt
+        retry_history.append({
+            "attempt": retry_attempt + 1,
+            "response_preview": response_text[:200],
+            "tokens_used": tokens_used,
+        })
+
         # Malformed JSON - retry with clarification
         if retry_attempt < max_json_retries:
             logger.warning(
-                "Orchestrator returned malformed JSON, retrying with clarification",
-                retry_attempt=retry_attempt,
+                "orchestrator_json_parse_failed",
+                retry_attempt=retry_attempt + 1,
+                max_retries=max_json_retries + 1,
                 response_preview=response_text[:200],
             )
             prompt = f"""Your previous response was not valid JSON. Please respond with ONLY a JSON array of tasks.
@@ -231,15 +245,14 @@ Do not include any text before or after the JSON array. If there are no subtasks
 Previous response that failed to parse:
 {response_text[:500]}
 """
-        else:
-            # Max retries exceeded
-            raise OrchestratorExecutionError(
-                f"Orchestrator failed to return valid JSON after {max_json_retries} retries. "
-                f"Last response: {response_text[:500]}"
-            )
 
-    # Should never reach here, but satisfy type checker
-    raise OrchestratorExecutionError("Orchestrator JSON parsing failed unexpectedly")
+    # All retries exhausted - raise structured error
+    import json
+    raise OrchestratorExecutionError(
+        f"Failed to parse orchestrator response as valid JSON after {max_json_retries + 1} attempts. "
+        f"Expected format: [{{'task': 'description'}}, ...]. "
+        f"Retry history: {json.dumps(retry_history, indent=2)}"
+    )
 
 
 async def _execute_worker(
@@ -250,7 +263,7 @@ async def _execute_worker(
     worker_index: int,
     tool_overrides: list[str] | None,
     context_manager: Any,
-    hooks: list[Any] | None,
+    hook_factory: Any,
     notes_manager: Any,
     max_attempts: int,
     wait_min: int,
@@ -266,7 +279,7 @@ async def _execute_worker(
         worker_index: Worker index (0-based)
         tool_overrides: Worker tool overrides from worker_template
         context_manager: Context manager instance
-        hooks: List of hooks
+        hook_factory: Factory function that creates fresh hooks
         notes_manager: Notes manager instance
         max_attempts: Max retry attempts
         wait_min: Min wait time (seconds)
@@ -290,6 +303,9 @@ async def _execute_worker(
         if notes_manager and spec.context_policy and spec.context_policy.notes
         else None
     )
+
+    # Create fresh hooks for this worker
+    hooks = hook_factory()
 
     # Build or reuse agent with tool overrides
     # Include worker_index to ensure each worker gets isolated agent instance
@@ -329,7 +345,7 @@ async def _execute_workers_batch(
     tool_overrides: list[str] | None,
     max_workers: int | None,
     context_manager: Any,
-    hooks: list[Any] | None,
+    hook_factory: Any,
     notes_manager: Any,
     max_attempts: int,
     wait_min: int,
@@ -345,7 +361,7 @@ async def _execute_workers_batch(
         tool_overrides: Worker tool overrides
         max_workers: Maximum concurrent workers (None = unlimited)
         context_manager: Context manager instance
-        hooks: List of hooks
+        hook_factory: Factory function that creates fresh hooks
         notes_manager: Notes manager instance
         max_attempts: Max retry attempts
         wait_min: Min wait time (seconds)
@@ -375,7 +391,7 @@ async def _execute_workers_batch(
                     index,
                     tool_overrides,
                     context_manager,
-                    hooks,
+                    hook_factory,
                     notes_manager,
                     max_attempts,
                     wait_min,
@@ -390,7 +406,7 @@ async def _execute_workers_batch(
                 index,
                 tool_overrides,
                 context_manager,
-                hooks,
+                hook_factory,
                 notes_manager,
                 max_attempts,
                 wait_min,
@@ -406,7 +422,7 @@ async def _execute_workers_batch(
     # Execute all workers in parallel (fail-fast)
     worker_results = await asyncio.gather(
         *[_execute_with_semaphore(task, i) for i, task in enumerate(subtasks)],
-        return_exceptions=False,  # Fail-fast on first error
+        return_exceptions=False,  # Fail-fast: first worker error cancels remaining workers
     )
 
     # Calculate cumulative tokens
@@ -448,31 +464,55 @@ async def run_orchestrator_workers(
     # Setup execution parameters
     execution_params = _setup_execution_parameters(spec, config, variables)
 
-    # Setup context and hooks
-    context_manager, hooks, notes_manager, cache = await _setup_context_and_hooks(spec)
+    # Setup context and hook factory
+    context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(spec)
 
     try:
         # Execute orchestrator round
         subtasks, cumulative_tokens = await _execute_orchestrator_round(
-            cache, spec, execution_params, context_manager, hooks, notes_manager
+            cache, spec, execution_params, context_manager, hook_factory, notes_manager
         )
 
         # Execute workers
         worker_results, cumulative_tokens = await _execute_workers_round(
-            cache, spec, execution_params, subtasks, context_manager, hooks, notes_manager, cumulative_tokens
+            cache,
+            spec,
+            execution_params,
+            subtasks,
+            context_manager,
+            hook_factory,
+            notes_manager,
+            cumulative_tokens,
         )
 
         # Build execution context
-        execution_context = _build_execution_context(worker_results, execution_params["user_variables"])
+        execution_context = _build_execution_context(
+            worker_results, execution_params["user_variables"]
+        )
 
         # Execute reduce step if configured
         final_response, cumulative_tokens = await _execute_reduce_step_if_needed(
-            cache, spec, config, execution_context, context_manager, hooks, notes_manager, cumulative_tokens
+            cache,
+            spec,
+            config,
+            execution_context,
+            context_manager,
+            hook_factory,
+            notes_manager,
+            cumulative_tokens,
         )
 
         # Execute writeup step if configured
         final_response, cumulative_tokens = await _execute_writeup_step_if_needed(
-            cache, spec, config, execution_context, context_manager, hooks, notes_manager, cumulative_tokens, final_response
+            cache,
+            spec,
+            config,
+            execution_context,
+            context_manager,
+            hook_factory,
+            notes_manager,
+            cumulative_tokens,
+            final_response,
         )
 
         # Build final response if no reduce/writeup
@@ -481,7 +521,13 @@ async def run_orchestrator_workers(
 
         # Build and return result
         return _build_run_result(
-            spec, config, execution_params, start_time, final_response, execution_context, cumulative_tokens
+            spec,
+            config,
+            execution_params,
+            start_time,
+            final_response,
+            execution_context,
+            cumulative_tokens,
         )
 
     finally:
@@ -489,13 +535,22 @@ async def run_orchestrator_workers(
         await cache.close()
 
 
-def _setup_execution_parameters(spec: Spec, config: Any, variables: dict[str, str] | None) -> dict[str, Any]:
+def _setup_execution_parameters(
+    spec: Spec, config: Any, variables: dict[str, str] | None
+) -> dict[str, Any]:
     """Setup execution parameters from spec and config."""
     orchestrator_agent_id = config.orchestrator.agent
     worker_agent_id = config.worker_template.agent
     tool_overrides = config.worker_template.tools
     max_workers = config.orchestrator.limits.max_workers if config.orchestrator.limits else None
     max_rounds = config.orchestrator.limits.max_rounds if config.orchestrator.limits else None
+
+    # Phase 7 MVP: Only single round supported
+    if max_rounds is not None and max_rounds != 1:
+        raise OrchestratorExecutionError(
+            f"Multi-round orchestration not yet supported (max_rounds={max_rounds}). "
+            "Set max_rounds to 1 or omit for default single-round execution."
+        )
 
     # Get retry config
     max_attempts, wait_min, wait_max = get_retry_config(spec)
@@ -512,7 +567,7 @@ def _setup_execution_parameters(spec: Spec, config: Any, variables: dict[str, st
         "worker_agent_id": worker_agent_id,
         "tool_overrides": tool_overrides,
         "max_workers": max_workers,
-        "max_rounds": max_rounds,
+        "max_rounds": 1,  # Hardcoded for Phase 7
         "max_attempts": max_attempts,
         "wait_min": wait_min,
         "wait_max": wait_max,
@@ -520,22 +575,16 @@ def _setup_execution_parameters(spec: Spec, config: Any, variables: dict[str, st
     }
 
 
-async def _setup_context_and_hooks(spec: Spec) -> tuple[Any, list[Any], Any, AgentCache]:
-    """Setup context manager, hooks, notes manager, and agent cache."""
-    # Create context manager and hooks (Phase 6)
-    context_manager = create_from_policy(spec.context_policy, spec)
-    hooks: list[Any] = []
+async def _setup_context_and_hooks(spec: Spec) -> tuple[Any, Any, Any, AgentCache]:
+    """Setup context manager, hook factory, notes manager, and agent cache.
 
-    # Add compaction hook if enabled
-    if (
-        spec.context_policy
-        and spec.context_policy.compaction
-        and spec.context_policy.compaction.enabled
-    ):
-        threshold = spec.context_policy.compaction.when_tokens_over or 60000
-        hooks.append(
-            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
-        )
+    Returns a hook factory function instead of a shared hooks list to ensure
+    each agent gets fresh hook instances (critical for compaction and budget hooks).
+    """
+    from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+    # Create context manager (Phase 6)
+    context_manager = create_from_policy(spec.context_policy, spec)
 
     # Add notes manager if enabled
     notes_manager = None
@@ -543,12 +592,46 @@ async def _setup_context_and_hooks(spec: Spec) -> tuple[Any, list[Any], Any, Age
     if spec.context_policy and spec.context_policy.notes:
         notes_config = spec.context_policy.notes
         notes_manager = NotesManager(notes_config.file)
-        hooks.append(NotesAppenderHook(notes_manager, step_counter))
+
+    # Define hook factory that creates fresh instances per agent invocation
+    def create_hooks() -> list[Any]:
+        """Create fresh hook instances for each agent.
+
+        Critical: Compaction and budget hooks are stateful and single-fire.
+        Each agent must get its own instances to avoid interference.
+        """
+        hooks: list[Any] = []
+
+        # Fresh compaction hook per agent (single-fire after first trigger)
+        if (
+            spec.context_policy
+            and spec.context_policy.compaction
+            and spec.context_policy.compaction.enabled
+        ):
+            threshold = spec.context_policy.compaction.when_tokens_over or 60000
+            hooks.append(
+                ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
+            )
+
+        # Fresh budget enforcer hook per agent (runs AFTER compaction to allow token reduction)
+        if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+            max_tokens = spec.runtime.budgets["max_tokens"]
+            warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+            hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+            logger.info(
+                "budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold
+            )
+
+        # Shared notes hook (OK to share - stateless except for step counter)
+        if notes_manager:
+            hooks.append(NotesAppenderHook(notes_manager, step_counter))
+
+        return hooks
 
     # Create AgentCache (single instance for entire workflow)
     cache = AgentCache()
 
-    return context_manager, hooks, notes_manager, cache
+    return context_manager, create_hooks, notes_manager, cache
 
 
 async def _execute_orchestrator_round(
@@ -556,7 +639,7 @@ async def _execute_orchestrator_round(
     spec: Spec,
     execution_params: dict[str, Any],
     context_manager: Any,
-    hooks: list[Any],
+    hook_factory: Any,
     notes_manager: Any,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute orchestrator round and return subtasks and cumulative tokens."""
@@ -579,7 +662,7 @@ async def _execute_orchestrator_round(
         execution_params["orchestrator_agent_id"],
         orchestrator_prompt,
         context_manager,
-        hooks,
+        hook_factory,
         notes_manager,
         execution_params["max_attempts"],
         execution_params["wait_min"],
@@ -617,7 +700,7 @@ async def _execute_workers_round(
     execution_params: dict[str, Any],
     subtasks: list[dict[str, Any]],
     context_manager: Any,
-    hooks: list[Any],
+    hook_factory: Any,
     notes_manager: Any,
     cumulative_tokens: int,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -631,7 +714,7 @@ async def _execute_workers_round(
         execution_params["tool_overrides"],
         execution_params["max_workers"],
         context_manager,
-        hooks,
+        hook_factory,
         notes_manager,
         execution_params["max_attempts"],
         execution_params["wait_min"],
@@ -642,7 +725,9 @@ async def _execute_workers_round(
     return worker_results, cumulative_tokens
 
 
-def _build_execution_context(worker_results: list[dict[str, Any]], user_variables: dict[str, Any]) -> dict[str, Any]:
+def _build_execution_context(
+    worker_results: list[dict[str, Any]], user_variables: dict[str, Any]
+) -> dict[str, Any]:
     """Build execution context for reduce/writeup steps."""
     execution_context: dict[str, Any] = {
         "workers": worker_results,  # Indexed access: workers[0].response
@@ -659,7 +744,7 @@ async def _execute_reduce_step_if_needed(
     config: Any,
     execution_context: dict[str, Any],
     context_manager: Any,
-    hooks: list[Any],
+    hook_factory: Any,
     notes_manager: Any,
     cumulative_tokens: int,
 ) -> tuple[str, int]:
@@ -674,6 +759,9 @@ async def _execute_reduce_step_if_needed(
 
     reduce_agent_config = spec.agents[config.reduce.agent]
     reduce_injected_notes = _get_injected_notes(notes_manager, spec.context_policy)
+
+    # Create fresh hooks for reduce agent
+    hooks = hook_factory()
 
     reduce_agent = await cache.get_or_build_agent(
         spec,
@@ -705,7 +793,7 @@ async def _execute_writeup_step_if_needed(
     config: Any,
     execution_context: dict[str, Any],
     context_manager: Any,
-    hooks: list[Any],
+    hook_factory: Any,
     notes_manager: Any,
     cumulative_tokens: int,
     current_response: str,
@@ -721,6 +809,9 @@ async def _execute_writeup_step_if_needed(
 
     writeup_agent_config = spec.agents[config.writeup.agent]
     writeup_injected_notes = _get_injected_notes(notes_manager, spec.context_policy)
+
+    # Create fresh hooks for writeup agent
+    hooks = hook_factory()
 
     writeup_agent = await cache.get_or_build_agent(
         spec,

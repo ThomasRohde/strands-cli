@@ -26,6 +26,8 @@ from typing import Any
 from strands_cli.types import (
     CapabilityIssue,
     CapabilityReport,
+    OrchestratorLimits,
+    PatternConfig,
     PatternType,
     ProviderType,
     Spec,
@@ -272,7 +274,9 @@ def _validate_orchestrator_workers_pattern(spec: Spec, issues: list[CapabilityIs
     _validate_writeup_agent(spec, config, issues)
 
 
-def _validate_orchestrator_config(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+def _validate_orchestrator_config(
+    spec: Spec, config: PatternConfig, issues: list[CapabilityIssue]
+) -> None:
     """Validate orchestrator configuration."""
     # Check orchestrator config exists
     if not config.orchestrator:
@@ -300,7 +304,9 @@ def _validate_orchestrator_config(spec: Spec, config: Any, issues: list[Capabili
         _validate_orchestrator_limits(config.orchestrator.limits, issues)
 
 
-def _validate_orchestrator_limits(limits: Any, issues: list[CapabilityIssue]) -> None:
+def _validate_orchestrator_limits(
+    limits: OrchestratorLimits, issues: list[CapabilityIssue]
+) -> None:
     """Validate orchestrator limits."""
     if limits.max_workers is not None and limits.max_workers < 1:
         issues.append(
@@ -319,8 +325,21 @@ def _validate_orchestrator_limits(limits: Any, issues: list[CapabilityIssue]) ->
             )
         )
 
+    # Phase 7 MVP: Only single round supported
+    if limits.max_rounds is not None and limits.max_rounds > 1:
+        issues.append(
+            CapabilityIssue(
+                pointer="/pattern/config/orchestrator/limits/max_rounds",
+                reason="Multi-round orchestration not yet supported (Phase 7 MVP limitation)",
+                remediation="Set max_rounds to 1 or omit for default single-round execution. "
+                           "Multi-round support planned for future release.",
+            )
+        )
 
-def _validate_worker_template_config(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+
+def _validate_worker_template_config(
+    spec: Spec, config: PatternConfig, issues: list[CapabilityIssue]
+) -> None:
     """Validate worker template configuration."""
     # Check worker_template config exists
     if not config.worker_template:
@@ -344,7 +363,9 @@ def _validate_worker_template_config(spec: Spec, config: Any, issues: list[Capab
         )
 
 
-def _validate_reduce_agent(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+def _validate_reduce_agent(
+    spec: Spec, config: PatternConfig, issues: list[CapabilityIssue]
+) -> None:
     """Validate reduce agent if present."""
     if config.reduce and config.reduce.agent not in spec.agents:
         issues.append(
@@ -356,7 +377,9 @@ def _validate_reduce_agent(spec: Spec, config: Any, issues: list[CapabilityIssue
         )
 
 
-def _validate_writeup_agent(spec: Spec, config: Any, issues: list[CapabilityIssue]) -> None:
+def _validate_writeup_agent(
+    spec: Spec, config: PatternConfig, issues: list[CapabilityIssue]
+) -> None:
     """Validate writeup agent if present."""
     if config.writeup and config.writeup.agent not in spec.agents:
         issues.append(

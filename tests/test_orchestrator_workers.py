@@ -63,7 +63,7 @@ def minimal_orchestrator_spec() -> Spec:
 
 @pytest.fixture
 def full_orchestrator_spec() -> Spec:
-    """Create orchestrator spec with all optional features."""
+    """Create orchestrator spec with all optional features (Phase 7 MVP: single-round only)."""
     return Spec(
         version=0,
         name="test-orchestrator-full",
@@ -79,7 +79,9 @@ def full_orchestrator_spec() -> Spec:
             "config": PatternConfig(
                 orchestrator=OrchestratorConfig(
                     agent="planner",
-                    limits=OrchestratorLimits(max_workers=3, max_rounds=2),
+                    limits=OrchestratorLimits(
+                        max_workers=3, max_rounds=1
+                    ),  # Phase 7: single round only
                 ),
                 worker_template=WorkerTemplate(
                     agent="researcher",
@@ -375,7 +377,7 @@ async def test_orchestrator_malformed_json_max_retries(mock_cache_class, minimal
     )
     mock_cache.get_or_build_agent.return_value = mock_agent
 
-    with pytest.raises(OrchestratorExecutionError, match="failed to return valid JSON"):
+    with pytest.raises(OrchestratorExecutionError, match="Failed to parse orchestrator response"):
         await run_orchestrator_workers(minimal_orchestrator_spec, variables=None)
 
     # Should attempt 3 times (initial + 2 retries)
@@ -695,3 +697,197 @@ async def test_orchestrator_budget_tracking(mock_cache_class, full_orchestrator_
     assert result.success is True
     assert result.last_response == "Final"
     # Token tracking happens in logging, not stored in RunResult
+
+
+@patch("strands_cli.exec.orchestrator_workers.AgentCache")
+@pytest.mark.asyncio
+async def test_orchestrator_budget_enforcement_hook_created(mock_cache_class):
+    """Test that budget enforcer hook is created when budgets configured."""
+    spec = Spec(
+        version=0,
+        name="test-budget",
+        runtime=Runtime(
+            provider=ProviderType.OLLAMA,
+            host="http://localhost:11434",
+            budgets={"max_tokens": 1000, "warn_threshold": 0.8},  # Budget configured
+        ),
+        agents={
+            "planner": Agent(prompt="Orchestrator"),
+            "worker": Agent(prompt="Worker"),
+        },
+        pattern={
+            "type": PatternType.ORCHESTRATOR_WORKERS,
+            "config": PatternConfig(
+                orchestrator=OrchestratorConfig(agent="planner"),
+                worker_template=WorkerTemplate(agent="worker"),
+            ),
+        },
+    )
+
+    # Mock cache and agent
+    mock_cache = MagicMock()
+    mock_cache.get_or_build_agent = AsyncMock()
+    mock_cache.close = AsyncMock()
+    mock_cache_class.return_value = mock_cache
+
+    # Mock agent to return minimal response
+    mock_agent = MagicMock()
+    mock_agent.invoke_async = AsyncMock(return_value="[]")  # Empty subtasks
+    mock_cache.get_or_build_agent.return_value = mock_agent
+
+    # Execute workflow
+    await run_orchestrator_workers(spec, variables=None)
+
+    # Verify BudgetEnforcerHook was passed to get_or_build_agent
+    assert mock_cache.get_or_build_agent.call_count >= 1
+
+    # Check that hooks parameter includes BudgetEnforcerHook
+    orchestrator_call = mock_cache.get_or_build_agent.call_args_list[0]
+    hooks = orchestrator_call.kwargs.get("hooks", [])
+
+    # Should have BudgetEnforcerHook in the list
+    from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+    has_budget_hook = any(isinstance(hook, BudgetEnforcerHook) for hook in hooks)
+    assert has_budget_hook, "BudgetEnforcerHook should be created when budgets configured"
+
+    mock_cache.close.assert_called_once()
+
+
+@patch("strands_cli.exec.orchestrator_workers.AgentCache")
+@pytest.mark.asyncio
+async def test_orchestrator_workers_independent_compaction_hooks(mock_cache_class):
+    """Test that each worker gets its own compaction hook instance."""
+    from strands_cli.types import Compaction, ContextPolicy
+
+    spec = Spec(
+        version=0,
+        name="test-compaction",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={
+            "planner": Agent(prompt="Orchestrator"),
+            "worker": Agent(prompt="Worker"),
+        },
+        pattern={
+            "type": PatternType.ORCHESTRATOR_WORKERS,
+            "config": PatternConfig(
+                orchestrator=OrchestratorConfig(agent="planner"),
+                worker_template=WorkerTemplate(agent="worker"),
+            ),
+        },
+        context_policy=ContextPolicy(compaction=Compaction(enabled=True, when_tokens_over=1000)),
+    )
+
+    # Track all hooks passed to get_or_build_agent
+    all_hooks_lists = []
+
+    async def capture_hooks(*args, **kwargs):
+        hooks = kwargs.get("hooks", [])
+        all_hooks_lists.append(hooks)
+        mock_agent = MagicMock()
+        # Return different responses based on call count
+        if len(all_hooks_lists) == 1:
+            # First call is orchestrator - return 2 tasks
+            mock_agent.invoke_async = AsyncMock(
+                return_value='[{"task": "Task 1"}, {"task": "Task 2"}]'
+            )
+        else:
+            # Subsequent calls are workers
+            mock_agent.invoke_async = AsyncMock(return_value="Worker response")
+        return mock_agent
+
+    mock_cache = MagicMock()
+    mock_cache.get_or_build_agent = AsyncMock(side_effect=capture_hooks)
+    mock_cache.close = AsyncMock()
+    mock_cache_class.return_value = mock_cache
+
+    await run_orchestrator_workers(spec, variables=None)
+
+    # Verify multiple agents were created (orchestrator + workers)
+    assert len(all_hooks_lists) >= 3, "Should have orchestrator + 2 workers"
+
+    # Extract all ProactiveCompactionHook instances
+    compaction_hooks = []
+    for hooks_list in all_hooks_lists:
+        for hook in hooks_list:
+            if "ProactiveCompactionHook" in str(type(hook)):
+                compaction_hooks.append(hook)
+
+    # Should have multiple compaction hooks (one per agent)
+    assert len(compaction_hooks) >= 3, "Each agent should get its own compaction hook"
+
+    # Verify each is a different instance (not shared)
+    assert compaction_hooks[0] is not compaction_hooks[1], "Hooks must be separate instances"
+    assert compaction_hooks[0] is not compaction_hooks[2], "Hooks must be separate instances"
+    assert compaction_hooks[1] is not compaction_hooks[2], "Hooks must be separate instances"
+
+    mock_cache.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_max_rounds_validation():
+    """Test that max_rounds != 1 is rejected with clear error."""
+    spec = Spec(
+        version=0,
+        name="test-max-rounds",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={
+            "planner": Agent(prompt="Orchestrator"),
+            "worker": Agent(prompt="Worker"),
+        },
+        pattern={
+            "type": PatternType.ORCHESTRATOR_WORKERS,
+            "config": PatternConfig(
+                orchestrator=OrchestratorConfig(
+                    agent="planner",
+                    limits=OrchestratorLimits(max_rounds=3),  # Multi-round not supported
+                ),
+                worker_template=WorkerTemplate(agent="worker"),
+            ),
+        },
+    )
+
+    # Should raise OrchestratorExecutionError with clear message
+    with pytest.raises(OrchestratorExecutionError) as exc_info:
+        await run_orchestrator_workers(spec, variables=None)
+
+    error_message = str(exc_info.value)
+    assert "Multi-round orchestration not yet supported" in error_message
+    assert "max_rounds=3" in error_message
+    assert "Set max_rounds to 1" in error_message
+
+
+@patch("strands_cli.exec.orchestrator_workers.AgentCache")
+@pytest.mark.asyncio
+async def test_orchestrator_json_parsing_all_retries_exhausted(mock_cache_class, minimal_orchestrator_spec):
+    """Test that JSON retry exhaustion provides structured error with retry history."""
+    # Setup mock cache
+    mock_cache = MagicMock()
+    mock_cache.get_or_build_agent = AsyncMock()
+    mock_cache.close = AsyncMock()
+    mock_cache_class.return_value = mock_cache
+
+    # Mock agent that always returns invalid JSON
+    mock_agent = MagicMock()
+    mock_agent.invoke_async = AsyncMock()
+    mock_agent.invoke_async.side_effect = [
+        "This is not valid JSON at all",  # Attempt 1
+        "Still not JSON, sorry",  # Attempt 2
+        "Nope, still plain text",  # Attempt 3 (max_json_retries=2 means 3 total attempts)
+    ]
+    mock_cache.get_or_build_agent.return_value = mock_agent
+
+    # Should raise OrchestratorExecutionError with retry history
+    with pytest.raises(OrchestratorExecutionError) as exc_info:
+        await run_orchestrator_workers(minimal_orchestrator_spec, variables=None)
+
+    error_message = str(exc_info.value)
+    # Verify error contains structured information
+    assert "Failed to parse orchestrator response as valid JSON" in error_message
+    assert "after 3 attempts" in error_message
+    assert "Retry history:" in error_message
+    # Verify retry history is JSON formatted
+    assert '"attempt": 1' in error_message
+    assert '"attempt": 2' in error_message
+    assert '"attempt": 3' in error_message
+    assert '"response_preview":' in error_message

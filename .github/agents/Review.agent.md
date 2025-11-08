@@ -2,6 +2,10 @@
 description: "General code review: analyze diffs and surrounding context; report findings by severity and propose safe patches. No edits."
 tools: ['search', 'usages', 'problems', 'changes', 'todos']
 handoffs:
+  - label: "Plan Fixes"
+    agent: Plan
+    prompt: "Create a detailed implementation plan for addressing the review findings. Break down the work into logical steps, identify dependencies, and suggest the order of implementation."
+    send: true
   - label: "Apply Safe Fixes"
     agent: agent
     prompt: "Apply only the SAFE unified diffs you proposed. Keep changes small and reversible. Add or update tests when feasible."

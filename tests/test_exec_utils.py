@@ -582,3 +582,50 @@ async def test_agent_cache_close_cleanup() -> None:
         # Verify cache is cleared
         assert len(cache._agents) == 0
 
+
+@pytest.mark.asyncio
+async def test_agent_cache_notes_not_in_key() -> None:
+    """Test that agents with different notes are cached together (notes injected at invocation time)."""
+    spec = Spec(
+        version=0,
+        name="test-notes-cache",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent": AgentConfig(prompt="Test")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent = MagicMock()
+        mock_build.return_value = mock_agent
+
+        cache = AgentCache()
+
+        # Build agent with notes "Step 1 notes"
+        agent1 = await cache.get_or_build_agent(
+            spec, "agent", spec.agents["agent"],
+            injected_notes="Step 1 notes",
+            worker_index=None
+        )
+        assert mock_build.call_count == 1
+
+        # Build agent with different notes "Step 2 notes"
+        # Should reuse cached agent (notes don't affect cache key)
+        agent2 = await cache.get_or_build_agent(
+            spec, "agent", spec.agents["agent"],
+            injected_notes="Step 2 notes",
+            worker_index=None
+        )
+        assert mock_build.call_count == 1  # Still 1 - agent reused
+        assert agent1 is agent2  # Same agent instance
+
+        # Build agent with no notes
+        # Should still reuse cached agent
+        agent3 = await cache.get_or_build_agent(
+            spec, "agent", spec.agents["agent"],
+            injected_notes=None,
+            worker_index=None
+        )
+        assert mock_build.call_count == 1  # Still 1 - agent reused
+        assert agent1 is agent3  # Same agent instance
+
+        await cache.close()

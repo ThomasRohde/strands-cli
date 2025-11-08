@@ -194,10 +194,12 @@ class AgentCache:
 
     def __init__(self) -> None:
         """Initialize empty agent cache."""
-        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, notes_hash, worker_index) -> Agent instance
-        # Notes hash allows caching agents with identical notes content
+        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, worker_index) -> Agent instance
+        # Notes are injected at invocation time (not build time), so they don't affect caching
         # Worker index ensures isolation for orchestrator-workers pattern
-        self._agents: dict[tuple[str, frozenset[str], str | None, str | None, int | None], Agent] = {}
+        self._agents: dict[
+            tuple[str, frozenset[str], str | None, int | None], Agent
+        ] = {}
 
         # Track HTTP executor tool modules separately for cleanup
         # Key: executor ID -> Module with _http_client
@@ -248,14 +250,9 @@ class AgentCache:
         # Include conversation manager type in cache key to prevent collisions
         cm_type = type(conversation_manager).__name__ if conversation_manager else None
 
-        # Hash notes content for cache key (agents with same notes can be cached)
-        # This improves performance by avoiding rebuilds when notes content is identical
-        import hashlib
-
-        notes_hash = hashlib.md5(injected_notes.encode()).hexdigest() if injected_notes else None
-
         # Create cache key including worker_index for orchestrator-workers isolation
-        cache_key = (agent_id, tools_key, cm_type, notes_hash, worker_index)
+        # Notes are excluded - they're injected at invocation time, not build time
+        cache_key = (agent_id, tools_key, cm_type, worker_index)
 
         # Check cache
         if cache_key in self._agents:
@@ -264,7 +261,6 @@ class AgentCache:
                 agent_id=agent_id,
                 tools=sorted(tools_key) if tools_key else None,
                 conversation_manager=cm_type,
-                notes_hash=notes_hash[:8] if notes_hash else None,
                 worker_index=worker_index,
             )
             return self._agents[cache_key]
@@ -275,7 +271,6 @@ class AgentCache:
             agent_id=agent_id,
             tools=sorted(tools_key) if tools_key else None,
             conversation_manager=cm_type,
-            notes_hash=notes_hash[:8] if notes_hash else None,
             worker_index=worker_index,
         )
 

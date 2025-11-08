@@ -432,20 +432,20 @@ pattern:
             spec, "test-agent", agent_config, injected_notes="Note 1"
         )
 
-        # Build agent with different notes (should be cache miss)
+        # Build agent with different notes (should ALSO be cache hit - notes don't affect cache key)
         agent3 = await cache.get_or_build_agent(
             spec, "test-agent", agent_config, injected_notes="Note 2"
         )
 
-        # Verify build_agent called twice (different notes hash)
-        assert mock_build.call_count == 2
+        # Verify build_agent called only once (notes don't affect cache key)
+        assert mock_build.call_count == 1
 
-        # Verify cache behavior
-        assert agent1 is agent2  # Same notes = cache hit
+        # Verify cache behavior - all agents are the same instance
+        assert agent1 is agent2
+        assert agent1 is agent3  # Different notes but same cached agent
         assert agent1 is mock_agent
-        assert agent3 is mock_agent  # Same mock returned but different build call
 
-        # Verify cache has 2 entries (different notes hashes)
-        assert len(cache._agents) == 2
+        # Verify cache has 1 entry (notes don't create separate cache entries)
+        assert len(cache._agents) == 1
 
     await cache.close()

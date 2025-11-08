@@ -583,3 +583,47 @@ outputs:
 
         # Verify max_parallel is preserved in the Runtime model
         assert spec.runtime.max_parallel == 3
+
+    def test_orchestrator_max_rounds_unsupported(self, temp_output_dir: Path) -> None:
+        """Test that max_rounds > 1 is rejected as unsupported (Phase 7 MVP)."""
+        spec_file = temp_output_dir / "orchestrator-multi-round.yaml"
+        spec_content = """
+version: 0
+name: orchestrator-multi-round
+runtime:
+  provider: ollama
+  model_id: gpt
+  host: http://localhost:11434
+agents:
+  planner:
+    prompt: "You orchestrate tasks"
+  worker:
+    prompt: "You execute tasks"
+pattern:
+  type: orchestrator_workers
+  config:
+    orchestrator:
+      agent: planner
+      limits:
+        max_rounds: 3
+    worker_template:
+      agent: worker
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+        spec = load_spec(spec_file)
+        report = check_capability(spec)
+
+        assert report.supported is False
+
+        # Find the max_rounds issue
+        max_rounds_issue = next(
+            (issue for issue in report.issues if "max_rounds" in issue.pointer), None
+        )
+        assert max_rounds_issue is not None
+        assert "Multi-round orchestration not yet supported" in max_rounds_issue.reason
+        assert "Phase 7 MVP limitation" in max_rounds_issue.reason
+        assert "Set max_rounds to 1" in max_rounds_issue.remediation
