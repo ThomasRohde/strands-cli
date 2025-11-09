@@ -22,6 +22,7 @@ Example:
 
 import asyncio
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -76,7 +77,16 @@ class FileSessionRepository:
 
         Returns:
             Path to session directory
+
+        Raises:
+            SessionCorruptedError: If session_id contains invalid characters (path traversal)
         """
+        # Validate session ID to prevent path traversal attacks
+        # Only allow alphanumeric, underscore, and hyphen characters
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
+            raise SessionCorruptedError(
+                f"Invalid session identifier '{session_id}' (only [A-Za-z0-9_-] allowed)"
+            )
         return self.storage_dir / f"session_{session_id}"
 
     async def exists(self, session_id: str) -> bool:

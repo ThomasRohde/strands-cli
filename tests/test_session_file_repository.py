@@ -403,6 +403,43 @@ async def test_list_sessions_skips_corrupted(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_session_id_validation_rejects_path_traversal(tmp_path: Path):
+    """Test that session IDs with path traversal characters are rejected."""
+    repo = FileSessionRepository(storage_dir=tmp_path)
+
+    # Test path traversal attempts
+    malicious_ids = [
+        "../../../etc/passwd",
+        "..\\..\\windows\\system32",
+        "test/../../../secret",
+        "test/../../data",
+        "valid-id/../../../attack",
+        "session_id/../../attack",
+    ]
+
+    for malicious_id in malicious_ids:
+        # Test that _session_dir raises SessionCorruptedError
+        with pytest.raises(SessionCorruptedError) as exc_info:
+            repo._session_dir(malicious_id)
+        
+        assert "Invalid session identifier" in str(exc_info.value)
+        assert "only [A-Za-z0-9_-] allowed" in str(exc_info.value)
+
+    # Test valid session IDs still work
+    valid_ids = [
+        "abc123",
+        "session-123",
+        "test_session_456",
+        "ABC-123_XYZ",
+    ]
+
+    for valid_id in valid_ids:
+        # Should not raise
+        result = repo._session_dir(valid_id)
+        assert result == tmp_path / f"session_{valid_id}"
+
+
+@pytest.mark.asyncio
 async def test_save_preserves_spec_snapshot(tmp_path: Path):
     """Test that repeated saves don't overwrite spec_snapshot.yaml when empty content is passed.
     

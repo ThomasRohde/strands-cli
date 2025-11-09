@@ -532,7 +532,12 @@ async def run_routing(  # noqa: C901
 
             # Update routing state with route results
             if session_state and session_repo and result.execution_context:
-                session_state.pattern_state["route_state"] = result.execution_context
+                # Preserve chain pattern state structure for resume (current_step + step_history)
+                # The execution_context contains {"steps": [...]}, but we need the full pattern state
+                session_state.pattern_state["route_state"] = {
+                    "current_step": len(result.execution_context.get("steps", [])),
+                    "step_history": result.execution_context.get("steps", []),
+                }
                 await finalize_session(session_state, session_repo)
 
             # Update result metadata to include routing info
