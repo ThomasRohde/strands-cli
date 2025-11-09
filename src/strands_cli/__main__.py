@@ -386,7 +386,10 @@ def _write_and_report_artifacts(
         # Extract merged variables from spec.inputs.values (includes YAML defaults + CLI overrides)
         merged_vars: dict[str, Any] = {}
         if spec.inputs and isinstance(spec.inputs, dict) and "values" in spec.inputs:
-            merged_vars = spec.inputs["values"] or {}
+            merged_vars = dict(spec.inputs["values"] or {})
+        # Overlay CLI --var overrides (takes precedence over spec defaults)
+        if variables:
+            merged_vars.update(variables)
 
         return write_artifacts(
             spec.outputs.artifacts,

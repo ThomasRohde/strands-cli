@@ -80,6 +80,7 @@ async def finalize_session(
         session_repo: Repository for persistence
     """
     session_state.metadata.status = SessionStatus.COMPLETED
+    session_state.metadata.error = None  # Clear any stale error from previous failed attempts
     session_state.metadata.updated_at = now_iso8601()
     await session_repo.save(session_state, "")
 
@@ -99,6 +100,7 @@ async def fail_session(
         error: The exception that caused the failure
     """
     session_state.metadata.status = SessionStatus.FAILED
+    session_state.metadata.error = f"{type(error).__name__}: {error!s}"
     session_state.metadata.updated_at = now_iso8601()
 
     try:

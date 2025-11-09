@@ -30,6 +30,7 @@ import structlog
 from strands_cli.exec.utils import AgentCache, get_retry_config, invoke_agent_with_retry
 from strands_cli.loader import render_template
 from strands_cli.session import SessionState
+from strands_cli.session.checkpoint_utils import fail_session, finalize_session
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.types import PatternType, RunResult, Spec
@@ -73,8 +74,8 @@ async def run_single_agent(
     Args:
         spec: Validated workflow spec (must pass capability check first)
         variables: Optional variables from CLI (already merged into spec.inputs)
-        session_state: Existing session state for resume (None = fresh start) - unused for single-agent
-        session_repo: Repository for checkpointing (None = no checkpoints) - unused for single-agent
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with:
@@ -86,11 +87,6 @@ async def run_single_agent(
     Raises:
         ExecutionError: If pattern is unsupported, template rendering fails,
                        or agent construction fails (not for agent runtime errors)
-
-    Note:
-        Single-agent workflows do not support session persistence/resume yet.
-        The session_state and session_repo parameters are accepted for API
-        compatibility with multi-step executors but are currently ignored.
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
@@ -162,6 +158,10 @@ async def run_single_agent(
                     agent, task_input, max_attempts, wait_min, wait_max
                 )
         except Exception as e:
+            # Fail session on error if session tracking is enabled
+            if session_state and session_repo:
+                await fail_session(session_state, session_repo, e)
+
             completed_at = datetime.now(UTC)
             duration = (completed_at - started_at).total_seconds()
 
@@ -192,6 +192,10 @@ async def run_single_agent(
 
         completed_at = datetime.now(UTC)
         duration = (completed_at - started_at).total_seconds()
+
+        # Finalize session on success if session tracking is enabled
+        if session_state and session_repo:
+            await finalize_session(session_state, session_repo)
 
         logger.info(
             "workflow_completed",

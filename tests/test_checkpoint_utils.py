@@ -7,6 +7,7 @@ import pytest
 from strands_cli.session import SessionMetadata, SessionState, SessionStatus, TokenUsage
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
+    fail_session,
     finalize_session,
     get_cumulative_tokens,
     validate_session_params,
@@ -110,7 +111,7 @@ async def test_checkpoint_pattern_state(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_finalize_session(tmp_path: Path) -> None:
-    """Test session finalization."""
+    """Test session finalization clears error and sets status to COMPLETED."""
     repo = FileSessionRepository(storage_dir=tmp_path)
     state = SessionState(
         metadata=SessionMetadata(
@@ -121,6 +122,7 @@ async def test_finalize_session(tmp_path: Path) -> None:
             status=SessionStatus.RUNNING,
             created_at="2025-11-09T10:00:00Z",
             updated_at="2025-11-09T10:00:00Z",
+            error="RuntimeError: Previous failure",  # Stale error from previous attempt
         ),
         variables={},
         runtime_config={},
@@ -130,13 +132,15 @@ async def test_finalize_session(tmp_path: Path) -> None:
 
     await finalize_session(state, repo)
 
-    # Verify status
+    # Verify status and error cleared
     assert state.metadata.status == SessionStatus.COMPLETED
+    assert state.metadata.error is None, "Error should be cleared on successful completion"
 
     # Verify persisted
     loaded = await repo.load("test-finalize")
     assert loaded is not None
     assert loaded.metadata.status == SessionStatus.COMPLETED
+    assert loaded.metadata.error is None, "Persisted error should be cleared"
 
 
 def test_get_cumulative_tokens_none() -> None:
@@ -162,3 +166,40 @@ def test_get_cumulative_tokens_with_usage() -> None:
         token_usage=TokenUsage(total_input_tokens=1000, total_output_tokens=800),
     )
     assert get_cumulative_tokens(state) == 1800
+
+
+@pytest.mark.asyncio
+async def test_fail_session_sets_error(tmp_path: Path) -> None:
+    """Test that fail_session sets error field with exception details."""
+    repo = FileSessionRepository(storage_dir=tmp_path)
+    state = SessionState(
+        metadata=SessionMetadata(
+            session_id="test-fail",
+            workflow_name="test",
+            spec_hash="hash",
+            pattern_type="chain",
+            status=SessionStatus.RUNNING,
+            created_at="2025-11-09T10:00:00Z",
+            updated_at="2025-11-09T10:00:00Z",
+        ),
+        variables={},
+        runtime_config={},
+        pattern_state={},
+        token_usage=TokenUsage(),
+    )
+
+    # Fail with an exception
+    error = RuntimeError("Test failure message")
+    await fail_session(state, repo, error)
+
+    # Verify status and error set
+    assert state.metadata.status == SessionStatus.FAILED
+    assert state.metadata.error is not None, "Error should be set"
+    assert "RuntimeError: Test failure message" in state.metadata.error
+
+    # Verify persisted
+    loaded = await repo.load("test-fail")
+    assert loaded is not None
+    assert loaded.metadata.status == SessionStatus.FAILED
+    assert loaded.metadata.error is not None, "Persisted error should be set"
+    assert "RuntimeError: Test failure message" in loaded.metadata.error
