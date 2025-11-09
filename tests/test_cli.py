@@ -21,7 +21,6 @@ from strands_cli.exit_codes import (
     EX_OK,
     EX_RUNTIME,
     EX_SCHEMA,
-    EX_UNSUPPORTED,
 )
 
 runner = CliRunner()

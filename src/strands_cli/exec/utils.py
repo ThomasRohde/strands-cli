@@ -11,9 +11,11 @@ Phase 2 Additions:
     - AgentCache: Executor-scoped agent caching to eliminate redundant builds
 """
 
+import os
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from strands.agent import Agent
 
 # Phase 9: Import MCPClient for instance checking and cleanup
@@ -26,6 +28,7 @@ except ImportError:
     MCPClient = None  # type: ignore
 
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -97,6 +100,39 @@ def get_retry_config(spec: Spec) -> tuple[int, int, int]:
     return max_attempts, wait_min, wait_max
 
 
+def _log_retry_attempt(retry_state: RetryCallState) -> None:
+    """Log retry attempt with OTEL span event.
+
+    Called by tenacity before sleeping between retry attempts.
+
+    Args:
+        retry_state: Tenacity retry state with attempt number and exception
+    """
+    attempt = retry_state.attempt_number
+    if retry_state.outcome and retry_state.outcome.failed:
+        error = str(retry_state.outcome.exception())
+        wait_time = retry_state.next_action.sleep if retry_state.next_action else 0
+
+        logger.warning(
+            "retry_attempt",
+            attempt=attempt,
+            error=error,
+            wait_seconds=wait_time,
+        )
+
+        # Add OTEL span event
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.add_event(
+                "retry_attempt",
+                {
+                    "attempt": attempt,
+                    "error": error[:200],  # Truncate long errors
+                    "wait_seconds": float(wait_time),
+                },
+            )
+
+
 def create_retry_decorator(
     max_attempts: int,
     wait_min: int,
@@ -119,6 +155,7 @@ def create_retry_decorator(
         retry=retry_if_exception_type(TRANSIENT_ERRORS),
         stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(multiplier=1, min=wait_min, max=wait_max),
+        before_sleep=_log_retry_attempt,
         reraise=True,
     )
 
@@ -151,12 +188,49 @@ async def invoke_agent_with_retry(
     """
     from strands_cli.utils import capture_and_display_stdout
 
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
+
     retry_decorator = create_retry_decorator(max_attempts, wait_min, wait_max)
 
     @retry_decorator  # type: ignore[misc]
     async def _execute() -> Any:
+        if debug:
+            # Extract agent info for logging (safely)
+            agent_name = getattr(agent, "name", "<unknown>")
+            model_info = "<unknown>"
+            if hasattr(agent, "model"):
+                model = agent.model
+                if hasattr(model, "model_id"):
+                    model_info = model.model_id
+                elif hasattr(model, "model"):
+                    model_info = model.model
+
+            # Truncate input for logging
+            input_preview = input_text[:200] if len(input_text) > 200 else input_text
+
+            logger.debug(
+                "llm_request_start",
+                agent_name=agent_name,
+                model=model_info,
+                input_length=len(input_text),
+                input_preview=input_preview,
+            )
+
         with capture_and_display_stdout():
-            return await agent.invoke_async(input_text)
+            result = await agent.invoke_async(input_text)
+
+        if debug:
+            # Extract response info
+            response_text = str(result)
+            response_preview = response_text[:200] if len(response_text) > 200 else response_text
+
+            logger.debug(
+                "llm_response_received",
+                response_length=len(response_text),
+                response_preview=response_preview,
+            )
+
+        return result
 
     return await _execute()
 
@@ -210,9 +284,7 @@ class AgentCache:
         # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, worker_index) -> Agent instance
         # Notes are injected at invocation time (not build time), so they don't affect caching
         # Worker index ensures isolation for orchestrator-workers pattern
-        self._agents: dict[
-            tuple[str, frozenset[str], str | None, int | None], Agent
-        ] = {}
+        self._agents: dict[tuple[str, frozenset[str], str | None, int | None], Agent] = {}
 
         # Track HTTP executor tool modules separately for cleanup
         # Key: executor ID -> Module with _http_client
@@ -222,7 +294,11 @@ class AgentCache:
         # Dict: server_id -> MCPClient instance (deduplicated)
         self._mcp_clients: dict[str, Any] = {}
 
-        logger.debug("agent_cache_initialized")
+        debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
+        if debug:
+            logger.debug("agent_cache_initialized")
+        else:
+            logger.debug("agent_cache_initialized")
 
     async def get_or_build_agent(
         self,

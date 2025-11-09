@@ -602,18 +602,14 @@ async def test_agent_cache_notes_not_in_key() -> None:
 
         # Build agent with notes "Step 1 notes"
         agent1 = await cache.get_or_build_agent(
-            spec, "agent", spec.agents["agent"],
-            injected_notes="Step 1 notes",
-            worker_index=None
+            spec, "agent", spec.agents["agent"], injected_notes="Step 1 notes", worker_index=None
         )
         assert mock_build.call_count == 1
 
         # Build agent with different notes "Step 2 notes"
         # Should reuse cached agent (notes don't affect cache key)
         agent2 = await cache.get_or_build_agent(
-            spec, "agent", spec.agents["agent"],
-            injected_notes="Step 2 notes",
-            worker_index=None
+            spec, "agent", spec.agents["agent"], injected_notes="Step 2 notes", worker_index=None
         )
         assert mock_build.call_count == 1  # Still 1 - agent reused
         assert agent1 is agent2  # Same agent instance
@@ -621,9 +617,7 @@ async def test_agent_cache_notes_not_in_key() -> None:
         # Build agent with no notes
         # Should still reuse cached agent
         agent3 = await cache.get_or_build_agent(
-            spec, "agent", spec.agents["agent"],
-            injected_notes=None,
-            worker_index=None
+            spec, "agent", spec.agents["agent"], injected_notes=None, worker_index=None
         )
         assert mock_build.call_count == 1  # Still 1 - agent reused
         assert agent1 is agent3  # Same agent instance

@@ -1,0 +1,58 @@
+# Telemetry Redaction Demo
+# Demonstrates PII redaction in OTEL spans with tool inputs/outputs
+
+name: telemetry-redaction-demo
+version: 1.0.0
+description: Demonstrates PII redaction in telemetry spans
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+telemetry:
+  otel:
+    endpoint: http://localhost:4317  # OTLP gRPC endpoint
+    service_name: redaction-demo
+    sample_ratio: 1.0
+
+  redact:
+    tool_inputs: true
+    tool_outputs: true
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: collector
+        input: |
+          You are collecting customer data for a demo.
+          Respond with realistic test data including:
+          - A customer email address
+          - A phone number
+          - A sample API key (format: API-KEY-XXXXXXXXXX)
+
+          Format as JSON.
+
+      - agent: processor
+        input: |
+          Previous data: {{ steps[0].response }}
+
+          Process this data and confirm receipt.
+          Include the email and phone in your response.
+
+agents:
+  collector:
+    prompt: You are a data collector that returns realistic test data.
+    tools: []
+
+  processor:
+    prompt: You are a data processor that handles customer information.
+    tools: []
+
+outputs:
+  artifacts:
+    - path: ./artifacts/redaction-demo-result.txt
+      from: "{{ last_response }}"
+
+    - path: ./artifacts/redaction-demo-trace.json
+      from: "{{ TRACE }}"

@@ -19,8 +19,11 @@ Unsupported (with remediation):
     - Non-allowlisted Python callables
 """
 
+import os
 from collections import deque
 from typing import Any
+
+import structlog
 
 from strands_cli.types import (
     CapabilityIssue,
@@ -32,6 +35,8 @@ from strands_cli.types import (
     ProviderType,
     Spec,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Allowlisted Python callable paths for security
 # Only these imports are permitted to prevent arbitrary code execution
@@ -333,7 +338,7 @@ def _validate_orchestrator_limits(
                 pointer="/pattern/config/orchestrator/limits/max_rounds",
                 reason="Multi-round orchestration not yet supported (Phase 7 MVP limitation)",
                 remediation="Set max_rounds to 1 or omit for default single-round execution. "
-                           "Multi-round support planned for future release.",
+                "Multi-round support planned for future release.",
             )
         )
 
@@ -917,6 +922,17 @@ def check_capability(spec: Spec) -> CapabilityReport:
         - issues: List of incompatibilities with remediation guidance
         - normalized: Extracted parameters for execution (if supported)
     """
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
+
+    if debug:
+        logger.debug(
+            "capability_check_start",
+            spec_name=spec.name,
+            pattern_type=spec.pattern.type if spec.pattern else None,
+            agent_count=len(spec.agents),
+            provider=spec.runtime.provider,
+        )
+
     issues: list[CapabilityIssue] = []
 
     # Run all validation checks
@@ -932,6 +948,14 @@ def check_capability(spec: Spec) -> CapabilityReport:
     _validate_graph_pattern(spec, issues)
     _validate_secrets(spec, issues)
     _validate_tools(spec, issues)
+
+    if debug:
+        logger.debug(
+            "capability_check_complete",
+            supported=len(issues) == 0,
+            issue_count=len(issues),
+            issues=[{"pointer": i.pointer, "reason": i.reason} for i in issues[:5]],
+        )
 
     # Build normalized values if supported
     normalized = None

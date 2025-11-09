@@ -164,9 +164,7 @@ def evaluate_condition(when_expr: str, context: dict[str, Any]) -> bool:
             error=str(e),
             error_type=type(e).__name__,
         )
-        raise ConditionEvaluationError(
-            f"Failed to evaluate condition '{when_expr}': {e}"
-        ) from e
+        raise ConditionEvaluationError(f"Failed to evaluate condition '{when_expr}': {e}") from e
 
 
 def validate_condition_syntax(when_expr: str) -> tuple[bool, str | None]:

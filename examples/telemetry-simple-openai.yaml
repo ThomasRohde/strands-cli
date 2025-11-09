@@ -1,0 +1,36 @@
+name: telemetry-simple-demo
+version: 1.0.0
+description: Simple chain workflow with OpenTelemetry tracing enabled
+
+# OTEL Configuration
+telemetry:
+  otel:
+    endpoint: http://localhost:4317  # OTLP gRPC endpoint
+    service_name: strands-demo
+    sample_ratio: 1.0  # Trace 100% of requests
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+agents:
+  researcher:
+    prompt: "You are a research assistant. Provide concise answers."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "What is {{ topic }}?"
+      - agent: researcher
+        input: "Summarize the previous answer in one sentence."
+
+inputs:
+  values:
+    topic: "OpenTelemetry"
+
+outputs:
+  artifacts:
+    - path: "output.txt"
+      from: "{{ last_response }}"

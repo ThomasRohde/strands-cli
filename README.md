@@ -2,11 +2,13 @@
 
 Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
 
-**Current Version**: v0.9.0 | 782 tests passing | 83% coverage
+**Current Version**: v0.10.0 | 795 tests passing | 82% coverage
 
 ## Features
 
-### Core Capabilities (v0.9.0)
+### Core Capabilities (v0.10.0)
+- ✅ **Full OpenTelemetry tracing** - Production-ready observability with OTLP/Console exporters, trace artifacts, and PII redaction
+- ✅ **Enhanced debugging** - Structured debug logging with `--debug` flag for variable resolution, template rendering, and LLM interactions
 - ✅ **Orchestrator-Workers pattern** - Dynamic task delegation with worker pools and optional reduce/writeup steps
 - ✅ **Graph pattern** - Explicit control flow with conditionals, loops, and cycle protection
 - ✅ **Evaluator-Optimizer pattern** - Iterative refinement with quality gates and convergence detection
@@ -29,7 +31,10 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 - ✅ **Concurrency control** - Semaphore-based limits via `runtime.max_parallel`
 - ✅ **Exponential backoff** retry logic per step/task/branch
 - ✅ **Rich CLI interface** with progress indicators
-- ✅ **OpenTelemetry scaffolding** (no-op in current version, ready for future)
+- ✅ **OpenTelemetry integration** - Full OTLP tracing with span exports to Jaeger/Zipkin/Honeycomb
+- ✅ **Trace artifacts** - Export execution traces to JSON with `{{ $TRACE }}` variable or `--trace` flag
+- ✅ **PII redaction** - Automatic scrubbing of sensitive data from tool inputs/outputs in traces
+- ✅ **Structured debug logging** - `--debug` flag for detailed workflow execution insights
 
 ### Performance Optimizations
 - ⚡ **Agent Caching** - Agents are reused across steps/tasks/branches with identical configurations, reducing initialization overhead by ~90% in multi-step workflows
@@ -40,10 +45,10 @@ Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observab
 ### Future Roadmap
 - ✅ **Orchestrator-workers pattern** - Dynamic task delegation with worker pools (Phase 7 - v0.8.0)
 - ✅ **Graph pattern** - Explicit control flow with conditionals and loops (Phase 8 - v0.9.0)
+- ✅ **Full OTEL tracing** - Production observability and debugging (Phase 10 - v0.10.0)
 - 🚧 MCP tools integration (Phase 9)
 - 🚧 Guardrails enforcement (Phase 5)
 - 🚧 Context policy execution
-- 🚧 Full OTEL tracing
 
 ## Quick Start
 
@@ -202,6 +207,25 @@ uv run strands run workflow.yaml --bypass-tool-consent --force
 
 ```bash
 uv run strands run workflow.yaml --verbose
+```
+
+#### Debug mode with detailed logging
+
+```bash
+# Enable structured debug logging for troubleshooting
+uv run strands run workflow.yaml --debug
+
+# Combine with verbose for maximum detail
+uv run strands run workflow.yaml --debug --verbose
+```
+
+#### Export execution trace
+
+```bash
+# Auto-generate trace artifact
+uv run strands run workflow.yaml --trace
+
+# Trace saved to: ./artifacts/<spec-name>-trace.json
 ```
 
 ## Security Considerations
@@ -497,8 +521,8 @@ Presets merge with existing configuration - your custom values take precedence. 
 | **Budgets** | ✅ Enforced | Cumulative token tracking with warnings/hard limits |
 | **Concurrency** | ✅ Semaphore control | Via `runtime.max_parallel` |
 | **Retries** | ✅ Exponential backoff | Configurable via `failure_policy` |
-| **Artifacts** | Template support | `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`, `{{ nodes.<id>.response }}` |
-| **OTEL** | Parsed (scaffolding) | Full tracing activation → future |
+| **Artifacts** | Template support | `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`, `{{ nodes.<id>.response }}`, `{{ $TRACE }}` |
+| **OTEL** | ✅ Full support | OTLP/Console exporters, trace artifacts, PII redaction |
 
 ### Unsupported Patterns (exit code 18)
 - Orchestrator-workers pattern

@@ -233,7 +233,7 @@ class HttpExecutor(BaseModel):
 
 class McpServer(BaseModel):
     """MCP server configuration (Phase 9).
-    
+
     Supports two transport types:
     1. stdio: command-based MCP servers (npx, uvx, etc.)
     2. HTTPS: remote MCP servers via HTTPS endpoint
@@ -253,12 +253,12 @@ class McpServer(BaseModel):
         """Validate that either command or url is provided, but not both."""
         has_command = self.command is not None
         has_url = self.url is not None
-        
+
         if not has_command and not has_url:
             raise ValueError("MCP server must have either 'command' or 'url'")
         if has_command and has_url:
             raise ValueError("MCP server cannot have both 'command' and 'url'")
-        
+
         return self
 
 
@@ -579,11 +579,28 @@ class Outputs(BaseModel):
     artifacts: list[Artifact] | None = None
 
 
-class Telemetry(BaseModel):
-    """Telemetry configuration (parsed but no-op in MVP)."""
+class OTELConfig(BaseModel):
+    """OpenTelemetry configuration."""
 
-    otel: dict[str, Any] | None = None
-    redact: dict[str, Any] | None = None
+    endpoint: str | None = Field(
+        None, description="OTLP endpoint URL (e.g., http://localhost:4317)"
+    )
+    service_name: str | None = Field(None, description="Service name for traces")
+    sample_ratio: float = Field(1.0, ge=0.0, le=1.0, description="Trace sampling ratio (0.0-1.0)")
+
+
+class RedactionConfig(BaseModel):
+    """Telemetry redaction configuration."""
+
+    tool_inputs: bool = Field(True, description="Redact tool inputs from spans")
+    tool_outputs: bool = Field(False, description="Redact tool outputs from spans")
+
+
+class Telemetry(BaseModel):
+    """Telemetry configuration."""
+
+    otel: OTELConfig | None = None
+    redact: RedactionConfig | None = None
 
 
 class Security(BaseModel):

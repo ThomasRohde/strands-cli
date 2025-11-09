@@ -4,7 +4,7 @@ Handles writing workflow execution outputs to files using template rendering.
 Supports Jinja2 templates for dynamic artifact content generation.
 
 Features:
-    - Template rendering with {{ last_response }} and future variables
+    - Template rendering with {{ last_response }}, {{ TRACE }}, and other variables
     - Directory creation (parents created automatically)
     - Overwrite protection (--force flag required)
     - Error handling for I/O failures
@@ -13,9 +13,11 @@ Features:
 
 Artifact Templates:
     Current: {{ last_response }} - final agent output
-    Future: {{ TRACE }}, {{ PROVENANCE }}, etc.
+             {{ TRACE }} - complete trace JSON with spans and metadata
+    Future: {{ PROVENANCE }}, etc.
 """
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ from typing import Any
 import structlog
 
 from strands_cli.loader import render_template
+from strands_cli.telemetry import get_trace_collector
 
 logger = structlog.get_logger(__name__)
 
@@ -75,6 +78,8 @@ def write_artifacts(
     *,
     variables: dict[str, str] | None = None,
     execution_context: dict[str, Any] | None = None,
+    spec_name: str | None = None,
+    pattern_type: str | None = None,
 ) -> list[str]:
     """Write output artifacts from workflow execution.
 
@@ -88,6 +93,8 @@ def write_artifacts(
         force: If True, overwrite existing files; if False, error on existing files
         variables: User-provided variables from --var flags (for template rendering)
         execution_context: Additional context (steps, tasks) for template rendering
+        spec_name: Name of spec (for $TRACE metadata)
+        pattern_type: Pattern type (for $TRACE metadata)
 
     Returns:
         List of written file paths (absolute)
@@ -106,11 +113,27 @@ def write_artifacts(
         raise ArtifactError(f"Failed to create output directory {output_dir}: {e}") from e
 
     # Template variables for artifact rendering
-    # Supports {{ last_response }}, user variables from --var, and future OTEL metadata
+    # Supports {{ last_response }}, {{ TRACE }}, user variables from --var, etc.
     template_vars = {
         "last_response": last_response,
-        # Future: Add $TRACE, $PROVENANCE, etc.
     }
+
+    # Add TRACE variable if trace collector is available
+    collector = get_trace_collector()
+    if collector:
+        trace_data = collector.get_trace_data(spec_name=spec_name, pattern=pattern_type)
+        # Convert trace data to pretty-printed JSON
+        trace_json = json.dumps(trace_data, indent=2, ensure_ascii=False)
+        template_vars["TRACE"] = trace_json
+        logger.debug(
+            "trace_artifact_available",
+            trace_id=trace_data.get("trace_id"),
+            span_count=trace_data.get("span_count"),
+        )
+    else:
+        # No trace collector; TRACE will be empty
+        template_vars["TRACE"] = ""
+        logger.debug("trace_artifact_unavailable", reason="telemetry_not_configured")
 
     # Merge user-provided variables (e.g., topic from --var topic="value")
     if variables:

@@ -26,10 +26,12 @@ Key Design:
 """
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from typing import Annotated, Any
 
+import structlog
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -64,8 +66,20 @@ from strands_cli.exit_codes import (
 )
 from strands_cli.loader import LoadError, load_spec, parse_variables
 from strands_cli.schema import SchemaValidationError
-from strands_cli.telemetry import configure_telemetry
+from strands_cli.telemetry import add_otel_context, configure_telemetry, shutdown_telemetry
 from strands_cli.types import PatternType, RunResult, Spec
+
+# Configure structlog with OTEL context injection
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        add_otel_context,  # Inject trace_id and span_id
+        structlog.processors.JSONRenderer(),
+    ],
+    logger_factory=structlog.PrintLoggerFactory(),
+)
 
 # Combine execution errors for exception handling
 ExecutionError = (
@@ -321,9 +335,65 @@ def _write_and_report_artifacts(
             force,
             variables=merged_vars,
             execution_context=result.execution_context,
+            spec_name=spec.name,
+            pattern_type=spec.pattern.type if spec.pattern else None,
         )
     except ArtifactError as e:
         console.print(f"\n[red]Failed to write artifacts:[/red] {e}")
+        sys.exit(EX_IO)
+
+
+def _write_trace_artifact(spec: Spec, out: str, force: bool) -> str | None:
+    """Write trace artifact to JSON file.
+
+    Args:
+        spec: Workflow spec
+        out: Output directory
+        force: Overwrite existing files
+
+    Returns:
+        Path to written trace file, or None if no trace collector
+
+    Raises:
+        SystemExit: With EX_IO on write failure
+    """
+    from strands_cli.artifacts import sanitize_filename
+    from strands_cli.telemetry import get_trace_collector
+
+    collector = get_trace_collector()
+    if not collector:
+        console.print(
+            "[yellow]Warning:[/yellow] No trace data available (telemetry not configured)"
+        )
+        return None
+
+    try:
+        # Get trace data with spec metadata
+        trace_data = collector.get_trace_data(
+            spec_name=spec.name, pattern=spec.pattern.type if spec.pattern else None
+        )
+
+        # Generate safe filename
+        safe_name = sanitize_filename(spec.name)
+        trace_path = Path(out) / f"{safe_name}-trace.json"
+
+        # Check if file exists
+        if trace_path.exists() and not force:
+            console.print(
+                f"\n[red]Trace file already exists:[/red] {trace_path}. Use --force to overwrite."
+            )
+            sys.exit(EX_IO)
+
+        # Write trace JSON with pretty formatting
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        trace_path.write_text(
+            json.dumps(trace_data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        return str(trace_path)
+
+    except Exception as e:
+        console.print(f"\n[red]Failed to write trace artifact:[/red] {e}")
         sys.exit(EX_IO)
 
 
@@ -353,6 +423,13 @@ def run(
             help="Skip interactive tool confirmations (sets BYPASS_TOOL_CONSENT=true)",
         ),
     ] = False,
+    trace: Annotated[
+        bool, typer.Option("--trace", help="Generate trace artifact with OTEL spans")
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
     """Run a single-agent workflow from a YAML or JSON file.
@@ -371,6 +448,7 @@ def run(
         out: Output directory for artifacts (default: ./artifacts)
         force: Overwrite existing artifact files without error
         bypass_tool_consent: Skip interactive tool confirmations (e.g., file_write prompts)
+        trace: Auto-generate trace artifact with OTEL spans (writes <spec-name>-trace.json)
         verbose: Enable detailed logging and error traces
 
     Exit Codes:
@@ -384,6 +462,14 @@ def run(
     import os
 
     try:
+        # Configure debug logging level
+        if debug:
+            os.environ["STRANDS_DEBUG"] = "true"
+            import logging
+
+            logging.basicConfig(level=logging.DEBUG)
+            console.print("[dim]Debug logging enabled[/dim]")
+
         # Set environment variable for tool consent bypass if requested
         if bypass_tool_consent:
             os.environ["BYPASS_TOOL_CONSENT"] = "true"
@@ -417,6 +503,12 @@ def run(
         written_files = _write_and_report_artifacts(spec, result, out, force, variables)
         result.artifacts_written = written_files
 
+        # Generate trace artifact if --trace flag is set
+        if trace:
+            trace_file = _write_trace_artifact(spec, out, force)
+            if trace_file:
+                result.artifacts_written.append(trace_file)
+
         # Show success summary
         console.print("\n[bold green]✓ Workflow completed successfully[/bold green]")
         console.print(f"Duration: {result.duration_seconds:.2f}s")
@@ -426,9 +518,14 @@ def run(
             for artifact in result.artifacts_written:
                 console.print(f"  • [cyan]{artifact}[/cyan]")
 
+        # Shutdown telemetry and flush pending spans
+        shutdown_telemetry()
+
         sys.exit(EX_OK)
 
     except Exception as e:
+        # Ensure telemetry shutdown even on error
+        shutdown_telemetry()
         console.print(f"\n[red]Unexpected error:[/red] {e}")
         if verbose:
             import traceback
@@ -440,6 +537,10 @@ def run(
 @app.command()
 def validate(
     spec_file: Annotated[str, typer.Argument(help="Path to workflow YAML/JSON file")],
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
     """Validate a workflow spec against the JSON Schema.
@@ -456,7 +557,16 @@ def validate(
         EX_SCHEMA (3): Schema validation or parsing failed
         EX_UNKNOWN (70): Unexpected error
     """
+    import os
+
     try:
+        # Configure debug logging level
+        if debug:
+            os.environ["STRANDS_DEBUG"] = "true"
+            import logging
+
+            logging.basicConfig(level=logging.DEBUG)
+
         if verbose:
             console.print(f"[dim]Validating: {spec_file}[/dim]")
 
@@ -564,6 +674,10 @@ def _display_plan_markdown(spec: Spec, capability_report: CapabilityReport) -> N
 def plan(
     spec_file: Annotated[str, typer.Argument(help="Path to workflow YAML/JSON file")],
     format: Annotated[str, typer.Option("--format", help="Output format (md or json)")] = "md",
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
     """Show execution plan for a workflow (agents, tools, pattern).
@@ -581,7 +695,16 @@ def plan(
         EX_SCHEMA (3): Schema validation failed
         EX_UNKNOWN (70): Unexpected error
     """
+    import os
+
     try:
+        # Configure debug logging level
+        if debug:
+            os.environ["STRANDS_DEBUG"] = "true"
+            import logging
+
+            logging.basicConfig(level=logging.DEBUG)
+
         if verbose:
             console.print(f"[dim]Planning: {spec_file}[/dim]")
 
@@ -614,6 +737,10 @@ def plan(
 @app.command()
 def explain(
     spec_file: Annotated[str, typer.Argument(help="Path to workflow YAML/JSON file")],
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
     """Explain unsupported features and show migration hints.
@@ -631,7 +758,16 @@ def explain(
         EX_SCHEMA (3): Schema validation failed
         EX_UNKNOWN (70): Unexpected error
     """
+    import os
+
     try:
+        # Configure debug logging level
+        if debug:
+            os.environ["STRANDS_DEBUG"] = "true"
+            import logging
+
+            logging.basicConfig(level=logging.DEBUG)
+
         if verbose:
             console.print(f"[dim]Analyzing: {spec_file}[/dim]")
 

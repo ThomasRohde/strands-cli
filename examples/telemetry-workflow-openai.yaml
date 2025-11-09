@@ -1,0 +1,46 @@
+name: telemetry-workflow-demo
+version: 1.0.0
+description: Multi-task workflow with OpenTelemetry tracing and sampling
+
+telemetry:
+  otel:
+    endpoint: http://localhost:4317  # OTLP gRPC endpoint
+    service_name: strands-workflow-demo
+    sample_ratio: 0.5  # Trace 50% of requests (for production load reduction)
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 10000
+    warn_threshold: 0.8
+
+agents:
+  analyst:
+    prompt: "You are a data analyst."
+  writer:
+    prompt: "You are a technical writer."
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: analyze
+        agent: analyst
+        input: "Analyze: {{ query }}"
+
+      - id: summarize
+        agent: writer
+        input: "Summarize this analysis: {{ tasks.analyze.response }}"
+        deps: [analyze]
+
+inputs:
+  values:
+    query: "Current state of observability tools"
+
+outputs:
+  artifacts:
+    - path: "analysis.txt"
+      from: "{{ tasks.analyze.response }}"
+    - path: "summary.txt"
+      from: "{{ tasks.summarize.response }}"

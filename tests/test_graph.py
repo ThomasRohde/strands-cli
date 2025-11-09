@@ -94,13 +94,15 @@ def conditional_graph_spec() -> Spec:
                     "handle_b": GraphNode(agent="path_b"),
                 },
                 edges=[
-                    GraphEdge(**{
-                        "from": "check",
-                        "choose": [
-                            ConditionalChoice(when="{{ score >= 85 }}", to="handle_a"),
-                            ConditionalChoice(when="else", to="handle_b"),
-                        ],
-                    }),
+                    GraphEdge(
+                        **{
+                            "from": "check",
+                            "choose": [
+                                ConditionalChoice(when="{{ score >= 85 }}", to="handle_a"),
+                                ConditionalChoice(when="else", to="handle_b"),
+                            ],
+                        }
+                    ),
                     # Both paths are terminal
                 ],
             ),
@@ -131,13 +133,17 @@ def loop_graph_spec() -> Spec:
                 },
                 edges=[
                     GraphEdge(**{"from": "process", "to": ["check"]}),
-                    GraphEdge(**{
-                        "from": "check",
-                        "choose": [
-                            ConditionalChoice(when="{{ nodes.process.iteration >= 3 }}", to="finalize"),
-                            ConditionalChoice(when="else", to="process"),
-                        ],
-                    }),
+                    GraphEdge(
+                        **{
+                            "from": "check",
+                            "choose": [
+                                ConditionalChoice(
+                                    when="{{ nodes.process.iteration >= 3 }}", to="finalize"
+                                ),
+                                ConditionalChoice(when="else", to="process"),
+                            ],
+                        }
+                    ),
                     # finalize is terminal
                 ],
             ),
@@ -288,8 +294,18 @@ def test_build_node_context_with_node_results():
     )
 
     node_results = {
-        "node_a": {"response": "Response A", "agent": "agent1", "status": "success", "iteration": 1},
-        "node_b": {"response": "Response B", "agent": "agent1", "status": "success", "iteration": 1},
+        "node_a": {
+            "response": "Response A",
+            "agent": "agent1",
+            "status": "success",
+            "iteration": 1,
+        },
+        "node_b": {
+            "response": "Response B",
+            "agent": "agent1",
+            "status": "success",
+            "iteration": 1,
+        },
     }
 
     variables = {"cli_var": "cli_value"}
@@ -314,14 +330,16 @@ def test_get_next_node_static_edge():
 def test_get_next_node_conditional_first_match():
     """Test conditional edge - first matching condition wins."""
     edges = [
-        GraphEdge(**{
-            "from": "node_a",
-            "choose": [
-                ConditionalChoice(when="{{ nodes.node_a.score >= 90 }}", to="excellent"),
-                ConditionalChoice(when="{{ nodes.node_a.score >= 70 }}", to="good"),
-                ConditionalChoice(when="else", to="poor"),
-            ],
-        })
+        GraphEdge(
+            **{
+                "from": "node_a",
+                "choose": [
+                    ConditionalChoice(when="{{ nodes.node_a.score >= 90 }}", to="excellent"),
+                    ConditionalChoice(when="{{ nodes.node_a.score >= 70 }}", to="good"),
+                    ConditionalChoice(when="else", to="poor"),
+                ],
+            }
+        )
     ]
 
     # node_results with varying scores
@@ -345,14 +363,16 @@ def test_get_next_node_terminal_no_edge():
 def test_get_next_node_no_condition_matched():
     """Test conditional edge with no matches returns None."""
     edges = [
-        GraphEdge(**{
-            "from": "node_a",
-            "choose": [
-                ConditionalChoice(when="{{ nodes.node_a.score >= 90 }}", to="high"),
-                ConditionalChoice(when="{{ nodes.node_a.score < 50 }}", to="low"),
-                # No 'else' clause
-            ],
-        })
+        GraphEdge(
+            **{
+                "from": "node_a",
+                "choose": [
+                    ConditionalChoice(when="{{ nodes.node_a.score >= 90 }}", to="high"),
+                    ConditionalChoice(when="{{ nodes.node_a.score < 50 }}", to="low"),
+                    # No 'else' clause
+                ],
+            }
+        )
     ]
 
     node_results = {"node_a": {"response": "...", "score": 60}}  # Doesn't match any condition
@@ -409,9 +429,24 @@ async def test_run_graph_linear_execution(linear_graph_spec: Spec, mocker):
     assert result.pattern_type == PatternType.GRAPH
     assert result.last_response == "Response C"  # Terminal node response
     assert result.execution_context["nodes"] == {
-        "node_a": {"response": "Response A", "agent": "agent_a", "status": "success", "iteration": 1},
-        "node_b": {"response": "Response B", "agent": "agent_b", "status": "success", "iteration": 1},
-        "node_c": {"response": "Response C", "agent": "agent_c", "status": "success", "iteration": 1},
+        "node_a": {
+            "response": "Response A",
+            "agent": "agent_a",
+            "status": "success",
+            "iteration": 1,
+        },
+        "node_b": {
+            "response": "Response B",
+            "agent": "agent_b",
+            "status": "success",
+            "iteration": 1,
+        },
+        "node_c": {
+            "response": "Response C",
+            "agent": "agent_c",
+            "status": "success",
+            "iteration": 1,
+        },
     }
     assert result.execution_context["terminal_node"] == "node_c"
     assert result.execution_context["total_steps"] == 3
@@ -446,8 +481,7 @@ async def test_run_graph_conditional_path_selection(conditional_graph_spec: Spec
     # Should execute check -> handle_a (not handle_b)
     # Note: All nodes get initialized, but only check and handle_a should be executed
     executed_nodes = [
-        k for k, v in result.execution_context["nodes"].items()
-        if v["status"] == "success"
+        k for k, v in result.execution_context["nodes"].items() if v["status"] == "success"
     ]
     assert executed_nodes == ["check", "handle_a"]
     assert mock_invoke.call_count == 2
@@ -461,15 +495,17 @@ async def test_run_graph_loop_with_iteration_limit(loop_graph_spec: Spec, mocker
     mock_agent = MagicMock()
 
     # Mock responses for process -> check cycle (3 iterations) -> finalize
-    mock_agent.invoke_async = AsyncMock(side_effect=[
-        MagicMock(text="Process 1"),
-        MagicMock(text="Continue"),
-        MagicMock(text="Process 2"),
-        MagicMock(text="Continue"),
-        MagicMock(text="Process 3"),
-        MagicMock(text="Done"),
-        MagicMock(text="Final result"),
-    ])
+    mock_agent.invoke_async = AsyncMock(
+        side_effect=[
+            MagicMock(text="Process 1"),
+            MagicMock(text="Continue"),
+            MagicMock(text="Process 2"),
+            MagicMock(text="Continue"),
+            MagicMock(text="Process 3"),
+            MagicMock(text="Done"),
+            MagicMock(text="Final result"),
+        ]
+    )
 
     mock_cache_instance = mock_cache.return_value
     mock_cache_instance.get_or_build_agent = AsyncMock(return_value=mock_agent)

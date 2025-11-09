@@ -35,9 +35,7 @@ class TestConditionSecurityPatternBlocking:
     )
     def test_blocks_malicious_patterns(self, malicious_expr: str):
         """Verify dangerous patterns are rejected with security error."""
-        with pytest.raises(
-            ConditionEvaluationError, match=r"Security violation|Forbidden pattern"
-        ):
+        with pytest.raises(ConditionEvaluationError, match=r"Security violation|Forbidden pattern"):
             evaluate_condition(malicious_expr, {})
 
     @pytest.mark.parametrize(
@@ -55,9 +53,7 @@ class TestConditionSecurityPatternBlocking:
     def test_blocks_patterns_in_variable_access(self, malicious_expr: str):
         """Verify patterns blocked even when used with variables."""
         context = {"x": "test", "obj": object, "thing": list, "data": {}, "item": {}}
-        with pytest.raises(
-            ConditionEvaluationError, match=r"Security violation|Forbidden pattern"
-        ):
+        with pytest.raises(ConditionEvaluationError, match=r"Security violation|Forbidden pattern"):
             evaluate_condition(malicious_expr, context)
 
     def test_blocks_case_insensitive_patterns(self):
@@ -101,14 +97,11 @@ class TestConditionSandboxEnforcement:
         assert evaluate_condition("{{ name.lower() == 'test' }}", context) is True
 
         # upper filter
-        assert (
-            evaluate_condition("{{ 'test'.upper() == 'TEST' }}", context) is True
-        )
+        assert evaluate_condition("{{ 'test'.upper() == 'TEST' }}", context) is True
 
         # default filter
         assert (
-            evaluate_condition("{{ value | default('fallback') == 'fallback' }}", context)
-            is True
+            evaluate_condition("{{ value | default('fallback') == 'fallback' }}", context) is True
         )
 
         # length filter (via len built-in)
@@ -119,10 +112,7 @@ class TestConditionSandboxEnforcement:
         context = {"response": "Score: 85", "text": "Hello World"}
 
         # search filter for regex matching (use | filter syntax, not 'is' test)
-        assert (
-            evaluate_condition("{{ response | search('Score: \\\\d+') }}", context)
-            is True
-        )
+        assert evaluate_condition("{{ response | search('Score: \\\\d+') }}", context) is True
         assert evaluate_condition("{{ text | search('World') }}", context) is True
         assert evaluate_condition("{{ text | search('Missing') }}", context) is False
 
@@ -135,25 +125,15 @@ class TestConditionSandboxEnforcement:
             }
         }
 
-        assert (
-            evaluate_condition("{{ nodes.analyze.score >= 85 }}", context) is True
-        )
-        assert (
-            evaluate_condition("{{ nodes.review.status == 'pending' }}", context)
-            is True
-        )
+        assert evaluate_condition("{{ nodes.analyze.score >= 85 }}", context) is True
+        assert evaluate_condition("{{ nodes.review.status == 'pending' }}", context) is True
 
     def test_string_operations_work(self):
         """Verify safe string operations function in sandbox."""
         context = {"category": "Technical", "priority": "high"}
 
-        assert (
-            evaluate_condition("{{ 'technical' in category.lower() }}", context)
-            is True
-        )
-        assert (
-            evaluate_condition("{{ category.startswith('Tech') }}", context) is True
-        )
+        assert evaluate_condition("{{ 'technical' in category.lower() }}", context) is True
+        assert evaluate_condition("{{ category.startswith('Tech') }}", context) is True
 
 
 class TestConditionValidationSecurity:
@@ -209,6 +189,7 @@ class TestSecurityWithContextData:
 
     def test_context_with_objects_safe(self):
         """Verify context objects can't be exploited."""
+
         class CustomObject:
             def __init__(self):
                 self.value = 42

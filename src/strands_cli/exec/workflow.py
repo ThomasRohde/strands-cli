@@ -41,6 +41,7 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
@@ -58,6 +59,7 @@ class WorkflowExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 def _topological_sort(tasks: list[Any]) -> list[list[str]]:
@@ -388,162 +390,196 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     Raises:
         WorkflowExecutionError: If workflow execution fails
     """
-    logger.info("workflow_execution_start", spec_name=spec.name)
+    # Phase 10: Create root span for workflow execution with attributes
+    with tracer.start_span("execute.workflow") as span:
+        # Set span attributes (queryable metadata)
+        span.set_attribute("spec.name", spec.name)
+        span.set_attribute("spec.version", spec.version or 0)
+        span.set_attribute("pattern.type", "workflow")
+        span.set_attribute("runtime.provider", spec.runtime.provider)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id or "default")
+        span.set_attribute("agent.count", len(spec.agents))
+        if spec.pattern.config.tasks:
+            span.set_attribute("workflow.task_count", len(spec.pattern.config.tasks))
 
-    # Validate and prepare workflow
-    task_map = _validate_workflow_config(spec)
+        logger.info("workflow_execution_start", spec_name=spec.name)
+        span.add_event("execution_start", {"spec_name": spec.name})
 
-    # Get retry config
-    max_attempts, wait_min, wait_max = get_retry_config(spec)
+        # Validate and prepare workflow
+        task_map = _validate_workflow_config(spec)
 
-    # Perform topological sort
-    try:
-        tasks = spec.pattern.config.tasks
-        assert tasks is not None, "Workflow pattern must have tasks"
-        execution_layers = _topological_sort(tasks)
-    except Exception as e:
-        raise WorkflowExecutionError(f"Failed to build execution plan: {e}") from e
+        # Get retry config
+        max_attempts, wait_min, wait_max = get_retry_config(spec)
 
-    logger.info(
-        "workflow_execution_plan",
-        total_tasks=len(task_map),
-        layers=len(execution_layers),
-        layer_sizes=[len(layer) for layer in execution_layers],
-    )
-
-    # Initialize execution state
-    cumulative_tokens, max_tokens = _initialize_workflow_state(spec)
-    task_results: dict[str, dict[str, Any]] = {}
-    started_at = datetime.now(UTC).isoformat()
-
-    # Phase 6.1: Create context manager and hooks for compaction
-    context_manager = create_from_policy(spec.context_policy, spec)
-    hooks: list[Any] = []
-    if (
-        spec.context_policy
-        and spec.context_policy.compaction
-        and spec.context_policy.compaction.enabled
-    ):
-        threshold = spec.context_policy.compaction.when_tokens_over or 60000
-        hooks.append(
-            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
-        )
-        logger.info("compaction_enabled", threshold_tokens=threshold)
-
-    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
-    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
-        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
-
-        max_tokens_val = spec.runtime.budgets["max_tokens"]
-        # Ensure max_tokens is int (spec validation should guarantee this)
-        max_tokens = int(max_tokens_val) if max_tokens_val is not None else 0
-        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
-        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
-        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
-
-    # Phase 6.2: Initialize notes manager and hook for structured notes
-    notes_manager = None
-    task_counter = [0]  # Mutable container for hook to track task count
-    if spec.context_policy and spec.context_policy.notes:
-        notes_manager = NotesManager(spec.context_policy.notes.file)
-
-        # Build agent_id → tools mapping for notes hook
-        agent_tools: dict[str, list[str]] = {}
-        for agent_id, agent_config in spec.agents.items():
-            if agent_config.tools:
-                agent_tools[agent_id] = agent_config.tools
-
-        hooks.append(NotesAppenderHook(notes_manager, task_counter, agent_tools))
-        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
-
-    # Phase 5: Create AgentCache for agent reuse across tasks
-    cache = AgentCache()
-    try:
-        # Execute each layer
-        for layer_index, layer_task_ids in enumerate(execution_layers):
-            logger.info(
-                "workflow_layer_start",
-                layer=layer_index,
-                tasks=layer_task_ids,
-            )
-
-            # Phase 5: Direct await instead of asyncio.run() per layer
-            try:
-                layer_results = await _execute_workflow_layer(
-                    spec,
-                    layer_task_ids,
-                    task_map,
-                    task_results,
-                    variables,
-                    max_attempts,
-                    wait_min,
-                    wait_max,
-                    cache,
-                    context_manager,
-                    hooks,
-                    notes_manager,
-                )
-            except Exception as e:
-                raise WorkflowExecutionError(f"Layer {layer_index} execution failed: {e}") from e
-
-            # Process results
-            for task_id, (response_text, estimated_tokens) in zip(
-                layer_task_ids, layer_results, strict=True
-            ):
-                cumulative_tokens += estimated_tokens
-
-                # Store result with agent ID for tracking
-                task_results[task_id] = {
-                    "response": response_text,
-                    "status": "success",
-                    "tokens_estimated": estimated_tokens,
-                    "agent": task_map[task_id].agent,  # Track which agent executed this task
-                }
-
-                logger.info(
-                    "workflow_task_complete",
-                    task=task_id,
-                    agent=task_map[task_id].agent,
-                    response_length=len(response_text),
-                    cumulative_tokens=cumulative_tokens,
-                )
-
-            logger.info(
-                "workflow_layer_complete",
-                layer=layer_index,
-                tasks_completed=len(layer_task_ids),
-            )
-
-        completed_at = datetime.now(UTC).isoformat()
-        started_dt = datetime.fromisoformat(started_at)
-        completed_dt = datetime.fromisoformat(completed_at)
-        duration = (completed_dt - started_dt).total_seconds()
-
-        # Final response is from last executed task
-        last_task_id = execution_layers[-1][-1]
-        final_response = task_results[last_task_id]["response"]
-        final_agent_id = task_results[last_task_id]["agent"]
+        # Perform topological sort
+        try:
+            tasks = spec.pattern.config.tasks
+            assert tasks is not None, "Workflow pattern must have tasks"
+            execution_layers = _topological_sort(tasks)
+        except Exception as e:
+            raise WorkflowExecutionError(f"Failed to build execution plan: {e}") from e
 
         logger.info(
-            "workflow_execution_complete",
-            spec_name=spec.name,
-            tasks_executed=len(task_results),
-            duration_seconds=duration,
-            cumulative_tokens=cumulative_tokens,
+            "workflow_execution_plan",
+            total_tasks=len(task_map),
+            layers=len(execution_layers),
+            layer_sizes=[len(layer) for layer in execution_layers],
         )
 
-        return RunResult(
-            success=True,
-            last_response=final_response,
-            error=None,
-            agent_id=final_agent_id,
-            pattern_type=PatternType.WORKFLOW,
-            started_at=started_at,
-            completed_at=completed_at,
-            duration_seconds=duration,
-            artifacts_written=[],
-            execution_context={"tasks": task_results},
-        )
-    finally:
-        # Phase 5: Clean up cached agents and HTTP clients
-        await cache.close()
+        # Initialize execution state
+        cumulative_tokens, max_tokens = _initialize_workflow_state(spec)
+        task_results: dict[str, dict[str, Any]] = {}
+        started_at = datetime.now(UTC).isoformat()
+
+        # Phase 6.1: Create context manager and hooks for compaction
+        context_manager = create_from_policy(spec.context_policy, spec)
+        hooks: list[Any] = []
+        if (
+            spec.context_policy
+            and spec.context_policy.compaction
+            and spec.context_policy.compaction.enabled
+        ):
+            threshold = spec.context_policy.compaction.when_tokens_over or 60000
+            hooks.append(
+                ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
+            )
+            logger.info("compaction_enabled", threshold_tokens=threshold)
+
+        # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+        if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+            from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+            max_tokens_val = spec.runtime.budgets["max_tokens"]
+            # Ensure max_tokens is int (spec validation should guarantee this)
+            max_tokens = int(max_tokens_val) if max_tokens_val is not None else 0
+            warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+            hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+            logger.info(
+                "budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold
+            )
+
+        # Phase 6.2: Initialize notes manager and hook for structured notes
+        notes_manager = None
+        task_counter = [0]  # Mutable container for hook to track task count
+        if spec.context_policy and spec.context_policy.notes:
+            notes_manager = NotesManager(spec.context_policy.notes.file)
+
+            # Build agent_id → tools mapping for notes hook
+            agent_tools: dict[str, list[str]] = {}
+            for agent_id, agent_config in spec.agents.items():
+                if agent_config.tools:
+                    agent_tools[agent_id] = agent_config.tools
+
+            hooks.append(NotesAppenderHook(notes_manager, task_counter, agent_tools))
+            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
+        # Phase 5: Create AgentCache for agent reuse across tasks
+        cache = AgentCache()
+        try:
+            # Execute each layer
+            for layer_index, layer_task_ids in enumerate(execution_layers):
+                logger.info(
+                    "workflow_layer_start",
+                    layer=layer_index,
+                    tasks=layer_task_ids,
+                )
+
+                # Phase 5: Direct await instead of asyncio.run() per layer
+                try:
+                    layer_results = await _execute_workflow_layer(
+                        spec,
+                        layer_task_ids,
+                        task_map,
+                        task_results,
+                        variables,
+                        max_attempts,
+                        wait_min,
+                        wait_max,
+                        cache,
+                        context_manager,
+                        hooks,
+                        notes_manager,
+                    )
+                except Exception as e:
+                    raise WorkflowExecutionError(
+                        f"Layer {layer_index} execution failed: {e}"
+                    ) from e
+
+                # Process results
+                for task_id, (response_text, estimated_tokens) in zip(
+                    layer_task_ids, layer_results, strict=True
+                ):
+                    cumulative_tokens += estimated_tokens
+
+                    # Store result with agent ID for tracking
+                    task_results[task_id] = {
+                        "response": response_text,
+                        "status": "success",
+                        "tokens_estimated": estimated_tokens,
+                        "agent": task_map[task_id].agent,  # Track which agent executed this task
+                    }
+
+                    logger.info(
+                        "workflow_task_complete",
+                        task=task_id,
+                        agent=task_map[task_id].agent,
+                        response_length=len(response_text),
+                        cumulative_tokens=cumulative_tokens,
+                    )
+                    span.add_event(
+                        "task_complete",
+                        {
+                            "task_id": task_id,
+                            "agent_id": task_map[task_id].agent,
+                            "response_length": len(response_text),
+                            "cumulative_tokens": cumulative_tokens,
+                        },
+                    )
+
+                logger.info(
+                    "workflow_layer_complete",
+                    layer=layer_index,
+                    tasks_completed=len(layer_task_ids),
+                )
+
+            completed_at = datetime.now(UTC).isoformat()
+            started_dt = datetime.fromisoformat(started_at)
+            completed_dt = datetime.fromisoformat(completed_at)
+            duration = (completed_dt - started_dt).total_seconds()
+
+            # Final response is from last executed task
+            last_task_id = execution_layers[-1][-1]
+            final_response = task_results[last_task_id]["response"]
+            final_agent_id = task_results[last_task_id]["agent"]
+
+            logger.info(
+                "workflow_execution_complete",
+                spec_name=spec.name,
+                tasks_executed=len(task_results),
+                duration_seconds=duration,
+                cumulative_tokens=cumulative_tokens,
+            )
+            span.add_event(
+                "execution_complete",
+                {
+                    "duration_seconds": duration,
+                    "tasks_executed": len(task_results),
+                    "cumulative_tokens": cumulative_tokens,
+                },
+            )
+
+            return RunResult(
+                success=True,
+                last_response=final_response,
+                error=None,
+                agent_id=final_agent_id,
+                pattern_type=PatternType.WORKFLOW,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=duration,
+                artifacts_written=[],
+                execution_context={"tasks": task_results},
+            )
+        finally:
+            # Phase 5: Clean up cached agents and HTTP clients
+            await cache.close()

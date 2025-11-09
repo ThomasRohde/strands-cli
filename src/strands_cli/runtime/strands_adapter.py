@@ -243,7 +243,7 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[tuple[st
     # Note: Actual timeout enforcement requires async refactoring (Phase 9.1)
     # This is configured but not yet enforced - servers may still hang
     mcp_timeout = int(os.getenv("MCP_STARTUP_TIMEOUT_S", "30"))
-    
+
     mcp_clients: list[tuple[str, Any]] = []
     failed_servers: list[tuple[str, str]] = []
 
@@ -442,11 +442,11 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
     tools.extend(_load_native_tools(tools_to_use))
     tools.extend(_load_python_tools(spec, tools_to_use, loaded_tool_ids))
     tools.extend(_load_http_executors(spec, tools_to_use))
-    
+
     # Phase 9: Load MCP server tools (uses Strands SDK MCPClient with ToolProvider interface)
     # Returns list of (server_id, client) tuples for deduplication
     mcp_clients_with_ids = _load_mcp_tools(spec, tools_to_use)
-    
+
     # Extract clients for agent tools and track in cache by server_id (deduplication)
     if agent_cache and mcp_clients_with_ids:
         for server_id, mcp_client in mcp_clients_with_ids:

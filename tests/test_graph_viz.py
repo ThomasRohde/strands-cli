@@ -92,16 +92,17 @@ def conditional_graph_spec() -> Spec:
                     "handle_b": GraphNode(agent="path_b"),
                 },
                 edges=[
-                    GraphEdge(**{
-                        "from": "check",
-                        "choose": [
-                            ConditionalChoice(
-                                when="{{ nodes.check.score >= 85 }}",
-                                to="handle_a"
-                            ),
-                            ConditionalChoice(when="else", to="handle_b"),
-                        ],
-                    }),
+                    GraphEdge(
+                        **{
+                            "from": "check",
+                            "choose": [
+                                ConditionalChoice(
+                                    when="{{ nodes.check.score >= 85 }}", to="handle_a"
+                                ),
+                                ConditionalChoice(when="else", to="handle_b"),
+                            ],
+                        }
+                    ),
                 ],
             ),
         },
@@ -182,12 +183,14 @@ class TestDOTGeneration:
                 "config": PatternConfig(
                     nodes={"node1": GraphNode(agent="agent1"), "node2": GraphNode(agent="agent1")},
                     edges=[
-                        GraphEdge(**{
-                            "from": "node1",
-                            "choose": [
-                                ConditionalChoice(when='{{ status == "done" }}', to="node2"),
-                            ],
-                        })
+                        GraphEdge(
+                            **{
+                                "from": "node1",
+                                "choose": [
+                                    ConditionalChoice(when='{{ status == "done" }}', to="node2"),
+                                ],
+                            }
+                        )
                     ],
                 ),
             },
@@ -209,10 +212,12 @@ class TestDOTGeneration:
                 "config": PatternConfig(
                     nodes={"node1": GraphNode(agent="agent1"), "node2": GraphNode(agent="agent1")},
                     edges=[
-                        GraphEdge(**{
-                            "from": "node1",
-                            "choose": [ConditionalChoice(when=long_condition, to="node2")],
-                        })
+                        GraphEdge(
+                            **{
+                                "from": "node1",
+                                "choose": [ConditionalChoice(when=long_condition, to="node2")],
+                            }
+                        )
                     ],
                 ),
             },
@@ -336,10 +341,12 @@ class TestTextVisualization:
                 "config": PatternConfig(
                     nodes={"node1": GraphNode(agent="agent1"), "node2": GraphNode(agent="agent1")},
                     edges=[
-                        GraphEdge(**{
-                            "from": "node1",
-                            "choose": [ConditionalChoice(when=long_condition, to="node2")],
-                        })
+                        GraphEdge(
+                            **{
+                                "from": "node1",
+                                "choose": [ConditionalChoice(when=long_condition, to="node2")],
+                            }
+                        )
                     ],
                 ),
             },
@@ -364,13 +371,15 @@ class TestTextVisualization:
                         "node3": GraphNode(agent="agent1"),
                     },
                     edges=[
-                        GraphEdge(**{
-                            "from": "node1",
-                            "choose": [
-                                ConditionalChoice(when="{{ a }}", to="node2"),
-                                ConditionalChoice(when="else", to="node3"),
-                            ],
-                        }),
+                        GraphEdge(
+                            **{
+                                "from": "node1",
+                                "choose": [
+                                    ConditionalChoice(when="{{ a }}", to="node2"),
+                                    ConditionalChoice(when="else", to="node3"),
+                                ],
+                            }
+                        ),
                     ],
                 ),
             },

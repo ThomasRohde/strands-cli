@@ -21,6 +21,7 @@ Used for:
 """
 
 import json
+import os
 import re
 import unicodedata
 from typing import Any
@@ -163,6 +164,19 @@ def render_template(
         TemplateError: If template syntax is invalid, variable is undefined,
                       or rendering fails for any reason
     """
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
+
+    if debug:
+        # Log template before rendering (truncate for readability)
+        template_preview = template_str[:200] if len(template_str) > 200 else template_str
+        logger.debug(
+            "template_render_start",
+            template_preview=template_preview,
+            template_length=len(template_str),
+            variable_keys=list(variables.keys()),
+            variable_count=len(variables),
+        )
+
     # Create a sandboxed Jinja2 environment to prevent code execution
     # SandboxedEnvironment blocks access to Python internals (__class__, __mro__, etc.)
     env = SandboxedEnvironment(
@@ -194,6 +208,16 @@ def render_template(
 
     try:
         rendered = template.render(**variables)
+
+        if debug:
+            # Log rendered output (truncate for readability)
+            rendered_preview = rendered[:200] if len(rendered) > 200 else rendered
+            logger.debug(
+                "template_rendered",
+                rendered_preview=rendered_preview,
+                rendered_length=len(rendered),
+                was_truncated=max_output_chars is not None and len(rendered) > max_output_chars,
+            )
     except UndefinedError as e:
         raise TemplateError(f"Undefined variable in template: {e}") from e
     except SecurityError as e:

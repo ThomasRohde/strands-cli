@@ -15,14 +15,18 @@ Supported Formats:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+import structlog
 from pydantic import ValidationError as PydanticValidationError
 from ruamel.yaml import YAML
 
 from strands_cli.schema.validator import validate_spec
 from strands_cli.types import Spec
+
+logger = structlog.get_logger(__name__)
 
 # Security: Maximum spec file size to prevent memory exhaustion
 # 10MB should be more than sufficient for any reasonable workflow spec
@@ -92,6 +96,15 @@ def _merge_variables(spec_data: dict[str, Any], variables: dict[str, str]) -> No
         spec_data: Spec dictionary to modify in-place
         variables: Variables to merge
     """
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
+
+    if debug:
+        logger.debug(
+            "variable_merge_start",
+            cli_variables=variables,
+            has_spec_inputs="inputs" in spec_data,
+        )
+
     if "inputs" not in spec_data:
         spec_data["inputs"] = {}
     if not isinstance(spec_data["inputs"], dict):
@@ -102,7 +115,18 @@ def _merge_variables(spec_data: dict[str, Any], variables: dict[str, str]) -> No
     if not isinstance(spec_data["inputs"]["values"], dict):
         spec_data["inputs"]["values"] = {}
 
+    # Store original values for debug logging
+    original_values = spec_data["inputs"]["values"].copy() if debug else {}
+
     spec_data["inputs"]["values"].update(variables)
+
+    if debug:
+        logger.debug(
+            "variable_merge_complete",
+            original_values=original_values,
+            cli_overrides=variables,
+            final_values=spec_data["inputs"]["values"],
+        )
 
 
 def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) -> Spec:
@@ -126,7 +150,15 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
         PydanticValidationError: If spec cannot be converted to typed Spec
                                  (should be rare if schema validation passed)
     """
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
     file_path = Path(file_path)
+
+    if debug:
+        logger.debug(
+            "load_spec_start",
+            file_path=str(file_path),
+            has_variables=bool(variables),
+        )
 
     _validate_file_path(file_path)
 
@@ -138,6 +170,13 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
 
     spec_data = _parse_file_content(file_path, content)
 
+    if debug:
+        logger.debug(
+            "spec_parsed",
+            spec_name=spec_data.get("name", "<unnamed>"),
+            has_inputs="inputs" in spec_data,
+        )
+
     # Merge CLI variables into inputs.values
     if variables:
         _merge_variables(spec_data, variables)
@@ -145,9 +184,21 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
     # Validate against JSON Schema
     validate_spec(spec_data)
 
+    if debug:
+        logger.debug("schema_validation_passed")
+
     # Convert to typed Pydantic model
     try:
-        return Spec.model_validate(spec_data)
+        spec = Spec.model_validate(spec_data)
+        if debug:
+            logger.debug(
+                "spec_loaded",
+                spec_name=spec.name,
+                spec_version=spec.version,
+                agents=list(spec.agents.keys()),
+                pattern=spec.pattern.type if spec.pattern else None,
+            )
+        return spec
     except PydanticValidationError as e:
         raise LoadError(f"Failed to create typed Spec: {e}") from e
 
@@ -164,7 +215,12 @@ def parse_variables(var_args: list[str]) -> dict[str, str]:
     Raises:
         LoadError: If a variable is malformed
     """
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
     variables = {}
+
+    if debug:
+        logger.debug("parse_variables_start", var_count=len(var_args))
+
     for var in var_args:
         if "=" not in var:
             raise LoadError(f"Invalid variable format: {var}. Expected key=value")
@@ -177,5 +233,16 @@ def parse_variables(var_args: list[str]) -> dict[str, str]:
             raise LoadError(f"Empty variable key in: {var}")
 
         variables[key] = value
+
+        if debug:
+            logger.debug(
+                "variable_parsed",
+                key=key,
+                value=value,
+                source="cli_flag",
+            )
+
+    if debug:
+        logger.debug("parse_variables_complete", variables=variables)
 
     return variables

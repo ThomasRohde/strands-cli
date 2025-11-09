@@ -20,6 +20,7 @@ Example:
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from strands.hooks import AfterInvocationEvent
 
 from strands_cli.exit_codes import EX_BUDGET_EXCEEDED
@@ -140,6 +141,19 @@ class BudgetEnforcerHook:
             )
             self.warned = True
 
+            # Add OTEL span event
+            span = trace.get_current_span()
+            if span.is_recording():
+                span.add_event(
+                    "budget_warning",
+                    {
+                        "current_tokens": total,
+                        "max_tokens": self.max_tokens,
+                        "threshold": self.warn_threshold,
+                        "usage_percent": usage_pct,
+                    },
+                )
+
             # Export to telemetry if available (Phase 10)
             if self.telemetry_exporter:
                 self._export_budget_warning(total, usage_pct)
@@ -153,6 +167,18 @@ class BudgetEnforcerHook:
                 usage_pct=f"{usage_pct:.1f}",
                 overage=total - self.max_tokens,
             )
+
+            # Add OTEL span event
+            span = trace.get_current_span()
+            if span.is_recording():
+                span.add_event(
+                    "budget_exceeded",
+                    {
+                        "current_tokens": total,
+                        "max_tokens": self.max_tokens,
+                        "overage": total - self.max_tokens,
+                    },
+                )
 
             # Export to telemetry if available (Phase 10)
             if self.telemetry_exporter:

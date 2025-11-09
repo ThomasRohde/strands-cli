@@ -1,0 +1,31 @@
+name: debug-demo-openai
+version: 1
+description: |
+  Demonstrates --debug flag with variable resolution and template rendering.
+  Run with: strands run examples/debug-demo-openai.yaml --debug --var topic="Python debugging"
+
+agents:
+  researcher:
+    prompt: |
+      You are a technical researcher.
+      Provide a brief explanation about the given topic.
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+inputs:
+  values:
+    topic: "artificial intelligence"  # Default value (can be overridden with --var)
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Explain: {{ topic }}"
+
+outputs:
+  artifacts:
+    - path: "./artifacts/debug-demo-result.txt"
+      from: "{{ last_response }}"

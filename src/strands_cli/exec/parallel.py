@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -62,6 +63,7 @@ class ParallelExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _build_branch_step_context(
@@ -422,185 +424,223 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
     Raises:
         ParallelExecutionError: If validation, execution, or reduce fails
     """
-    start_time = datetime.now(UTC)
+    with tracer.start_span("execute.parallel") as span:
+        # Add span attributes
+        span.set_attribute("spec.name", spec.name)
+        span.set_attribute("spec.version", spec.version)
+        span.set_attribute("pattern.type", "parallel")
+        span.set_attribute("runtime.provider", spec.runtime.provider)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id)
+        if spec.runtime.region:
+            span.set_attribute("runtime.region", spec.runtime.region)
 
-    # Validate configuration
-    if not spec.pattern.config.branches or len(spec.pattern.config.branches) < 2:
-        raise ParallelExecutionError("Parallel pattern requires at least 2 branches")
+        # Add execution start event
+        span.add_event("execution_start")
 
-    # Get retry configuration
-    max_attempts, wait_min, wait_max = get_retry_config(spec)
+        start_time = datetime.now(UTC)
 
-    # Build user variables (spec.inputs.values + CLI --var)
-    user_vars: dict[str, Any] = {}
-    if spec.inputs and spec.inputs.get("values"):
-        user_vars.update(spec.inputs["values"])
-    if variables:
-        user_vars.update(variables)
+        # Validate configuration
+        if not spec.pattern.config.branches or len(spec.pattern.config.branches) < 2:
+            raise ParallelExecutionError("Parallel pattern requires at least 2 branches")
 
-    # Get max_parallel limit
-    max_parallel = spec.runtime.max_parallel
+        span.set_attribute("parallel.branch_count", len(spec.pattern.config.branches))
+        span.set_attribute("parallel.has_reduce", spec.pattern.config.reduce is not None)
 
-    # Get budget configuration
-    max_tokens = None
-    if spec.runtime.budgets:
-        max_tokens = spec.runtime.budgets.get("max_tokens")
+        # Get retry configuration
+        max_attempts, wait_min, wait_max = get_retry_config(spec)
 
-    logger.info(
-        "Starting parallel execution",
-        num_branches=len(spec.pattern.config.branches),
-        max_parallel=max_parallel,
-        max_tokens=max_tokens,
-    )
+        # Build user variables (spec.inputs.values + CLI --var)
+        user_vars: dict[str, Any] = {}
+        if spec.inputs and spec.inputs.get("values"):
+            user_vars.update(spec.inputs["values"])
+        if variables:
+            user_vars.update(variables)
 
-    # Phase 6.1: Create context manager and hooks for compaction
-    context_manager = create_from_policy(spec.context_policy, spec)
-    hooks: list[Any] = []
-    if (
-        spec.context_policy
-        and spec.context_policy.compaction
-        and spec.context_policy.compaction.enabled
-    ):
-        threshold = spec.context_policy.compaction.when_tokens_over or 60000
-        hooks.append(
-            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
+        # Get max_parallel limit
+        max_parallel = spec.runtime.max_parallel
+        if max_parallel:
+            span.set_attribute("parallel.max_parallel", max_parallel)
+
+        # Get budget configuration
+        max_tokens = None
+        if spec.runtime.budgets:
+            max_tokens = spec.runtime.budgets.get("max_tokens")
+
+        logger.info(
+            "Starting parallel execution",
+            num_branches=len(spec.pattern.config.branches),
+            max_parallel=max_parallel,
+            max_tokens=max_tokens,
         )
-        logger.info("compaction_enabled", threshold_tokens=threshold)
 
-    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
-    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
-        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
-
-        max_tokens = spec.runtime.budgets["max_tokens"]
-        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
-        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
-        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
-
-    # Phase 6.2: Initialize notes manager and hook for structured notes
-    notes_manager = None
-    step_counter = [0]  # Mutable container for hook to track step count across all branches
-    if spec.context_policy and spec.context_policy.notes:
-        notes_manager = NotesManager(spec.context_policy.notes.file)
-
-        # Build agent_id → tools mapping for notes hook
-        agent_tools: dict[str, list[str]] = {}
-        for agent_id, agent_config in spec.agents.items():
-            if agent_config.tools:
-                agent_tools[agent_id] = agent_config.tools
-
-        hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
-        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
-
-    # Create AgentCache for this execution
-    cache = AgentCache()
-
-    try:
-        # Execute all branches concurrently
-        try:
-            branch_results = await _execute_all_branches_async(
-                spec,
-                spec.pattern.config.branches,
-                user_vars,
-                cache,
-                max_parallel,
-                max_attempts,
-                wait_min,
-                wait_max,
-                context_manager,
-                hooks,
-                notes_manager,
+        # Phase 6.1: Create context manager and hooks for compaction
+        context_manager = create_from_policy(spec.context_policy, spec)
+        hooks: list[Any] = []
+        if (
+            spec.context_policy
+            and spec.context_policy.compaction
+            and spec.context_policy.compaction.enabled
+        ):
+            threshold = spec.context_policy.compaction.when_tokens_over or 60000
+            hooks.append(
+                ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
             )
-        except Exception as e:
+            logger.info("compaction_enabled", threshold_tokens=threshold)
+
+        # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+        if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+            from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+            max_tokens = spec.runtime.budgets["max_tokens"]
+            warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+            hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+            logger.info(
+                "budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold
+            )
+
+        # Phase 6.2: Initialize notes manager and hook for structured notes
+        notes_manager = None
+        step_counter = [0]  # Mutable container for hook to track step count across all branches
+        if spec.context_policy and spec.context_policy.notes:
+            notes_manager = NotesManager(spec.context_policy.notes.file)
+
+            # Build agent_id → tools mapping for notes hook
+            agent_tools: dict[str, list[str]] = {}
+            for agent_id, agent_config in spec.agents.items():
+                if agent_config.tools:
+                    agent_tools[agent_id] = agent_config.tools
+
+            hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
+        # Create AgentCache for this execution
+        cache = AgentCache()
+
+        try:
+            # Execute all branches concurrently
+            try:
+                branch_results = await _execute_all_branches_async(
+                    spec,
+                    spec.pattern.config.branches,
+                    user_vars,
+                    cache,
+                    max_parallel,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                    context_manager,
+                    hooks,
+                    notes_manager,
+                )
+            except Exception as e:
+                end_time = datetime.now(UTC)
+                duration = (end_time - start_time).total_seconds()
+
+                logger.error(
+                    "Parallel execution failed",
+                    error=str(e),
+                    duration_seconds=duration,
+                )
+
+                return RunResult(
+                    success=False,
+                    error=str(e),
+                    agent_id="parallel",
+                    pattern_type=PatternType.PARALLEL,
+                    started_at=start_time.isoformat(),
+                    completed_at=end_time.isoformat(),
+                    duration_seconds=duration,
+                )
+
+            # Build branches dictionary (alphabetically ordered by branch ID)
+            branches_dict: dict[str, dict[str, Any]] = {}
+            cumulative_tokens = 0
+
+            for branch, (response, tokens) in zip(
+                spec.pattern.config.branches, branch_results, strict=True
+            ):
+                cumulative_tokens += tokens
+                branches_dict[branch.id] = {
+                    "response": response,
+                    "status": "success",
+                    "tokens_estimated": tokens,
+                }
+                # Add branch_complete event for each branch
+                span.add_event(
+                    "branch_complete",
+                    {
+                        "branch_id": branch.id,
+                        "response_length": len(response),
+                        "tokens": tokens,
+                    },
+                )
+
+            logger.info(
+                "All branches completed",
+                num_branches=len(branches_dict),
+                cumulative_tokens=cumulative_tokens,
+            )
+
+            # Execute reduce step if present or aggregate branches
+            final_response: str
+            final_agent_id: str
+
+            if spec.pattern.config.reduce:
+                span.add_event("reduce_start")
+                reduce_response, reduce_tokens = await _execute_reduce_step(
+                    spec,
+                    spec.pattern.config.reduce,
+                    user_vars,
+                    branches_dict,
+                    cache,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                    context_manager,
+                    hooks,
+                    notes_manager,
+                )
+                final_response = reduce_response
+                final_agent_id = spec.pattern.config.reduce.agent
+                cumulative_tokens += reduce_tokens
+            else:
+                # No reduce step - aggregate branch responses alphabetically
+                logger.info("No reduce step - aggregating branch responses")
+
+                aggregated_parts = [
+                    f"Branch {bid}:\n{bdata['response']}"
+                    for bid, bdata in sorted(branches_dict.items())
+                ]
+                final_response = "\n\n---\n\n".join(aggregated_parts)
+                final_agent_id = "parallel"
+
             end_time = datetime.now(UTC)
             duration = (end_time - start_time).total_seconds()
 
-            logger.error(
-                "Parallel execution failed",
-                error=str(e),
+            logger.info(
+                "Parallel execution completed",
                 duration_seconds=duration,
+                cumulative_tokens=cumulative_tokens,
+            )
+            span.add_event(
+                "execution_complete",
+                {
+                    "duration_seconds": duration,
+                    "branch_count": len(branches_dict),
+                    "cumulative_tokens": cumulative_tokens,
+                },
             )
 
             return RunResult(
-                success=False,
-                error=str(e),
-                agent_id="parallel",
+                success=True,
+                last_response=final_response,
+                agent_id=final_agent_id,
                 pattern_type=PatternType.PARALLEL,
                 started_at=start_time.isoformat(),
                 completed_at=end_time.isoformat(),
                 duration_seconds=duration,
+                execution_context={"branches": branches_dict},
             )
-
-        # Build branches dictionary (alphabetically ordered by branch ID)
-        branches_dict: dict[str, dict[str, Any]] = {}
-        cumulative_tokens = 0
-
-        for branch, (response, tokens) in zip(
-            spec.pattern.config.branches, branch_results, strict=True
-        ):
-            cumulative_tokens += tokens
-            branches_dict[branch.id] = {
-                "response": response,
-                "status": "success",
-                "tokens_estimated": tokens,
-            }
-
-        logger.info(
-            "All branches completed",
-            num_branches=len(branches_dict),
-            cumulative_tokens=cumulative_tokens,
-        )
-
-        # Execute reduce step if present or aggregate branches
-        final_response: str
-        final_agent_id: str
-
-        if spec.pattern.config.reduce:
-            reduce_response, reduce_tokens = await _execute_reduce_step(
-                spec,
-                spec.pattern.config.reduce,
-                user_vars,
-                branches_dict,
-                cache,
-                max_attempts,
-                wait_min,
-                wait_max,
-                context_manager,
-                hooks,
-                notes_manager,
-            )
-            final_response = reduce_response
-            final_agent_id = spec.pattern.config.reduce.agent
-            cumulative_tokens += reduce_tokens
-        else:
-            # No reduce step - aggregate branch responses alphabetically
-            logger.info("No reduce step - aggregating branch responses")
-
-            aggregated_parts = [
-                f"Branch {bid}:\n{bdata['response']}"
-                for bid, bdata in sorted(branches_dict.items())
-            ]
-            final_response = "\n\n---\n\n".join(aggregated_parts)
-            final_agent_id = "parallel"
-
-        end_time = datetime.now(UTC)
-        duration = (end_time - start_time).total_seconds()
-
-        logger.info(
-            "Parallel execution completed",
-            duration_seconds=duration,
-            cumulative_tokens=cumulative_tokens,
-        )
-
-        return RunResult(
-            success=True,
-            last_response=final_response,
-            agent_id=final_agent_id,
-            pattern_type=PatternType.PARALLEL,
-            started_at=start_time.isoformat(),
-            completed_at=end_time.isoformat(),
-            duration_seconds=duration,
-            execution_context={"branches": branches_dict},
-        )
-    finally:
-        # Clean up cached resources
-        await cache.close()
+        finally:
+            # Clean up cached resources
+            await cache.close()

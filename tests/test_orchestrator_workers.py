@@ -859,7 +859,9 @@ async def test_orchestrator_max_rounds_validation():
 
 @patch("strands_cli.exec.orchestrator_workers.AgentCache")
 @pytest.mark.asyncio
-async def test_orchestrator_json_parsing_all_retries_exhausted(mock_cache_class, minimal_orchestrator_spec):
+async def test_orchestrator_json_parsing_all_retries_exhausted(
+    mock_cache_class, minimal_orchestrator_spec
+):
     """Test that JSON retry exhaustion provides structured error with retry history."""
     # Setup mock cache
     mock_cache = MagicMock()

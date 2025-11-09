@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from pydantic import ValidationError
 
 from strands_cli.exec.hooks import ProactiveCompactionHook
@@ -60,6 +61,7 @@ class EvaluatorOptimizerExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 async def _run_initial_production(
@@ -294,261 +296,323 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
     Raises:
         EvaluatorOptimizerExecutionError: On configuration errors, max iterations, or unrecoverable failures
     """
-    logger.info("evaluator_optimizer_execution_start", spec_name=spec.name)
+    with tracer.start_as_current_span("execute.evaluator_optimizer") as span:
+        logger.info("evaluator_optimizer_execution_start", spec_name=spec.name)
 
-    # Validate configuration
-    _validate_evaluator_optimizer_config(spec)
+        # Validate configuration
+        _validate_evaluator_optimizer_config(spec)
 
-    # Get retry configuration
-    max_attempts, wait_min, wait_max = get_retry_config(spec)
+        # Set span attributes
+        span.set_attribute("spec.name", spec.name)
+        if spec.version:
+            span.set_attribute("spec.version", spec.version)
+        span.set_attribute("pattern.type", spec.pattern.type.value)
+        span.set_attribute("runtime.provider", spec.runtime.provider)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id)
+        if spec.runtime.region:
+            span.set_attribute("runtime.region", spec.runtime.region)
 
-    # Initialize state
-    started_at = datetime.now(UTC).isoformat()
-    cumulative_tokens = 0
-    max_tokens = spec.runtime.budgets.get("max_tokens") if spec.runtime.budgets else None
+        config = spec.pattern.config
+        assert config.producer is not None
+        assert config.evaluator is not None
+        assert config.accept is not None
 
-    config = spec.pattern.config
+        span.set_attribute("evaluator_optimizer.max_iterations", config.accept.max_iters)
+        span.set_attribute("evaluator_optimizer.evaluator_agent", config.evaluator.agent)
+        span.set_attribute("evaluator_optimizer.optimizer_agent", config.producer)
+        span.set_attribute("evaluator_optimizer.min_score", config.accept.min_score)
 
-    # Runtime assertions for type safety (already validated in _validate_evaluator_optimizer_config)
-    assert config.producer is not None
-    assert config.evaluator is not None
-    assert config.accept is not None
+        # Add execution_start event
+        span.add_event("execution_start")
 
-    producer_agent_id = config.producer
-    evaluator_agent_id = config.evaluator.agent
-    min_score = config.accept.min_score
-    max_iters = config.accept.max_iters
-    revise_prompt_template = config.revise_prompt or (
-        "Revise the following draft based on evaluator feedback.\n\n"
-        "Draft:\n{{ draft }}\n\n"
-        "Evaluation (Score: {{ evaluation.score }}/100):\n"
-        "{% if evaluation.issues %}Issues:\n"
-        "{% for issue in evaluation.issues %}- {{ issue }}\n{% endfor %}"
-        "{% endif %}"
-        "{% if evaluation.fixes %}Suggested fixes:\n"
-        "{% for fix in evaluation.fixes %}- {{ fix }}\n{% endfor %}"
-        "{% endif %}\n"
-        "Please provide an improved version."
-    )
+        # Get retry configuration
+        max_attempts, wait_min, wait_max = get_retry_config(spec)
 
-    # Get agent configurations
-    producer_config = spec.agents[producer_agent_id]
-    evaluator_config = spec.agents[evaluator_agent_id]
+        # Initialize state
+        started_at = datetime.now(UTC).isoformat()
+        cumulative_tokens = 0
+        max_tokens = spec.runtime.budgets.get("max_tokens") if spec.runtime.budgets else None
 
-    # Build initial producer prompt
-    initial_prompt = render_template(producer_config.prompt, variables or {})
-
-    # Iteration tracking
-    iteration_history: list[dict[str, Any]] = []
-    current_draft = ""
-    final_score = 0
-
-    # Phase 6: Create context manager and hooks for compaction
-    context_manager = create_from_policy(spec.context_policy, spec)
-    hooks: list[Any] = []
-    if (
-        spec.context_policy
-        and spec.context_policy.compaction
-        and spec.context_policy.compaction.enabled
-    ):
-        threshold = spec.context_policy.compaction.when_tokens_over or 60000
-        hooks.append(
-            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
-        )
-        logger.info("compaction_enabled", threshold_tokens=threshold)
-
-    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
-    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
-        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
-
-        max_tokens = spec.runtime.budgets["max_tokens"]
-        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
-        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
-        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
-
-    # Create AgentCache
-    cache = AgentCache()
-    try:
-        # Get or build agents (reuse cached agents)
-        producer_agent = await cache.get_or_build_agent(
-            spec,
-            producer_agent_id,
-            producer_config,
-            conversation_manager=context_manager,
-            hooks=hooks,
-            worker_index=None,
-        )
-        evaluator_agent = await cache.get_or_build_agent(
-            spec,
-            evaluator_agent_id,
-            evaluator_config,
-            conversation_manager=context_manager,
-            hooks=hooks,
-            worker_index=None,
+        producer_agent_id = config.producer
+        evaluator_agent_id = config.evaluator.agent
+        min_score = config.accept.min_score
+        max_iters = config.accept.max_iters
+        revise_prompt_template = config.revise_prompt or (
+            "Revise the following draft based on evaluator feedback.\n\n"
+            "Draft:\n{{ draft }}\n\n"
+            "Evaluation (Score: {{ evaluation.score }}/100):\n"
+            "{% if evaluation.issues %}Issues:\n"
+            "{% for issue in evaluation.issues %}- {{ issue }}\n{% endfor %}"
+            "{% endif %}"
+            "{% if evaluation.fixes %}Suggested fixes:\n"
+            "{% for fix in evaluation.fixes %}- {{ fix }}\n{% endfor %}"
+            "{% endif %}\n"
+            "Please provide an improved version."
         )
 
-        # Iteration 1: Initial production
-        current_draft, estimated_tokens = await _run_initial_production(
-            producer_agent, initial_prompt, max_attempts, wait_min, wait_max
-        )
-        cumulative_tokens += estimated_tokens
+        # Get agent configurations
+        producer_config = spec.agents[producer_agent_id]
+        evaluator_config = spec.agents[evaluator_agent_id]
 
-        # Evaluation loop
-        for iteration in range(1, max_iters + 1):
-            logger.info("iteration_start", iteration=iteration, phase="evaluation")
+        # Build initial producer prompt
+        initial_prompt = render_template(producer_config.prompt, variables or {})
 
-            # Execute evaluation phase
-            evaluator_response, estimated_tokens = await _run_evaluation_phase(
-                evaluator_agent, current_draft, config, variables, max_attempts, wait_min, wait_max
+        # Iteration tracking
+        iteration_history: list[dict[str, Any]] = []
+        current_draft = ""
+        final_score = 0
+
+        # Phase 6: Create context manager and hooks for compaction
+        context_manager = create_from_policy(spec.context_policy, spec)
+        hooks: list[Any] = []
+        if (
+            spec.context_policy
+            and spec.context_policy.compaction
+            and spec.context_policy.compaction.enabled
+        ):
+            threshold = spec.context_policy.compaction.when_tokens_over or 60000
+            hooks.append(
+                ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
+            )
+            logger.info("compaction_enabled", threshold_tokens=threshold)
+
+        # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+        if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+            from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+            max_tokens = spec.runtime.budgets["max_tokens"]
+            warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+            hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+            logger.info(
+                "budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold
+            )
+
+        # Create AgentCache
+        cache = AgentCache()
+        try:
+            # Get or build agents (reuse cached agents)
+            producer_agent = await cache.get_or_build_agent(
+                spec,
+                producer_agent_id,
+                producer_config,
+                conversation_manager=context_manager,
+                hooks=hooks,
+                worker_index=None,
+            )
+            evaluator_agent = await cache.get_or_build_agent(
+                spec,
+                evaluator_agent_id,
+                evaluator_config,
+                conversation_manager=context_manager,
+                hooks=hooks,
+                worker_index=None,
+            )
+
+            # Iteration 1: Initial production
+            current_draft, estimated_tokens = await _run_initial_production(
+                producer_agent, initial_prompt, max_attempts, wait_min, wait_max
             )
             cumulative_tokens += estimated_tokens
 
-            # Parse evaluator response (retry once on malformed JSON)
-            evaluation: EvaluatorDecision | None = None
-            for parse_attempt in range(1, 3):  # Try twice: initial + 1 retry
-                try:
-                    evaluation = _parse_evaluator_response(evaluator_response, parse_attempt)
-                    break
-                except EvaluatorOptimizerExecutionError as e:
-                    if parse_attempt == 1:
-                        # Retry with clarification
-                        logger.warning(
-                            "evaluator_response_malformed",
-                            iteration=iteration,
-                            attempt=parse_attempt,
-                            error=str(e),
-                        )
-                        clarification_prompt = (
-                            f"Your previous response was not valid JSON. "
-                            f'Please return only valid JSON in this exact format: '
-                            f'{{"score": <0-100>, "issues": ["issue1", ...], "fixes": ["fix1", ...]}}\n\n'
-                            f"Evaluate this draft:\n\n{current_draft}"
-                        )
-                        clarification_result = await invoke_agent_with_retry(
-                            evaluator_agent, clarification_prompt, max_attempts, wait_min, wait_max
-                        )
-                        evaluator_response = (
-                            clarification_result
-                            if isinstance(clarification_result, str)
-                            else str(clarification_result)
-                        )
+            # Evaluation loop
+            for iteration in range(1, max_iters + 1):
+                logger.info("iteration_start", iteration=iteration, phase="evaluation")
+                span.add_event("iteration_start", {"iteration_number": iteration})
 
-                        # Estimate tokens for retry
-                        estimated_tokens = estimate_tokens(clarification_prompt, evaluator_response)
-                        cumulative_tokens += estimated_tokens
-                    else:
-                        # Both attempts failed
-                        raise EvaluatorOptimizerExecutionError(
-                            f"Evaluator failed to return valid JSON after 2 attempts on iteration {iteration}. "
-                            f"Last response: {evaluator_response[:200]}"
-                        ) from e
+                # Execute evaluation phase
+                evaluator_response, estimated_tokens = await _run_evaluation_phase(
+                    evaluator_agent,
+                    current_draft,
+                    config,
+                    variables,
+                    max_attempts,
+                    wait_min,
+                    wait_max,
+                )
+                cumulative_tokens += estimated_tokens
 
-            if not evaluation:
-                raise EvaluatorOptimizerExecutionError(
-                    f"Failed to parse evaluator response on iteration {iteration}"
+                # Parse evaluator response (retry once on malformed JSON)
+                evaluation: EvaluatorDecision | None = None
+                for parse_attempt in range(1, 3):  # Try twice: initial + 1 retry
+                    try:
+                        evaluation = _parse_evaluator_response(evaluator_response, parse_attempt)
+                        break
+                    except EvaluatorOptimizerExecutionError as e:
+                        if parse_attempt == 1:
+                            # Retry with clarification
+                            logger.warning(
+                                "evaluator_response_malformed",
+                                iteration=iteration,
+                                attempt=parse_attempt,
+                                error=str(e),
+                            )
+                            clarification_prompt = (
+                                f"Your previous response was not valid JSON. "
+                                f'Please return only valid JSON in this exact format: '
+                                f'{{"score": <0-100>, "issues": ["issue1", ...], "fixes": ["fix1", ...]}}\n\n'
+                                f"Evaluate this draft:\n\n{current_draft}"
+                            )
+                            clarification_result = await invoke_agent_with_retry(
+                                evaluator_agent,
+                                clarification_prompt,
+                                max_attempts,
+                                wait_min,
+                                wait_max,
+                            )
+                            evaluator_response = (
+                                clarification_result
+                                if isinstance(clarification_result, str)
+                                else str(clarification_result)
+                            )
+
+                            # Estimate tokens for retry
+                            estimated_tokens = estimate_tokens(
+                                clarification_prompt, evaluator_response
+                            )
+                            cumulative_tokens += estimated_tokens
+                        else:
+                            # Both attempts failed
+                            raise EvaluatorOptimizerExecutionError(
+                                f"Evaluator failed to return valid JSON after 2 attempts on iteration {iteration}. "
+                                f"Last response: {evaluator_response[:200]}"
+                            ) from e
+
+                if not evaluation:
+                    raise EvaluatorOptimizerExecutionError(
+                        f"Failed to parse evaluator response on iteration {iteration}"
+                    )
+
+                final_score = evaluation.score
+
+                # Record iteration history with full evaluator feedback
+                iteration_history.append(
+                    {
+                        "iteration": iteration,
+                        "score": evaluation.score,
+                        "issues": evaluation.issues or [],
+                        "fixes": evaluation.fixes or [],
+                        "draft_preview": current_draft[:100],
+                    }
                 )
 
-            final_score = evaluation.score
+                logger.info(
+                    "evaluation_complete",
+                    iteration=iteration,
+                    score=evaluation.score,
+                    min_score=min_score,
+                    accepted=evaluation.score >= min_score,
+                )
 
-            # Record iteration history with full evaluator feedback
-            iteration_history.append(
-                {
-                    "iteration": iteration,
-                    "score": evaluation.score,
-                    "issues": evaluation.issues or [],
-                    "fixes": evaluation.fixes or [],
-                    "draft_preview": current_draft[:100],
-                }
-            )
+                # Add evaluation_complete event
+                event_attrs = {"score": evaluation.score}
+                if evaluation.issues:
+                    event_attrs["feedback"] = "; ".join(evaluation.issues[:3])  # First 3 issues
+                span.add_event("evaluation_complete", event_attrs)
+
+                # Check acceptance criteria
+                if evaluation.score >= min_score:
+                    logger.info("draft_accepted", iteration=iteration, score=evaluation.score)
+                    break
+
+                # Check if max iterations exhausted
+                if iteration >= max_iters:
+                    raise EvaluatorOptimizerExecutionError(
+                        f"Max iterations ({max_iters}) exhausted without reaching min_score ({min_score}). "
+                        f"Final score: {evaluation.score}. "
+                        f"Iteration history: {iteration_history}"
+                    )
+
+                # Prepare for revision
+                logger.info("iteration_start", iteration=iteration + 1, phase="revision")
+
+                # Build revision context
+                revision_context = _build_revision_context(
+                    current_draft, evaluation, iteration, variables
+                )
+
+                # Render revision prompt
+                revision_prompt = render_template(revise_prompt_template, revision_context)
+
+                # Execute producer for revision
+                revision_response = await invoke_agent_with_retry(
+                    producer_agent, revision_prompt, max_attempts, wait_min, wait_max
+                )
+                current_draft = (
+                    revision_response
+                    if isinstance(revision_response, str)
+                    else str(revision_response)
+                )
+
+                # Estimate tokens for revision
+                estimated_tokens = estimate_tokens(revision_prompt, current_draft)
+                cumulative_tokens += estimated_tokens
+
+                # Add optimization_complete event
+                improved = (
+                    len(iteration_history) > 1 and evaluation.score > iteration_history[-2]["score"]
+                )
+                span.add_event("optimization_complete", {"improved": improved})
+
+                # Add iteration_complete event
+                converged = evaluation.score >= min_score
+                span.add_event(
+                    "iteration_complete", {"iteration_number": iteration, "converged": converged}
+                )
+
+            # Build result
+            completed_at = datetime.now(UTC).isoformat()
+            duration = (
+                datetime.fromisoformat(completed_at) - datetime.fromisoformat(started_at)
+            ).total_seconds()
 
             logger.info(
-                "evaluation_complete",
-                iteration=iteration,
-                score=evaluation.score,
-                min_score=min_score,
-                accepted=evaluation.score >= min_score,
+                "evaluator_optimizer_execution_complete",
+                spec_name=spec.name,
+                iterations=len(iteration_history),
+                final_score=final_score,
+                duration_seconds=duration,
             )
 
-            # Check acceptance criteria
-            if evaluation.score >= min_score:
-                logger.info("draft_accepted", iteration=iteration, score=evaluation.score)
-                break
-
-            # Check if max iterations exhausted
-            if iteration >= max_iters:
-                raise EvaluatorOptimizerExecutionError(
-                    f"Max iterations ({max_iters}) exhausted without reaching min_score ({min_score}). "
-                    f"Final score: {evaluation.score}. "
-                    f"Iteration history: {iteration_history}"
-                )
-
-            # Prepare for revision
-            logger.info("iteration_start", iteration=iteration + 1, phase="revision")
-
-            # Build revision context
-            revision_context = _build_revision_context(
-                current_draft, evaluation, iteration, variables
+            # Add execution_complete event
+            span.add_event(
+                "execution_complete",
+                {
+                    "total_iterations": len(iteration_history),
+                    "duration_seconds": duration,
+                    "final_score": final_score,
+                },
             )
 
-            # Render revision prompt
-            revision_prompt = render_template(revise_prompt_template, revision_context)
-
-            # Execute producer for revision
-            revision_response = await invoke_agent_with_retry(
-                producer_agent, revision_prompt, max_attempts, wait_min, wait_max
-            )
-            current_draft = (
-                revision_response if isinstance(revision_response, str) else str(revision_response)
-            )
-
-            # Estimate tokens for revision
-            estimated_tokens = estimate_tokens(revision_prompt, current_draft)
-            cumulative_tokens += estimated_tokens
-
-        # Build result
-        completed_at = datetime.now(UTC).isoformat()
-        duration = (
-            datetime.fromisoformat(completed_at) - datetime.fromisoformat(started_at)
-        ).total_seconds()
-
-        logger.info(
-            "evaluator_optimizer_execution_complete",
-            spec_name=spec.name,
-            iterations=len(iteration_history),
-            final_score=final_score,
-            duration_seconds=duration,
-        )
-
-        # Build execution context with full iteration history
-        execution_context = {
-            "iterations": len(iteration_history),
-            "final_score": final_score,
-            "min_score": min_score,
-            "max_iters": max_iters,
-            "history": iteration_history,
-            "cumulative_tokens": cumulative_tokens,
-        }
-
-        # Add last evaluation details if we have iteration history
-        if iteration_history:
-            last_iteration = iteration_history[-1]
-            execution_context["last_evaluation"] = {
-                "score": last_iteration["score"],
-                "issues": last_iteration["issues"],
-                "fixes": last_iteration["fixes"],
+            # Build execution context with full iteration history
+            execution_context = {
+                "iterations": len(iteration_history),
+                "final_score": final_score,
+                "min_score": min_score,
+                "max_iters": max_iters,
+                "history": iteration_history,
+                "cumulative_tokens": cumulative_tokens,
             }
 
-        return RunResult(
-            success=True,
-            last_response=current_draft,
-            agent_id=producer_agent_id,
-            pattern_type=PatternType.EVALUATOR_OPTIMIZER,
-            started_at=started_at,
-            completed_at=completed_at,
-            duration_seconds=duration,
-            execution_context=execution_context,
-        )
+            # Add last evaluation details if we have iteration history
+            if iteration_history:
+                last_iteration = iteration_history[-1]
+                execution_context["last_evaluation"] = {
+                    "score": last_iteration["score"],
+                    "issues": last_iteration["issues"],
+                    "fixes": last_iteration["fixes"],
+                }
 
-    finally:
-        # Cleanup HTTP clients
-        await cache.close()
+            return RunResult(
+                success=True,
+                last_response=current_draft,
+                agent_id=producer_agent_id,
+                pattern_type=PatternType.EVALUATOR_OPTIMIZER,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=duration,
+                execution_context=execution_context,
+            )
+
+        finally:
+            # Cleanup HTTP clients
+            await cache.close()

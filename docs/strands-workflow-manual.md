@@ -954,7 +954,269 @@ security:
 
 ---
 
-## 20) Migration & Extensibility
+## 20) Telemetry & Observability
+
+Strands CLI integrates with OpenTelemetry (OTEL) to provide production-grade observability. Enable distributed tracing to monitor workflow execution, identify bottlenecks, and debug issues across multi-agent systems.
+
+### Configuration
+
+#### Basic Setup
+```yaml
+telemetry:
+  otel:
+    endpoint: http://localhost:4318/v1/traces  # OTLP/HTTP endpoint
+    service_name: my-workflow-service          # Service identifier in traces
+    sample_ratio: 1.0                          # Trace 100% of requests
+```
+
+#### Configuration Reference
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `endpoint` | string | `null` | OTLP endpoint URL (HTTP/gRPC). If null, tracing disabled. |
+| `service_name` | string | `"strands-cli"` | Service name for trace identification |
+| `sample_ratio` | float | `1.0` | Sampling rate (0.0-1.0). 0.0=disabled, 1.0=trace all |
+
+### Span Hierarchy
+
+Spans follow a consistent hierarchy across all workflow patterns:
+
+```
+execute.<pattern_type>              (root span)
+├── execute.chain                   (for route execution in routing pattern)
+│   ├── agent.invoke                (per step - from Strands SDK)
+│   │   ├── tool.<tool_name>        (per tool call - from Strands SDK)
+│   │   └── llm.completion          (from Strands SDK)
+│   └── ...
+├── ...
+```
+
+**Pattern-Specific Span Names**:
+- Chain: `execute.chain`
+- Workflow: `execute.workflow`
+- Routing: `execute.routing` (contains nested `execute.chain` for route)
+- Parallel: `execute.parallel`
+- Evaluator-Optimizer: `execute.evaluator_optimizer`
+- Orchestrator-Workers: `execute.orchestrator_workers`
+- Graph: `execute.graph`
+
+### Span Attributes Reference
+
+#### Common Attributes (All Patterns)
+| Attribute | Type | Example | Description |
+|-----------|------|---------|-------------|
+| `spec.name` | string | `"my-workflow"` | Workflow name from spec |
+| `spec.version` | string | `"1.0.0"` | Workflow version |
+| `pattern.type` | string | `"chain"` | Pattern type |
+| `runtime.provider` | string | `"openai"` | LLM provider |
+| `runtime.model_id` | string | `"gpt-4o"` | Model identifier |
+| `runtime.region` | string | `"us-east-1"` | AWS region (Bedrock only) |
+
+#### Pattern-Specific Attributes
+
+**Chain**:
+- `chain.step_count` (int) - Total steps in chain
+
+**Workflow**:
+- `workflow.task_count` (int) - Total tasks
+- `workflow.layer_count` (int) - DAG execution layers
+
+**Routing**:
+- `routing.router_agent` (string) - Router agent ID
+- `routing.route_count` (int) - Available routes
+- `routing.max_retries` (int) - Max retries for router
+
+**Parallel**:
+- `parallel.branch_count` (int) - Number of branches
+- `parallel.has_reduce` (bool) - Reduce step present
+- `parallel.max_parallel` (int) - Concurrency limit
+
+**Evaluator-Optimizer**:
+- `evaluator_optimizer.max_iterations` (int) - Iteration limit
+- `evaluator_optimizer.evaluator_agent` (string) - Evaluator ID
+- `evaluator_optimizer.optimizer_agent` (string) - Optimizer ID
+
+**Orchestrator-Workers**:
+- `orchestrator_workers.orchestrator_agent` (string) - Orchestrator ID
+- `orchestrator_workers.worker_count` (int) - Worker pool size
+
+**Graph**:
+- `graph.node_count` (int) - Total nodes
+- `graph.edge_count` (int) - Total edges/transitions
+- `graph.start_node` (string) - Entry point node
+
+### Span Events Reference
+
+Events mark key milestones during workflow execution.
+
+#### Common Events (All Patterns)
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `execution_start` | - | Workflow execution begins |
+| `execution_complete` | `duration_seconds`, `cumulative_tokens` | Workflow finishes successfully |
+
+#### Pattern-Specific Events
+
+**Chain**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `step_start` | `step_index`, `agent_id` | Chain step begins |
+| `step_complete` | `step_index`, `agent_id`, `response_length`, `cumulative_tokens` | Chain step finishes |
+
+**Workflow**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `task_complete` | `task_id`, `agent_id`, `response_length`, `cumulative_tokens` | Task finishes |
+
+**Routing**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `agent_selected` | `chosen_route`, `router_agent` | Router selects route |
+
+**Parallel**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `branch_complete` | `branch_id`, `response_length`, `tokens` | Branch execution finishes |
+| `reduce_start` | - | Reduce step begins (if configured) |
+
+**Evaluator-Optimizer**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `iteration_start` | `iteration_number` | Iteration begins |
+| `evaluation_complete` | `score`, `feedback` | Evaluator finishes |
+| `optimization_complete` | `improved` | Optimizer finishes |
+| `iteration_complete` | `iteration_number`, `converged` | Iteration finishes |
+
+**Orchestrator-Workers**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `orchestrator_planning` | `task_count` | Orchestrator creates work plan |
+| `worker_assigned` | `worker_id`, `task_id` | Task assigned to worker |
+| `worker_complete` | `worker_id`, `task_id`, `success` | Worker finishes task |
+| `orchestrator_synthesis` | `results_count` | Orchestrator aggregates results |
+
+**Graph**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `node_entered` | `node_id`, `visit_count` | Node execution starts |
+| `node_complete` | `node_id`, `next_transition` | Node execution finishes |
+| `transition` | `from_node`, `to_node`, `condition` | Graph state transition |
+
+**Utility Events (Cross-Pattern)**:
+| Event | Attributes | Description |
+|-------|------------|-------------|
+| `retry_attempt` | `attempt`, `error`, `wait_seconds` | Retry triggered |
+| `budget_warning` | `current_tokens`, `max_tokens`, `threshold`, `usage_percent` | Approaching budget limit |
+| `budget_exceeded` | `current_tokens`, `max_tokens`, `overage` | Budget limit exceeded |
+
+### Sampling Strategies
+
+#### Development & Debugging
+```yaml
+telemetry:
+  otel:
+    sample_ratio: 1.0  # Trace all requests
+```
+**Use When**: Local development, debugging issues, performance profiling
+
+#### Production (Low Traffic)
+```yaml
+telemetry:
+  otel:
+    sample_ratio: 0.5  # Trace 50% of requests
+```
+**Use When**: <1000 requests/day, cost-sensitive environments
+
+#### Production (High Traffic)
+```yaml
+telemetry:
+  otel:
+    sample_ratio: 0.01  # Trace 1% of requests
+```
+**Use When**: >10,000 requests/day, high-scale deployments
+
+#### Emergency Disable
+```yaml
+telemetry:
+  otel:
+    sample_ratio: 0.0  # Disable tracing
+```
+**Use When**: OTEL collector down, incident mitigation
+
+### Backend Setup
+
+#### Option 1: Jaeger (Recommended for Development)
+```bash
+# Start Jaeger all-in-one
+docker run -d --name jaeger \
+  -p 16686:16686 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+
+# Access UI: http://localhost:16686
+```
+
+#### Option 2: OTEL Collector + Backend
+```yaml
+# otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  jaeger:
+    endpoint: jaeger:14250
+  logging:
+    loglevel: debug
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [jaeger, logging]
+```
+
+```bash
+docker run -p 4318:4318 \
+  -v $(pwd)/otel-collector-config.yaml:/etc/otel/config.yaml \
+  otel/opentelemetry-collector:latest \
+  --config=/etc/otel/config.yaml
+```
+
+#### Option 3: Production (AWS X-Ray, DataDog, etc.)
+Strands CLI uses standard OTLP protocol - compatible with all major APM vendors:
+- **AWS X-Ray**: Use AWS Distro for OpenTelemetry
+- **DataDog**: Configure DataDog agent with OTLP receiver
+- **New Relic**: Use New Relic OTLP endpoint
+- **Honeycomb**: Use Honeycomb OTLP endpoint
+
+### Troubleshooting
+
+#### No Traces Appearing
+1. Check `sample_ratio` > 0.0
+2. Verify OTEL endpoint is reachable: `curl http://localhost:4318/v1/traces`
+3. Check logs for OTLP export errors: `strands run --verbose ...`
+
+#### Trace Sampling Too Aggressive
+- Increase `sample_ratio` for more traces
+- TraceIdRatioBased sampler is deterministic (same trace ID = same sampling decision)
+
+#### High Trace Volume Costs
+- Decrease `sample_ratio` to reduce data volume
+- Use head-based sampling (configured here) + tail-based sampling (at collector) for best results
+
+### Best Practices
+
+1. **Use Consistent Service Names**: Group related workflows with same `service_name`
+2. **Set Appropriate Sampling**: Start with 1.0 in dev, tune down in production based on traffic
+3. **Monitor Span Attributes**: Use `spec.name` and `pattern.type` for filtering in trace UI
+4. **Track Events for Debugging**: Events like `retry_attempt` and `budget_warning` highlight issues
+5. **Combine with Structured Logs**: Trace context (trace_id, span_id) automatically injected into logs via structlog
+
+---
+
+## 21) Migration & Extensibility
 
 - Add new pattern types by extending the schema and the CLI’s runner registry.
 - Keep `version` to gate breaking changes (introduce `1` when you add incompatible keys).
@@ -962,7 +1224,7 @@ security:
 
 ---
 
-## 21) Appendix: Schema Fields (At-a-Glance)
+## 22) Appendix: Schema Fields (At-a-Glance)
 
 **Required top-level fields**: `version`, `name`, `runtime`, `agents` (min 1), `pattern`
 
@@ -991,7 +1253,7 @@ security:
 
 ---
 
-## 22) Files
+## 23) Files
 
 - **Schema**: `strands-workflow.schema.json`
 - **Manual (this doc)**: `strands-workflow-manual.md`

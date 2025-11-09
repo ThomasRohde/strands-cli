@@ -1,0 +1,35 @@
+name: "trace-artifact-test"
+version: "1.0"
+runtime:
+  provider: "openai"
+  model_id: "gpt-4o-mini"
+agents:
+  researcher:
+    prompt: "You are a research assistant."
+pattern:
+  type: "chain"
+  config:
+    steps:
+      - agent_id: "researcher"
+        input: "Research topic: {{ topic }}"
+        output_key: "research"
+      - agent_id: "researcher"
+        input: "Summarize: {{ steps[0].response }}"
+        output_key: "summary"
+inputs:
+  variables:
+    topic:
+      value: "AI Ethics"
+      description: "Topic to research"
+outputs:
+  artifacts:
+    - path: "./artifacts/trace.json"
+      from: "{{ TRACE }}"
+      description: "Complete execution trace"
+    - path: "./artifacts/summary.txt"
+      from: "{{ last_response }}"
+      description: "Final summary"
+telemetry:
+  otel:
+    service_name: "strands-trace-artifact-test"
+    sample_ratio: 1.0

@@ -1,0 +1,23 @@
+name: "telemetry-redaction-test"
+version: "1.0"
+runtime:
+  provider: "openai"
+  model_id: "gpt-4o-mini"
+agents:
+  test_agent:
+    prompt: "You are a test assistant."
+pattern:
+  type: "single"
+  config:
+    agent_id: "test_agent"
+    input: "Test input with email: user@example.com"
+telemetry:
+  otel:
+    service_name: "strands-redaction-test"
+    sample_ratio: 1.0
+  redact:
+    tool_inputs: true
+    tool_outputs: true
+    custom_patterns:
+      - "SECRET-\\d{4}"
+      - "INTERNAL-[A-Z0-9]{8}"

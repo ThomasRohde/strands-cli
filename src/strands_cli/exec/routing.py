@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from pydantic import ValidationError
 
 from strands_cli.exec.chain import run_chain
@@ -46,6 +47,7 @@ class RoutingExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _parse_router_response(response: str, attempt: int) -> RouterDecision:
@@ -329,115 +331,143 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
     Raises:
         RoutingExecutionError: If routing execution fails
     """
-    logger.info("routing_execution_start", spec_name=spec.name)
+    with tracer.start_span("execute.routing") as span:
+        # Add span attributes
+        span.set_attribute("spec.name", spec.name)
+        span.set_attribute("spec.version", spec.version)
+        span.set_attribute("pattern.type", "routing")
+        span.set_attribute("runtime.provider", spec.runtime.provider)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id)
+        if spec.runtime.region:
+            span.set_attribute("runtime.region", spec.runtime.region)
 
-    # Validate routing configuration
-    router_config, router_agent_id, max_retries = _validate_routing_config(spec)
+        # Add execution start event
+        span.add_event("execution_start")
 
-    # Build router context and render input
-    context = _build_router_context(spec, variables)
-    router_input_template = router_config.input or ""
-    try:
-        router_input = render_template(router_input_template, context)
-    except Exception as e:
-        raise RoutingExecutionError(f"Failed to render router input: {e}") from e
+        logger.info("routing_execution_start", spec_name=spec.name)
 
-    logger.info("router_input_rendered", preview=router_input[:100])
+        # Validate routing configuration
+        router_config, router_agent_id, max_retries = _validate_routing_config(spec)
+        span.set_attribute("routing.router_agent", router_agent_id)
+        span.set_attribute("routing.route_count", len(spec.pattern.config.routes or {}))
+        span.set_attribute("routing.max_retries", max_retries)
 
-    # Phase 6.1: Create context manager and hooks for compaction
-    context_manager = create_from_policy(spec.context_policy, spec)
-    hooks: list[Any] = []
-    if (
-        spec.context_policy
-        and spec.context_policy.compaction
-        and spec.context_policy.compaction.enabled
-    ):
-        threshold = spec.context_policy.compaction.when_tokens_over or 60000
-        hooks.append(
-            ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
-        )
-        logger.info("compaction_enabled", threshold_tokens=threshold)
-
-    # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
-    if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
-        from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
-
-        max_tokens = spec.runtime.budgets["max_tokens"]
-        warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
-        hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
-        logger.info("budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold)
-
-    # Phase 6.2: Initialize notes manager and hook for structured notes
-    notes_manager = None
-    step_counter = [0]  # Mutable container for hook to track step count
-    if spec.context_policy and spec.context_policy.notes:
-        notes_manager = NotesManager(spec.context_policy.notes.file)
-
-        # Build agent_id → tools mapping for notes hook
-        agent_tools: dict[str, list[str]] = {}
-        for agent_id, agent_config in spec.agents.items():
-            if agent_config.tools:
-                agent_tools[agent_id] = agent_config.tools
-
-        hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
-        logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
-
-    # Create AgentCache for this execution
-    cache = AgentCache()
-
-    try:
-        # Execute router with retry logic
+        # Build router context and render input
+        context = _build_router_context(spec, variables)
+        router_input_template = router_config.input or ""
         try:
-            chosen_route = await _execute_router_with_retry(
-                spec,
-                router_agent_id,
-                router_input,
-                cache,
-                max_retries,
-                context_manager,
-                hooks,
-                notes_manager,
+            router_input = render_template(router_input_template, context)
+        except Exception as e:
+            raise RoutingExecutionError(f"Failed to render router input: {e}") from e
+
+        logger.info("router_input_rendered", preview=router_input[:100])
+
+        # Phase 6.1: Create context manager and hooks for compaction
+        context_manager = create_from_policy(spec.context_policy, spec)
+        hooks: list[Any] = []
+        if (
+            spec.context_policy
+            and spec.context_policy.compaction
+            and spec.context_policy.compaction.enabled
+        ):
+            threshold = spec.context_policy.compaction.when_tokens_over or 60000
+            hooks.append(
+                ProactiveCompactionHook(threshold_tokens=threshold, model_id=spec.runtime.model_id)
             )
-        except RoutingExecutionError:
-            raise
-        except Exception as e:
-            raise RoutingExecutionError(f"Router execution failed: {e}") from e
+            logger.info("compaction_enabled", threshold_tokens=threshold)
 
-        logger.info("route_selected", route=chosen_route)
+        # Phase 6.4: Add budget enforcer hook (runs AFTER compaction to allow token reduction)
+        if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+            from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
 
-        # Create spec for route execution
-        route_spec = _create_route_spec(spec, chosen_route)
+            max_tokens = spec.runtime.budgets["max_tokens"]
+            warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+            hooks.append(BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold))
+            logger.info(
+                "budget_enforcer_enabled", max_tokens=max_tokens, warn_threshold=warn_threshold
+            )
 
-        # Inject router decision into context for route execution
-        route_variables: dict[str, Any] = dict(variables) if variables else {}
-        route_variables["router"] = {"chosen_route": chosen_route}
+        # Phase 6.2: Initialize notes manager and hook for structured notes
+        notes_manager = None
+        step_counter = [0]  # Mutable container for hook to track step count
+        if spec.context_policy and spec.context_policy.notes:
+            notes_manager = NotesManager(spec.context_policy.notes.file)
 
-        # Execute selected route as a chain
-        steps = route_spec.pattern.config.steps
-        assert steps is not None, "Route spec must have steps"
-        logger.info("route_execution_start", route=chosen_route, steps=len(steps))
+            # Build agent_id → tools mapping for notes hook
+            agent_tools: dict[str, list[str]] = {}
+            for agent_id, agent_config in spec.agents.items():
+                if agent_config.tools:
+                    agent_tools[agent_id] = agent_config.tools
+
+            hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
+        # Create AgentCache for this execution
+        cache = AgentCache()
 
         try:
-            # Note: run_chain is already async and uses its own cache,
-            # but we still pass our cache to share agents if possible
-            result = await run_chain(route_spec, route_variables)
-        except Exception as e:
-            raise RoutingExecutionError(f"Route '{chosen_route}' execution failed: {e}") from e
+            # Execute router with retry logic
+            try:
+                chosen_route = await _execute_router_with_retry(
+                    spec,
+                    router_agent_id,
+                    router_input,
+                    cache,
+                    max_retries,
+                    context_manager,
+                    hooks,
+                    notes_manager,
+                )
+            except RoutingExecutionError:
+                raise
+            except Exception as e:
+                raise RoutingExecutionError(f"Router execution failed: {e}") from e
 
-        # Update result metadata to include routing info
-        result.pattern_type = PatternType.ROUTING
-        if not result.execution_context:
-            result.execution_context = {}
-        result.execution_context["chosen_route"] = chosen_route
-        result.execution_context["router_agent"] = router_agent_id
+            logger.info("route_selected", route=chosen_route)
+            span.add_event(
+                "agent_selected", {"chosen_route": chosen_route, "router_agent": router_agent_id}
+            )
 
-        logger.info(
-            "routing_execution_complete",
-            route=chosen_route,
-            duration=result.duration_seconds,
-        )
+            # Create spec for route execution
+            route_spec = _create_route_spec(spec, chosen_route)
 
-        return result
-    finally:
-        # Clean up cached resources
-        await cache.close()
+            # Inject router decision into context for route execution
+            route_variables: dict[str, Any] = dict(variables) if variables else {}
+            route_variables["router"] = {"chosen_route": chosen_route}
+
+            # Execute selected route as a chain
+            steps = route_spec.pattern.config.steps
+            assert steps is not None, "Route spec must have steps"
+            logger.info("route_execution_start", route=chosen_route, steps=len(steps))
+
+            try:
+                # Note: run_chain is already async and uses its own cache,
+                # but we still pass our cache to share agents if possible
+                result = await run_chain(route_spec, route_variables)
+            except Exception as e:
+                raise RoutingExecutionError(f"Route '{chosen_route}' execution failed: {e}") from e
+
+            # Update result metadata to include routing info
+            result.pattern_type = PatternType.ROUTING
+            if not result.execution_context:
+                result.execution_context = {}
+            result.execution_context["chosen_route"] = chosen_route
+            result.execution_context["router_agent"] = router_agent_id
+
+            logger.info(
+                "routing_execution_complete",
+                route=chosen_route,
+                duration=result.duration_seconds,
+            )
+            span.add_event(
+                "execution_complete",
+                {
+                    "chosen_route": chosen_route,
+                    "duration_seconds": result.duration_seconds,
+                },
+            )
+
+            return result
+        finally:
+            # Clean up cached resources
+            await cache.close()

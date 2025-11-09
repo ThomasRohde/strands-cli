@@ -37,6 +37,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -64,6 +65,7 @@ class OrchestratorExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _parse_orchestrator_json(response_text: str) -> list[dict[str, Any]] | None:
@@ -218,11 +220,13 @@ async def _invoke_orchestrator_with_retry(
             return subtasks, tokens_used
 
         # Track failed attempt
-        retry_history.append({
-            "attempt": retry_attempt + 1,
-            "response_preview": response_text[:200],
-            "tokens_used": tokens_used,
-        })
+        retry_history.append(
+            {
+                "attempt": retry_attempt + 1,
+                "response_preview": response_text[:200],
+                "tokens_used": tokens_used,
+            }
+        )
 
         # Malformed JSON - retry with clarification
         if retry_attempt < max_json_retries:
@@ -248,6 +252,7 @@ Previous response that failed to parse:
 
     # All retries exhausted - raise structured error
     import json
+
     raise OrchestratorExecutionError(
         f"Failed to parse orchestrator response as valid JSON after {max_json_retries + 1} attempts. "
         f"Expected format: [{{'task': 'description'}}, ...]. "
@@ -297,6 +302,14 @@ async def _execute_worker(
         task=task,
     )
 
+    # Add worker_assigned event
+    span = trace.get_current_span()
+    if span.is_recording():
+        task_description = task.get("task", str(task))
+        span.add_event(
+            "worker_assigned", {"worker_id": worker_index, "task_id": f"task_{worker_index}"}
+        )
+
     agent_config = spec.agents[worker_agent_id]
     injected_notes = (
         notes_manager.get_last_n_for_injection(spec.context_policy.notes.include_last)
@@ -328,6 +341,13 @@ async def _execute_worker(
 
     response_text = result if isinstance(result, str) else str(result)
     tokens_used = estimate_tokens(task_description, response_text)
+
+    # Add worker_complete event
+    if span.is_recording():
+        span.add_event(
+            "worker_complete",
+            {"worker_id": worker_index, "task_id": f"task_{worker_index}", "success": True},
+        )
 
     return {
         "response": response_text,
@@ -452,87 +472,124 @@ async def run_orchestrator_workers(
     Raises:
         OrchestratorExecutionError: If orchestrator or worker execution fails
     """
-    start_time = datetime.now(UTC)
-    config = spec.pattern.config
+    with tracer.start_as_current_span("execute.orchestrator_workers") as span:
+        start_time = datetime.now(UTC)
+        config = spec.pattern.config
 
-    # Validate required configuration
-    if not config.orchestrator or not config.worker_template:
-        raise OrchestratorExecutionError(
-            "Orchestrator-workers pattern requires orchestrator and worker_template configuration"
-        )
+        # Set span attributes
+        span.set_attribute("spec.name", spec.name)
+        if spec.version:
+            span.set_attribute("spec.version", spec.version)
+        span.set_attribute("pattern.type", spec.pattern.type.value)
+        span.set_attribute("runtime.provider", spec.runtime.provider)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id)
+        if spec.runtime.region:
+            span.set_attribute("runtime.region", spec.runtime.region)
 
-    # Setup execution parameters
-    execution_params = _setup_execution_parameters(spec, config, variables)
+        if config.orchestrator:
+            span.set_attribute("orchestrator_workers.orchestrator_agent", config.orchestrator.agent)
+            if config.orchestrator.limits and config.orchestrator.limits.max_workers:
+                span.set_attribute(
+                    "orchestrator_workers.worker_pool_size", config.orchestrator.limits.max_workers
+                )
 
-    # Setup context and hook factory
-    context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(spec)
+        # Add execution_start event
+        span.add_event("execution_start")
 
-    try:
-        # Execute orchestrator round
-        subtasks, cumulative_tokens = await _execute_orchestrator_round(
-            cache, spec, execution_params, context_manager, hook_factory, notes_manager
-        )
+        # Validate required configuration
+        if not config.orchestrator or not config.worker_template:
+            raise OrchestratorExecutionError(
+                "Orchestrator-workers pattern requires orchestrator and worker_template configuration"
+            )
 
-        # Execute workers
-        worker_results, cumulative_tokens = await _execute_workers_round(
-            cache,
-            spec,
-            execution_params,
-            subtasks,
-            context_manager,
-            hook_factory,
-            notes_manager,
-            cumulative_tokens,
-        )
+        # Setup execution parameters
+        execution_params = _setup_execution_parameters(spec, config, variables)
 
-        # Build execution context
-        execution_context = _build_execution_context(
-            worker_results, execution_params["user_variables"]
-        )
+        # Setup context and hook factory
+        context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(spec)
 
-        # Execute reduce step if configured
-        final_response, cumulative_tokens = await _execute_reduce_step_if_needed(
-            cache,
-            spec,
-            config,
-            execution_context,
-            context_manager,
-            hook_factory,
-            notes_manager,
-            cumulative_tokens,
-        )
+        try:
+            # Execute orchestrator round
+            subtasks, cumulative_tokens = await _execute_orchestrator_round(
+                cache, spec, execution_params, context_manager, hook_factory, notes_manager
+            )
 
-        # Execute writeup step if configured
-        final_response, cumulative_tokens = await _execute_writeup_step_if_needed(
-            cache,
-            spec,
-            config,
-            execution_context,
-            context_manager,
-            hook_factory,
-            notes_manager,
-            cumulative_tokens,
-            final_response,
-        )
+            # Add orchestrator_planning event
+            span.add_event("orchestrator_planning", {"task_count": len(subtasks)})
+            span.set_attribute("orchestrator_workers.worker_count", len(subtasks))
 
-        # Build final response if no reduce/writeup
-        if not final_response:
-            final_response = _aggregate_worker_responses(worker_results)
+            # Execute workers
+            worker_results, cumulative_tokens = await _execute_workers_round(
+                cache,
+                spec,
+                execution_params,
+                subtasks,
+                context_manager,
+                hook_factory,
+                notes_manager,
+                cumulative_tokens,
+            )
 
-        # Build and return result
-        return _build_run_result(
-            spec,
-            config,
-            execution_params,
-            start_time,
-            final_response,
-            execution_context,
-            cumulative_tokens,
-        )
+            # Build execution context
+            execution_context = _build_execution_context(
+                worker_results, execution_params["user_variables"]
+            )
 
-    finally:
-        # CRITICAL: Clean up resources
-        await cache.close()
+            # Execute reduce step if configured
+            final_response, cumulative_tokens = await _execute_reduce_step_if_needed(
+                cache,
+                spec,
+                config,
+                execution_context,
+                context_manager,
+                hook_factory,
+                notes_manager,
+                cumulative_tokens,
+            )
+
+            # Add orchestrator_synthesis event
+            span.add_event("orchestrator_synthesis", {"results_count": len(worker_results)})
+
+            # Execute writeup step if configured
+            final_response, cumulative_tokens = await _execute_writeup_step_if_needed(
+                cache,
+                spec,
+                config,
+                execution_context,
+                context_manager,
+                hook_factory,
+                notes_manager,
+                cumulative_tokens,
+                final_response,
+            )
+
+            # Build final response if no reduce/writeup
+            if not final_response:
+                final_response = _aggregate_worker_responses(worker_results)
+
+            end_time = datetime.now(UTC)
+            duration_seconds = (end_time - start_time).total_seconds()
+
+            # Add execution_complete event
+            span.add_event(
+                "execution_complete",
+                {"total_tasks": len(worker_results), "duration_seconds": duration_seconds},
+            )
+
+            # Build and return result
+            return _build_run_result(
+                spec,
+                config,
+                execution_params,
+                start_time,
+                final_response,
+                execution_context,
+                cumulative_tokens,
+            )
+
+        finally:
+            # CRITICAL: Clean up resources
+            await cache.close()
 
 
 def _setup_execution_parameters(
