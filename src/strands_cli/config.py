@@ -65,7 +65,7 @@ class StrandsConfig(BaseSettings):
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
-    log_format: str = Field(default="json", description="Log format (json or console)")
+    log_format: str = Field(default="console", description="Log format (json or console)")
 
     # HTTP Security
     http_allowed_domains: list[str] = Field(

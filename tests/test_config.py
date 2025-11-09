@@ -38,7 +38,7 @@ class TestStrandsConfigDefaults:
         assert config.otel_enabled is False
         assert config.otel_endpoint is None
         assert config.log_level == "INFO"
-        assert config.log_format == "json"
+        assert config.log_format == "console"
 
     def test_config_minimal_instantiation(self) -> None:
         """Test that config can be instantiated with no arguments."""

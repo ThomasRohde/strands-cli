@@ -64,19 +64,58 @@ from strands_cli.exit_codes import (
     EX_UNKNOWN,
     EX_UNSUPPORTED,
 )
+from strands_cli.config import StrandsConfig
 from strands_cli.loader import LoadError, load_spec, parse_variables
 from strands_cli.schema import SchemaValidationError
 from strands_cli.telemetry import add_otel_context, configure_telemetry, shutdown_telemetry
 from strands_cli.types import PatternType, RunResult, Spec
 
+# Load config to determine log format
+config = StrandsConfig()
+
+# Determine log level (INFO by default, DEBUG when STRANDS_DEBUG=true)
+import logging
+import os
+
+log_level_str = os.environ.get("STRANDS_DEBUG", "").lower()
+min_level = logging.DEBUG if log_level_str == "true" else logging.INFO
+
+
+# Custom log level filter processor for structlog
+def filter_by_level_processor(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Filter log events by level."""
+    level_name = event_dict.get("level", "info").upper()
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+        "CRITICAL": logging.CRITICAL,
+    }
+    event_level = level_map.get(level_name, logging.INFO)
+    if event_level < min_level:
+        raise structlog.DropEvent
+    return event_dict
+
+
 # Configure structlog with OTEL context injection
+# Use ConsoleRenderer for user-friendly output by default, JSONRenderer for debug/telemetry
+renderer = (
+    structlog.processors.JSONRenderer()
+    if config.log_format == "json"
+    else structlog.dev.ConsoleRenderer(colors=True)
+)
+
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
+        filter_by_level_processor,  # Filter by log level
         add_otel_context,  # Inject trace_id and span_id
-        structlog.processors.JSONRenderer(),
+        renderer,
     ],
     logger_factory=structlog.PrintLoggerFactory(),
 )
