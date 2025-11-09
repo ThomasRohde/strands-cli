@@ -151,10 +151,15 @@ Commands:
   ci                Run full CI pipeline (lint + typecheck + test-cov)
   help              Show this help message
 
+Documentation:
+  For documentation build/serve/deploy commands, use:
+    .\scripts\docs.ps1 help
+
 Examples:
   .\scripts\dev.ps1 test
   .\scripts\dev.ps1 ci
   .\scripts\dev.ps1 validate-examples
+  .\scripts\docs.ps1 serve              # Start docs dev server
 
 "@ -ForegroundColor Yellow
 }

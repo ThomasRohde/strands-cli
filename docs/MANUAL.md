@@ -139,34 +139,34 @@ Build a production-ready documentation site using **MkDocs + Material for MkDocs
 
 **Goal**: Conceptual understanding and architecture
 
-- [ ] **Architecture Overview**
+- [x] **Architecture Overview**
   - System components diagram (Mermaid)
   - Data flow
   - Execution model
   - File: `manual/explanation/architecture.md`
-- [ ] **Pattern Philosophy**
+- [x] **Pattern Philosophy**
   - Why patterns?
   - When to use each pattern
   - Pattern comparison matrix
   - File: `manual/explanation/patterns.md`
-- [ ] **Design Decisions**
+- [x] **Design Decisions**
   - Why YAML/JSON spec?
   - Why JSON Schema Draft 2020-12?
   - Provider abstraction design
   - Security model rationale
   - File: `manual/explanation/design-decisions.md`
-- [ ] **Performance Optimizations**
+- [x] **Performance Optimizations**
   - Agent caching
   - Model client pooling
   - Single event loop strategy
   - File: `manual/explanation/performance.md`
-- [ ] **Security Model**
+- [x] **Security Model**
   - Template sandboxing
   - SSRF prevention
   - Path traversal protection
   - File: `manual/explanation/security-model.md`
 
-**Deliverables**: 5 explanation documents covering architecture, patterns, design, performance, security
+**Deliverables**: 5 explanation documents covering architecture, patterns, design, performance, security ✅
 
 ---
 
