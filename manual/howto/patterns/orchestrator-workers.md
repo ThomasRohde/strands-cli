@@ -731,4 +731,3 @@ Complete examples in the repository:
 - [Workflow Pattern](workflow.md) - For DAG-based execution
 - [Chain Pattern](chain.md) - For sequential execution
 - [Run Workflows](../run-workflows.md) - Execution guide
-- [Multi-Agent Patterns](../multi-agent.md) - Collaborative agent strategies

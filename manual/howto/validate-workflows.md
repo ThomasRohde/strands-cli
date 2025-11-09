@@ -261,7 +261,7 @@ schema: https://raw.githubusercontent.com/ThomasRohde/strands-cli/main/src/stran
 If validation errors are unclear:
 
 1. Check the [Schema Reference](../reference/schema.md) for field documentation
-2. Review [examples](../../examples/) for pattern-specific templates
+2. Review [examples](https://github.com/ThomasRohde/strands-cli/tree/main/examples) for pattern-specific templates
 3. Run with `--debug --verbose` for detailed error information
 4. Consult the [troubleshooting guide](../reference/troubleshooting.md)
 

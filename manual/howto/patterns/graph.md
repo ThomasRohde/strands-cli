@@ -907,5 +907,4 @@ Complete examples in the repository:
 - [Routing Pattern](routing.md) - For AI-based routing
 - [Workflow Pattern](workflow.md) - For DAG execution
 - [Chain Pattern](chain.md) - For sequential execution
-- [JMESPath Conditions](../jmespath.md) - Writing graph conditions
 - [Run Workflows](../run-workflows.md) - Execution guide

@@ -388,6 +388,6 @@ telemetry:
 
 ## See Also
 
-- [Debug Mode Reference](../reference/environment.md#debug-mode)
-- [OTLP Configuration](../reference/schema.md#telemetry)
+- [Environment Reference](../reference/environment.md) - Environment variables
+- [Schema Reference](../reference/schema.md) - Complete telemetry configuration
 - [Security Model](../explanation/security-model.md)

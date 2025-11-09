@@ -622,7 +622,7 @@ strands plan workflow.yaml
 ## Further Reading
 
 - [Chain Pattern Reference](../howto/patterns/chain.md) - Complete chain pattern guide
-- [Template Variables](../reference/schema.md#template-variables) - Full variable reference
+- [Schema Reference](../reference/schema.md) - Complete spec documentation
 - [Jinja2 Filters](https://jinja.palletsprojects.com/en/3.1.x/templates/#builtin-filters) - Complete filter list
 - [Pattern Comparison](../explanation/patterns.md) - When to use each pattern
 - [Context Management](../howto/context-management.md) - Managing token budgets

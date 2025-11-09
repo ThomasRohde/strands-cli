@@ -1,0 +1,39 @@
+# markdownlint-cli2 configuration
+# https://github.com/DavidAnson/markdownlint-cli2
+
+# Globs to ignore
+ignores:
+  - "node_modules"
+  - ".venv"
+  - "site"
+  - "htmlcov"
+  - ".cache"
+  - "*.min.js"
+
+# Custom markdownlint config
+config:
+  # MD013: Line length (disable for tables and code blocks)
+  MD013:
+    line_length: 100
+    tables: false
+    code_blocks: false
+  
+  # MD033: Allow inline HTML (needed for Material theme features)
+  MD033: false
+  
+  # MD041: First line in file should be a top level heading (false for index pages)
+  MD041: false
+  
+  # MD046: Code block style (fenced is preferred)
+  MD046:
+    style: "fenced"
+  
+  # MD024: Multiple headings with the same content (allow siblings)
+  MD024:
+    siblings_only: true
+  
+  # MD025: Multiple top-level headings (allow for index pages)
+  MD025: false
+  
+  # MD036: Emphasis used instead of a heading (disabled)
+  MD036: false

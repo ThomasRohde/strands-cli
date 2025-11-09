@@ -497,5 +497,5 @@ security:
 
 - **Complete Specification**: [Workflow Manual](workflow-manual.md)
 - **JSON Schema**: `src/strands_cli/schema/strands-workflow.schema.json`
-- **How-To Guides**: [Patterns](../howto/patterns/), [Tools](../howto/tools.md)
+- **How-To Guides**: [Pattern Guides](../howto/patterns/chain.md), [Tools](../howto/tools.md)
 - **Examples**: [Example Catalog](examples.md)

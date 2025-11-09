@@ -3,6 +3,8 @@
 Comprehensive catalog of workflow examples organized by pattern type and use case.
 
 !!! tip "Running Examples"
+    All examples are in the [`examples/`](https://github.com/ThomasRohde/strands-cli/tree/main/examples) directory of the repository.
+    
     ```bash
     # Validate before running
     uv run strands validate examples/<file>.yaml
@@ -22,9 +24,9 @@ Sequential multi-step workflows with context passing.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [chain-3-step-research-openai.yaml](../../examples/chain-3-step-research-openai.yaml) | Three-step research workflow with context passing | OpenAI | Sequential steps, `steps[n].response` references |
-| [chain-3-step-research.yaml](../../examples/chain-3-step-research.yaml) | Same as above (Ollama) | Ollama | Budget limits, temperature control |
-| [chain-calculator-openai.yaml](../../examples/chain-calculator-openai.yaml) | Multi-step calculation workflow | OpenAI | Calculator tool, step chaining |
+| [chain-3-step-research-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/chain-3-step-research-openai.yaml) | Three-step research workflow with context passing | OpenAI | Sequential steps, `steps[n].response` references |
+| [chain-3-step-research.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/chain-3-step-research.yaml) | Same as above (Ollama) | Ollama | Budget limits, temperature control |
+| [chain-calculator-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/chain-calculator-openai.yaml) | Multi-step calculation workflow | OpenAI | Calculator tool, step chaining |
 
 **Learn More**: [Chain Pattern Guide](../howto/patterns/chain.md)
 
@@ -36,7 +38,7 @@ Task-based workflows with dependency graphs.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [research-workflow-notes-openai.yaml](../../examples/research-workflow-notes-openai.yaml) | Research with structured notes | OpenAI | DAG dependencies, notes integration |
+| [research-workflow-notes-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/research-workflow-notes-openai.yaml) | Research with structured notes | OpenAI | DAG dependencies, notes integration |
 
 **Learn More**: [Workflow Pattern Guide](../howto/patterns/workflow.md)
 
@@ -48,11 +50,11 @@ Dynamic agent selection based on classifier decisions.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [routing-customer-support-openai.yaml](../../examples/routing-customer-support-openai.yaml) | Customer support ticket routing | OpenAI | Multi-route classifier, dynamic paths |
-| [routing-customer-support.yaml](../../examples/routing-customer-support.yaml) | Same as above (Ollama) | Ollama | Cost-effective routing |
-| [routing-task-classification-openai.yaml](../../examples/routing-task-classification-openai.yaml) | Task classification router | OpenAI | Route selection logic |
-| [routing-task-classification.yaml](../../examples/routing-task-classification.yaml) | Same as above (Ollama) | Ollama | Budget-friendly |
-| [routing-multi-tool-openai.yaml](../../examples/routing-multi-tool-openai.yaml) | Tool selection based on request type | OpenAI | HTTP executors, dynamic tool routing |
+| [routing-customer-support-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-customer-support-openai.yaml) | Customer support ticket routing | OpenAI | Multi-route classifier, dynamic paths |
+| [routing-customer-support.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-customer-support.yaml) | Same as above (Ollama) | Ollama | Cost-effective routing |
+| [routing-task-classification-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-task-classification-openai.yaml) | Task classification router | OpenAI | Route selection logic |
+| [routing-task-classification.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-task-classification.yaml) | Same as above (Ollama) | Ollama | Budget-friendly |
+| [routing-multi-tool-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-multi-tool-openai.yaml) | Tool selection based on request type | OpenAI | HTTP executors, dynamic tool routing |
 
 **Learn More**: [Routing Pattern Guide](../howto/patterns/routing.md)
 
@@ -64,9 +66,9 @@ Concurrent branch execution with optional reduce step.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [parallel-simple-2-branches.yaml](../../examples/parallel-simple-2-branches.yaml) | Two-branch parallel execution | OpenAI | Basic parallel, no reduce |
-| [parallel-with-reduce.yaml](../../examples/parallel-with-reduce.yaml) | Parallel branches with aggregation | OpenAI | Reduce step, branch merging |
-| [parallel-multi-step-branches.yaml](../../examples/parallel-multi-step-branches.yaml) | Multi-step branches in parallel | OpenAI | Complex branches, sequential within parallel |
+| [parallel-simple-2-branches.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/parallel-simple-2-branches.yaml) | Two-branch parallel execution | OpenAI | Basic parallel, no reduce |
+| [parallel-with-reduce.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/parallel-with-reduce.yaml) | Parallel branches with aggregation | OpenAI | Reduce step, branch merging |
+| [parallel-multi-step-branches.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/parallel-multi-step-branches.yaml) | Multi-step branches in parallel | OpenAI | Complex branches, sequential within parallel |
 
 **Learn More**: [Parallel Pattern Guide](../howto/patterns/parallel.md)
 
@@ -78,10 +80,10 @@ Iterative refinement with evaluation feedback loops.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [evaluator-optimizer-writing-openai.yaml](../../examples/evaluator-optimizer-writing-openai.yaml) | Content writing with iterative refinement | OpenAI | Min score threshold, max iterations |
-| [evaluator-optimizer-writing-ollama.yaml](../../examples/evaluator-optimizer-writing-ollama.yaml) | Same as above (Ollama) | Ollama | Local model refinement |
-| [evaluator-optimizer-code-review-openai.yaml](../../examples/evaluator-optimizer-code-review-openai.yaml) | Code review feedback loop | OpenAI | JSON scoring, structured feedback |
-| [evaluator-optimizer-code-review-bedrock.yaml](../../examples/evaluator-optimizer-code-review-bedrock.yaml) | Same as above (Bedrock) | Bedrock | AWS Claude models |
+| [evaluator-optimizer-writing-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/evaluator-optimizer-writing-openai.yaml) | Content writing with iterative refinement | OpenAI | Min score threshold, max iterations |
+| [evaluator-optimizer-writing-ollama.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/evaluator-optimizer-writing-ollama.yaml) | Same as above (Ollama) | Ollama | Local model refinement |
+| [evaluator-optimizer-code-review-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/evaluator-optimizer-code-review-openai.yaml) | Code review feedback loop | OpenAI | JSON scoring, structured feedback |
+| [evaluator-optimizer-code-review-bedrock.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/evaluator-optimizer-code-review-bedrock.yaml) | Same as above (Bedrock) | Bedrock | AWS Claude models |
 
 **Learn More**: [Evaluator-Optimizer Pattern Guide](../howto/patterns/evaluator-optimizer.md)
 
@@ -93,9 +95,9 @@ Orchestrator decomposes tasks, workers execute in parallel.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [orchestrator-minimal-openai.yaml](../../examples/orchestrator-minimal-openai.yaml) | Minimal orchestrator example | OpenAI | Basic orchestration, worker pool |
-| [orchestrator-research-swarm-openai.yaml](../../examples/orchestrator-research-swarm-openai.yaml) | Research team with orchestrator | OpenAI | Multi-worker coordination, reduce step |
-| [orchestrator-data-processing-openai.yaml](../../examples/orchestrator-data-processing-openai.yaml) | Data processing pipeline | OpenAI | Parallel workers, aggregation |
+| [orchestrator-minimal-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/orchestrator-minimal-openai.yaml) | Minimal orchestrator example | OpenAI | Basic orchestration, worker pool |
+| [orchestrator-research-swarm-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/orchestrator-research-swarm-openai.yaml) | Research team with orchestrator | OpenAI | Multi-worker coordination, reduce step |
+| [orchestrator-data-processing-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/orchestrator-data-processing-openai.yaml) | Data processing pipeline | OpenAI | Parallel workers, aggregation |
 
 **Learn More**: [Orchestrator-Workers Pattern Guide](../howto/patterns/orchestrator-workers.md)
 
@@ -107,9 +109,9 @@ State machines with conditional transitions and loops.
 
 | Example | Description | Provider | Key Features |
 |---------|-------------|----------|--------------|
-| [graph-state-machine-openai.yaml](../../examples/graph-state-machine-openai.yaml) | Customer support state machine | OpenAI | Conditional edges, terminal nodes |
-| [graph-decision-tree-openai.yaml](../../examples/graph-decision-tree-openai.yaml) | Approval workflow decision tree | OpenAI | Multi-path decisions, `when` conditions |
-| [graph-iterative-refinement-openai.yaml](../../examples/graph-iterative-refinement-openai.yaml) | Code review refinement loop | OpenAI | Iterative loops, cycle protection |
+| [graph-state-machine-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/graph-state-machine-openai.yaml) | Customer support state machine | OpenAI | Conditional edges, terminal nodes |
+| [graph-decision-tree-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/graph-decision-tree-openai.yaml) | Approval workflow decision tree | OpenAI | Multi-path decisions, `when` conditions |
+| [graph-iterative-refinement-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/graph-iterative-refinement-openai.yaml) | Code review refinement loop | OpenAI | Iterative loops, cycle protection |
 
 **Learn More**: [Graph Pattern Guide](../howto/patterns/graph.md)
 
@@ -123,11 +125,11 @@ Examples demonstrating Phase 6 context features.
 
 | Example | Description | Features |
 |---------|-------------|----------|
-| [context-notes-demo-openai.yaml](../../examples/context-notes-demo-openai.yaml) | Structured notes across steps | `context_policy.notes`, note persistence |
-| [presets-minimal-openai.yaml](../../examples/presets-minimal-openai.yaml) | Minimal context preset | `context_policy.preset: minimal` |
-| [presets-balanced-openai.yaml](../../examples/presets-balanced-openai.yaml) | Balanced context preset | `context_policy.preset: balanced` |
-| [presets-long_run-openai.yaml](../../examples/presets-long_run-research-openai.yaml) | Long-running research preset | `context_policy.preset: long_run` |
-| [presets-interactive-chat-openai.yaml](../../examples/presets-interactive-chat-openai.yaml) | Interactive chat preset | `context_policy.preset: interactive` |
+| [context-notes-demo-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/context-notes-demo-openai.yaml) | Structured notes across steps | `context_policy.notes`, note persistence |
+| [presets-minimal-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/presets-minimal-openai.yaml) | Minimal context preset | `context_policy.preset: minimal` |
+| [presets-balanced-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/presets-balanced-openai.yaml) | Balanced context preset | `context_policy.preset: balanced` |
+| [presets-long_run-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/presets-long_run-research-openai.yaml) | Long-running research preset | `context_policy.preset: long_run` |
+| [presets-interactive-chat-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/presets-interactive-chat-openai.yaml) | Interactive chat preset | `context_policy.preset: interactive` |
 
 **Learn More**: [Context Management Guide](../howto/context-management.md)
 
@@ -139,10 +141,10 @@ Just-In-Time file system tools for on-demand retrieval.
 
 | Example | Description | Tools Used |
 |---------|-------------|------------|
-| [jit-codebase-analysis-openai.yaml](../../examples/jit-codebase-analysis-openai.yaml) | Codebase analysis with grep/search | `grep`, `search` |
-| [jit-config-audit-openai.yaml](../../examples/jit-config-audit-openai.yaml) | Configuration file audit | `head`, `tail`, `grep` |
-| [jit-log-analysis-openai.yaml](../../examples/jit-log-analysis-openai.yaml) | Log file analysis | `tail`, `grep` |
-| [jit-tools-test-openai.yaml](../../examples/jit-tools-test-openai.yaml) | JIT tools test suite | All JIT tools |
+| [jit-codebase-analysis-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/jit-codebase-analysis-openai.yaml) | Codebase analysis with grep/search | `grep`, `search` |
+| [jit-config-audit-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/jit-config-audit-openai.yaml) | Configuration file audit | `head`, `tail`, `grep` |
+| [jit-log-analysis-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/jit-log-analysis-openai.yaml) | Log file analysis | `tail`, `grep` |
+| [jit-tools-test-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/jit-tools-test-openai.yaml) | JIT tools test suite | All JIT tools |
 
 **Learn More**: [Workflow Spec Reference - JIT Retrieval](workflow-manual.md#83-jit-retrieval-tools)
 
@@ -154,7 +156,7 @@ Just-In-Time file system tools for on-demand retrieval.
 
 | Example | Description | Integration |
 |---------|-------------|-------------|
-| [github-api-example-openai.yaml](../../examples/github-api-example-openai.yaml) | GitHub API integration | GitHub REST API |
+| [github-api-example-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/github-api-example-openai.yaml) | GitHub API integration | GitHub REST API |
 
 **Learn More**: [Tools Guide](../howto/tools.md)
 
@@ -166,11 +168,11 @@ Model Context Protocol server integrations.
 
 | Example | Description | MCP Server |
 |---------|-------------|------------|
-| [mcp-simple-openai.yaml](../../examples/mcp-simple-openai.yaml) | Basic MCP integration | Generic MCP server |
-| [mcp-filesystem-openai.yaml](../../examples/mcp-filesystem-openai.yaml) | Filesystem MCP server | `@modelcontextprotocol/server-filesystem` |
-| [mcp-multi-server-openai.yaml](../../examples/mcp-multi-server-openai.yaml) | Multiple MCP servers | Multiple servers |
+| [mcp-simple-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/mcp-simple-openai.yaml) | Basic MCP integration | Generic MCP server |
+| [mcp-filesystem-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/mcp-filesystem-openai.yaml) | Filesystem MCP server | `@modelcontextprotocol/server-filesystem` |
+| [mcp-multi-server-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/mcp-multi-server-openai.yaml) | Multiple MCP servers | Multiple servers |
 
-**Learn More**: [Workflow Spec Reference - MCP](workflow-manual.md#tools)
+**Learn More**: [Workflow Manual](workflow-manual.md) - Complete MCP specification
 
 ---
 
@@ -178,7 +180,7 @@ Model Context Protocol server integrations.
 
 | Example | Description | Tools |
 |---------|-------------|-------|
-| [python-exec-demo-openai.yaml](../../examples/python-exec-demo-openai.yaml) | Python code execution | `python_exec` native tool |
+| [python-exec-demo-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/python-exec-demo-openai.yaml) | Python code execution | `python_exec` native tool |
 
 **Learn More**: [Develop Tools Guide](../howto/develop-tools.md)
 
@@ -188,7 +190,7 @@ Model Context Protocol server integrations.
 
 | Example | Description | Features |
 |---------|-------------|----------|
-| [debug-demo-openai.yaml](../../examples/debug-demo-openai.yaml) | Debug mode with verbose tracing | `telemetry.otel`, debug spans |
+| [debug-demo-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/debug-demo-openai.yaml) | Debug mode with verbose tracing | `telemetry.otel`, debug spans |
 
 **Learn More**: [Telemetry Guide](../howto/telemetry.md)
 
@@ -219,7 +221,7 @@ uv run strands run examples/<file>-bedrock.yaml
 ```
 
 **Available**:
-- [evaluator-optimizer-code-review-bedrock.yaml](../../examples/evaluator-optimizer-code-review-bedrock.yaml)
+- [evaluator-optimizer-code-review-bedrock.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/evaluator-optimizer-code-review-bedrock.yaml)
 
 ---
 
@@ -235,10 +237,10 @@ uv run strands run examples/<file>.yaml
 ```
 
 **Available**:
-- [chain-3-step-research.yaml](../../examples/chain-3-step-research.yaml)
-- [evaluator-optimizer-writing-ollama.yaml](../../examples/evaluator-optimizer-writing-ollama.yaml)
-- [routing-customer-support.yaml](../../examples/routing-customer-support.yaml)
-- [routing-task-classification.yaml](../../examples/routing-task-classification.yaml)
+- [chain-3-step-research.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/chain-3-step-research.yaml)
+- [evaluator-optimizer-writing-ollama.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/evaluator-optimizer-writing-ollama.yaml)
+- [routing-customer-support.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-customer-support.yaml)
+- [routing-task-classification.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/routing-task-classification.yaml)
 - And more...
 
 ---
@@ -249,7 +251,7 @@ uv run strands run examples/<file>.yaml
 
 | Example | Description | Purpose |
 |---------|-------------|---------|
-| [backward-compatibility-test.yaml](../../examples/backward-compatibility-test.yaml) | Tests legacy format compatibility | Regression testing |
+| [backward-compatibility-test.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/backward-compatibility-test.yaml) | Tests legacy format compatibility | Regression testing |
 
 ---
 
@@ -259,8 +261,8 @@ Examples demonstrating unsupported MVP features (will fail with explanatory repo
 
 | Example | Description | Unsupported Feature |
 |---------|-------------|---------------------|
-| [multi-agent-unsupported.yaml](../../examples/multi-agent-unsupported.yaml) | Multiple agents | Multiple agents in same workflow |
-| [multi-step-unsupported.yaml](../../examples/multi-step-unsupported.yaml) | Multi-step chain | Chain with >1 step |
+| [multi-agent-unsupported.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/multi-agent-unsupported.yaml) | Multiple agents | Multiple agents in same workflow |
+| [multi-step-unsupported.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/multi-step-unsupported.yaml) | Multi-step chain | Chain with >1 step |
 
 **Learn More**: [Exit Codes Reference](exit-codes.md)
 
@@ -323,7 +325,7 @@ Have a useful workflow? Consider contributing!
 4. Test with `strands validate` and `strands run`
 5. Submit PR with example + entry in this catalog
 
-**See**: [CONTRIBUTING.md](../../CONTRIBUTING.md)
+**See**: [Contributing Guide](https://github.com/ThomasRohde/strands-cli/blob/master/CONTRIBUTING.md)
 
 ---
 

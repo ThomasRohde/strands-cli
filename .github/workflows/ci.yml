@@ -56,3 +56,49 @@ jobs:
             echo "Validating $spec..."
             uv run strands validate "$spec"
           done
+
+  docs-quality:
+    name: Documentation Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: uv sync --dev
+      
+      - name: Install Node.js for markdownlint
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install markdownlint-cli2
+        run: npm install -g markdownlint-cli2
+      
+      - name: Install codespell
+        run: pip install codespell
+      
+      - name: Run markdownlint
+        run: markdownlint-cli2 "manual/**/*.md" "README.md" "CONTRIBUTING.md"
+        continue-on-error: true
+      
+      - name: Run codespell
+        run: codespell manual/ README.md CONTRIBUTING.md --skip="*.pyc,*.jpg,*.png,*.gif,*.svg,htmlcov/*,site/*,.git/*"
+        continue-on-error: true
+      
+      - name: Generate schema docs
+        run: uv run python scripts/generate_schema_docs.py
+      
+      - name: Build docs with strict mode
+        run: uv run mkdocs build --strict

@@ -675,4 +675,4 @@ Complete examples in the repository:
 - [Chain Pattern](chain.md) - For sequential execution
 - [Graph Pattern](graph.md) - For custom control flow
 - [Run Workflows](../run-workflows.md) - Execution guide
-- [Quality Gates](../quality-gates.md) - Implementing quality criteria
+- [Budgets](../budgets.md) - Implementing budget and quality constraints

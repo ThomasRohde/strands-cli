@@ -79,6 +79,30 @@ PowerShell automation scripts for Strands CLI development and documentation.
 
 ### Deployment to GitHub Pages
 
+#### Automatic Deployment (via CI/CD)
+
+When you push a git tag matching `v*` pattern, GitHub Actions will:
+
+1. Build documentation with strict mode
+2. Deploy to GitHub Pages with version based on tag
+3. Set version alias to "latest"
+
+```bash
+# Example: Release v0.11.0
+git tag v0.11.0
+git push origin v0.11.0
+# Documentation automatically deployed to https://thomasrohde.github.io/strands-cli/
+```
+
+You can also trigger manual deployment via GitHub Actions:
+
+1. Go to GitHub repository → Actions → Documentation workflow
+2. Click "Run workflow"
+3. Enter version (e.g., `v0.11`) and alias (e.g., `latest`)
+4. Click "Run workflow"
+
+#### Manual Deployment (local)
+
 1. **Build and test locally**:
    ```powershell
    .\scripts\docs.ps1 build -Strict
@@ -165,6 +189,27 @@ manual/
 ```
 
 ## Tips & Best Practices
+
+### Quality Gates
+
+The project includes automated quality checks for documentation:
+
+- **Markdownlint**: Checks Markdown style and formatting
+  - Config: `.markdownlint-cli2.yaml`
+  - Run: `markdownlint-cli2 "manual/**/*.md"`
+
+- **Codespell**: Checks for typos and spelling errors
+  - Config: `.codespellrc`
+  - Run: `codespell manual/ README.md`
+
+- **Strict Build**: Fails on warnings (broken links, missing references)
+  - Run: `.\scripts\docs.ps1 build -Strict`
+
+- **Pre-commit Hooks**: Automatic checks before commits
+  - Install: `pip install pre-commit && pre-commit install`
+  - Run manually: `pre-commit run --all-files`
+
+All quality gates run automatically in CI on pull requests.
 
 ### When to Regenerate Docs
 

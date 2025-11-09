@@ -1,0 +1,8 @@
+# Codespell configuration
+# https://github.com/codespell-project/codespell
+
+[codespell]
+skip = .git,*.pyc,*.jpg,*.png,*.gif,*.svg,htmlcov,site,.venv,node_modules,.cache,*.min.js,*.lock
+ignore-words-list = astroid,ba,fo,te,crate,ser
+count =
+quiet-level = 2

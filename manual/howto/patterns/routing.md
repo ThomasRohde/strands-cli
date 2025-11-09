@@ -731,4 +731,3 @@ Complete examples in the repository:
 - [Chain Pattern](chain.md) - For sequential execution
 - [Workflow Pattern](workflow.md) - For parallel task execution
 - [Run Workflows](../run-workflows.md) - Execution guide
-- [JMESPath Conditions](../jmespath.md) - Writing route conditions

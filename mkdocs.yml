@@ -42,6 +42,16 @@ nav:
       - Quickstart (Bedrock): tutorials/quickstart-bedrock.md
       - Quickstart (OpenAI): tutorials/quickstart-openai.md
       - First Multi-Step Workflow: tutorials/first-multi-step.md
+  - Examples: reference/examples.md
+  - Patterns:
+      - Overview: explanation/patterns.md
+      - Chain: howto/patterns/chain.md
+      - Workflow: howto/patterns/workflow.md
+      - Routing: howto/patterns/routing.md
+      - Parallel: howto/patterns/parallel.md
+      - Evaluator-Optimizer: howto/patterns/evaluator-optimizer.md
+      - Graph: howto/patterns/graph.md
+      - Orchestrator-Workers: howto/patterns/orchestrator-workers.md
   - How-To:
       - Validate Workflows: howto/validate-workflows.md
       - Run Workflows: howto/run-workflows.md
@@ -51,17 +61,8 @@ nav:
       - Develop Tools: howto/develop-tools.md
       - Secrets: howto/secrets.md
       - Budgets: howto/budgets.md
-      - Patterns:
-          - Chain: howto/patterns/chain.md
-          - Workflow: howto/patterns/workflow.md
-          - Routing: howto/patterns/routing.md
-          - Parallel: howto/patterns/parallel.md
-          - Evaluator-Optimizer: howto/patterns/evaluator-optimizer.md
-          - Graph: howto/patterns/graph.md
-          - Orchestrator-Workers: howto/patterns/orchestrator-workers.md
   - Explanation:
       - Architecture: explanation/architecture.md
-      - Patterns: explanation/patterns.md
       - Design Decisions: explanation/design-decisions.md
       - Performance: explanation/performance.md
       - Security Model: explanation/security-model.md
@@ -72,7 +73,6 @@ nav:
       - Schema: reference/schema.md
       - Exit Codes: reference/exit-codes.md
       - Environment: reference/environment.md
-      - Examples: reference/examples.md
       - Troubleshooting: reference/troubleshooting.md
       - Security: reference/security.md
       - API:
@@ -144,6 +144,7 @@ markdown_extensions:
 extra:
   version:
     provider: mike
+    default: latest
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/ThomasRohde/strands-cli

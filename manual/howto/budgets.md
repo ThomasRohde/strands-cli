@@ -561,5 +561,5 @@ strands run production-workflow.yaml --debug --verbose
 ## See Also
 
 - [Context Management](context-management.md) - Optimize token usage with compaction
-- [Runtime Configuration](../reference/schema.md#runtime) - Complete runtime options
+- [Schema Reference](../reference/schema.md) - Complete runtime options
 - [Telemetry](telemetry.md) - Monitor budget consumption

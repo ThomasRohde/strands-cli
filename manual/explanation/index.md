@@ -1,6 +1,6 @@
 # Explanation
 
-This section provides conceptual understanding of Strands CLI's architecture, design decisions, and implementation philosophy. These documents explain the "why" behind the system rather than the "how" (see [How-To](../howto/)) or the "what" (see [Reference](../reference/)).
+This section provides conceptual understanding of Strands CLI's architecture, design decisions, and implementation philosophy. These documents explain the "why" behind the system rather than the "how" (see [How-To](../howto/validate-workflows.md)) or the "what" (see [Reference](../reference/cli.md)).
 
 ## Architecture & Design
 
@@ -67,6 +67,6 @@ For developers contributing to Strands CLI, all documents are essential reading.
 
 ## Related Sections
 
-- **[Tutorials](../tutorials/)** - Step-by-step learning paths for new users
-- **[How-To Guides](../howto/)** - Task-oriented guides for common operations
-- **[Reference](../reference/)** - Technical specifications (CLI, Schema, API)
+- **[Tutorials](../tutorials/quickstart-ollama.md)** - Step-by-step learning paths for new users
+- **[How-To Guides](../howto/validate-workflows.md)** - Task-oriented guides for common operations
+- **[Reference](../reference/cli.md)** - Technical specifications (CLI, Schema, API)
