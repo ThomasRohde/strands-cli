@@ -1,0 +1,120 @@
+version: 0
+name: orchestrator-resume-demo
+description: |
+  Demonstrates orchestrator-workers pattern with session persistence and resume.
+  
+  This workflow uses an orchestrator to break down a task, delegates to workers,
+  reduces results, and creates a final writeup. With --persist, you can stop
+  execution (Ctrl+C) and resume later with --resume.
+  
+  Usage:
+    # Start with persistence
+    strands run orchestrator-resume-demo-openai.yaml --persist --var project="mobile app"
+    
+    # If interrupted, resume with the session ID
+    strands sessions list
+    strands run --resume <session-id>
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 100000
+    warn_threshold: 0.8
+  retries:
+    max_attempts: 3
+    wait_min: 1
+    wait_max: 10
+
+inputs:
+  values:
+    project: "e-commerce platform"
+
+agents:
+  planner:
+    prompt: |
+      You are a project planning orchestrator. Break down the given project into
+      concrete subtasks for specialist workers. Return a JSON array of tasks.
+      
+      Expected format:
+      [
+        {"task": "subtask 1 description"},
+        {"task": "subtask 2 description"}
+      ]
+    
+  specialist_worker:
+    prompt: |
+      You are a specialist worker. Execute the given task and provide detailed results.
+      Be thorough and specific in your response.
+    
+  reducer:
+    prompt: |
+      You are a results aggregator. Combine worker outputs into a cohesive summary.
+      Identify patterns, dependencies, and key insights.
+    
+  writer:
+    prompt: |
+      You are a technical writer. Create a polished final report from the aggregated findings.
+      Use clear structure with headings, bullet points, and actionable recommendations.
+
+pattern:
+  type: orchestrator-workers
+  config:
+    orchestrator:
+      agent: planner
+      input: |
+        Project: {{ project }}
+        
+        Break this project down into 3-5 concrete subtasks that can be executed independently.
+        Consider aspects like requirements, architecture, implementation, testing, and deployment.
+        
+        Return ONLY a JSON array of tasks.
+      limits:
+        max_workers: 3
+        max_rounds: 1
+    
+    worker_template:
+      agent: specialist_worker
+    
+    reduce:
+      agent: reducer
+      input: |
+        Project: {{ project }}
+        
+        Aggregate the following worker results:
+        
+        {% for worker in workers %}
+        Worker {{ loop.index0 }}:
+        Task: {{ worker.task }}
+        Result: {{ worker.response }}
+        
+        {% endfor %}
+        
+        Create a synthesis that:
+        1. Identifies common themes and dependencies
+        2. Highlights critical insights
+        3. Notes any gaps or risks
+    
+    writeup:
+      agent: writer
+      input: |
+        Project: {{ project }}
+        
+        Create a final project plan based on this aggregated analysis:
+        
+        {{ last_response }}
+        
+        Structure the report with:
+        - Executive Summary
+        - Key Components (from worker tasks)
+        - Dependencies and Risks
+        - Recommended Timeline
+        - Next Steps
+
+outputs:
+  artifacts:
+    - path: orchestrator-project-plan.md
+      content: |
+        # Project Plan: {{ project }}
+        
+        {{ last_response }}

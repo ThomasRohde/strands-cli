@@ -35,6 +35,13 @@ from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import AgentCache
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.session import SessionState
+from strands_cli.session.checkpoint_utils import (
+    checkpoint_pattern_state,
+    finalize_session,
+    validate_session_params,
+)
+from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RouterDecision, RunResult, Spec
@@ -309,13 +316,23 @@ def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
     return route_spec
 
 
-async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
-    """Execute a routing pattern workflow.
+async def run_routing(  # noqa: C901
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:
+    """Execute a routing pattern workflow with optional session persistence.
 
     Phase 6 Performance Optimization:
     - Async execution with shared AgentCache for router and route execution
     - Single event loop eliminates per-route loop churn
     - Agents reused when router and route use same agent configuration
+
+    Phase 3.1 Session Support:
+    - Resume from checkpoint: Skip router if decision already made
+    - Router decision checkpoint: Save route choice before execution
+    - Route execution with resume: Delegate to chain resume logic
 
     Executes router agent to classify input, then runs the selected route's chain.
     Router decision is injected into route context as {{ router.chosen_route }}.
@@ -323,13 +340,19 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
     Args:
         spec: Workflow spec with routing pattern
         variables: Optional CLI --var overrides
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with selected route execution outcome
 
     Raises:
         RoutingExecutionError: If routing execution fails
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters (both or neither)
+    validate_session_params(session_state, session_repo)
+
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.routing") as span:
@@ -341,11 +364,18 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
         span.set_attribute("runtime.model_id", spec.runtime.model_id)
         if spec.runtime.region:
             span.set_attribute("runtime.region", spec.runtime.region)
+        if session_state:
+            span.set_attribute("session.id", session_state.metadata.session_id)
+            span.set_attribute("session.resume", True)
 
         # Add execution start event
         span.add_event("execution_start")
 
-        logger.info("routing_execution_start", spec_name=spec.name)
+        logger.info(
+            "routing_execution_start",
+            spec_name=spec.name,
+            resume=session_state is not None,
+        )
 
         # Validate routing configuration
         router_config, router_agent_id, max_retries = _validate_routing_config(spec)
@@ -407,26 +437,57 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
         cache = AgentCache()
 
         try:
-            # Execute router with retry logic
-            try:
-                chosen_route = await _execute_router_with_retry(
-                    spec,
-                    router_agent_id,
-                    router_input,
-                    cache,
-                    max_retries,
-                    context_manager,
-                    hooks,
-                    notes_manager,
+            # Restore or execute router
+            if session_state and session_state.pattern_state.get("router_executed"):
+                # Resume: router decision already made
+                chosen_route = session_state.pattern_state["chosen_route"]
+                logger.info(
+                    "routing_router_restored",
+                    route=chosen_route,
+                    session_id=session_state.metadata.session_id,
                 )
-            except RoutingExecutionError:
-                raise
-            except Exception as e:
-                raise RoutingExecutionError(f"Router execution failed: {e}") from e
+                span.add_event(
+                    "router_restored", {"chosen_route": chosen_route, "router_agent": router_agent_id}
+                )
+            else:
+                # Fresh execution: run router with retry logic
+                try:
+                    chosen_route = await _execute_router_with_retry(
+                        spec,
+                        router_agent_id,
+                        router_input,
+                        cache,
+                        max_retries,
+                        context_manager,
+                        hooks,
+                        notes_manager,
+                    )
+                except RoutingExecutionError:
+                    raise
+                except Exception as e:
+                    raise RoutingExecutionError(f"Router execution failed: {e}") from e
+
+                # Checkpoint router decision
+                if session_state and session_repo:
+                    await checkpoint_pattern_state(
+                        session_state,
+                        session_repo,
+                        pattern_state_updates={
+                            "router_executed": True,
+                            "chosen_route": chosen_route,
+                            "route_state": {"current_step": 0, "step_history": []},
+                        },
+                        token_increment=500,  # Estimated router tokens
+                    )
+                    logger.debug(
+                        "routing_router_checkpointed",
+                        route=chosen_route,
+                        session_id=session_state.metadata.session_id,
+                    )
 
             logger.info("route_selected", route=chosen_route)
             span.add_event(
-                "agent_selected", {"chosen_route": chosen_route, "router_agent": router_agent_id}
+                "route_selected", {"chosen_route": chosen_route, "router_agent": router_agent_id}
             )
 
             # Create spec for route execution
@@ -436,17 +497,39 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
             route_variables: dict[str, Any] = dict(variables) if variables else {}
             route_variables["router"] = {"chosen_route": chosen_route}
 
+            # Build chain session state if resuming route
+            route_session_state = None
+            route_session_repo = None
+
+            if session_state:
+                # Create chain session state from routing state
+                route_session_state = SessionState(
+                    metadata=session_state.metadata,
+                    variables=session_state.variables,
+                    runtime_config=session_state.runtime_config,
+                    pattern_state=session_state.pattern_state.get(
+                        "route_state", {"current_step": 0, "step_history": []}
+                    ),
+                    token_usage=session_state.token_usage,
+                    artifacts_written=session_state.artifacts_written,
+                )
+                route_session_repo = session_repo
+
             # Execute selected route as a chain
             steps = route_spec.pattern.config.steps
             assert steps is not None, "Route spec must have steps"
             logger.info("route_execution_start", route=chosen_route, steps=len(steps))
 
             try:
-                # Note: run_chain is already async and uses its own cache,
-                # but we still pass our cache to share agents if possible
-                result = await run_chain(route_spec, route_variables)
+                # Execute route with resume support (delegates to chain resume logic)
+                result = await run_chain(route_spec, route_variables, route_session_state, route_session_repo)
             except Exception as e:
                 raise RoutingExecutionError(f"Route '{chosen_route}' execution failed: {e}") from e
+
+            # Update routing state with route results
+            if session_state and session_repo and result.execution_context:
+                session_state.pattern_state["route_state"] = result.execution_context
+                await finalize_session(session_state, session_repo)
 
             # Update result metadata to include routing info
             result.pattern_type = PatternType.ROUTING

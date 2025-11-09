@@ -68,15 +68,13 @@ async def test_agent_cache_miss_builds_new_agent(minimal_spec: Spec, mock_agent:
             session_manager=None,  # Phase 2: added for session restoration
         )
 
-        # Verify returned agent
-        assert agent is mock_agent
+    # Verify returned agent
+    assert agent is mock_agent
 
-        # Verify agent was cached (agent has no tools, so empty frozenset, no CM, no worker_index)
-        cache_key = (agent_id, frozenset(), None, None)
-        assert cache_key in cache._agents
-        assert cache._agents[cache_key] is mock_agent
-
-
+    # Verify agent was cached (agent has no tools, so empty frozenset, no CM, no worker_index, no session_id)
+    cache_key = (agent_id, frozenset(), None, None, None)
+    assert cache_key in cache._agents
+    assert cache._agents[cache_key] is mock_agent
 @pytest.mark.asyncio
 async def test_agent_cache_hit_returns_cached_agent(minimal_spec: Spec, mock_agent: Mock) -> None:
     """Test cache hit returns cached agent without rebuilding."""
@@ -169,11 +167,9 @@ async def test_agent_cache_no_tools_uses_empty_frozenset(
             agent_config,
         )
 
-        # Verify cache key uses empty frozenset for no tools, None for CM, None for worker_index
-        cache_key = (agent_id, frozenset(), None, None)
-        assert cache_key in cache._agents
-
-
+    # Verify cache key uses empty frozenset for no tools, None for CM, None for worker_index, None for session_id
+    cache_key = (agent_id, frozenset(), None, None, None)
+    assert cache_key in cache._agents
 @pytest.mark.asyncio
 async def test_agent_cache_tracks_http_executors(minimal_spec: Spec) -> None:
     """Test cache tracks HTTP executors from agent tools for cleanup."""

@@ -41,6 +41,14 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.session import SessionState
+from strands_cli.session.checkpoint_utils import (
+    checkpoint_pattern_state,
+    finalize_session,
+    get_cumulative_tokens,
+    validate_session_params,
+)
+from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
@@ -368,8 +376,13 @@ async def _execute_workflow_layer(
     return await _execute_layer(tasks_to_execute)
 
 
-async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
-    """Execute a multi-task workflow with DAG dependencies.
+async def run_workflow(  # noqa: C901
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:
+    """Execute a multi-task workflow with DAG dependencies and optional session persistence.
 
     Executes tasks in topological order with parallel execution within each layer.
     Tasks can reference completed task outputs via {{ tasks.<id>.response }}.
@@ -379,16 +392,27 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
         - Single event loop: No per-layer asyncio.run() overhead
         - HTTP client cleanup: Proper resource management via AgentCache.close()
 
+    Phase 3.1 Session Support:
+        - Resume from checkpoint: Skip completed tasks on resume
+        - Layer checkpointing: Save state after each layer completes
+        - Partial layer resume: Handle tasks completed mid-layer
+
     Args:
         spec: Workflow spec with workflow pattern
         variables: Optional CLI --var overrides
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with final task response and execution metadata
 
     Raises:
         WorkflowExecutionError: If workflow execution fails
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters (both or neither)
+    validate_session_params(session_state, session_repo)
+
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     # Phase 10: Create root span for workflow execution with attributes
@@ -402,8 +426,15 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
         span.set_attribute("agent.count", len(spec.agents))
         if spec.pattern.config.tasks:
             span.set_attribute("workflow.task_count", len(spec.pattern.config.tasks))
+        if session_state:
+            span.set_attribute("session.id", session_state.metadata.session_id)
+            span.set_attribute("session.resume", True)
 
-        logger.info("workflow_execution_start", spec_name=spec.name)
+        logger.info(
+            "workflow_execution_start",
+            spec_name=spec.name,
+            resume=session_state is not None,
+        )
         span.add_event("execution_start", {"spec_name": spec.name})
 
         # Validate and prepare workflow
@@ -427,10 +458,39 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
             layer_sizes=[len(layer) for layer in execution_layers],
         )
 
-        # Initialize execution state
-        cumulative_tokens, max_tokens = _initialize_workflow_state(spec)
-        task_results: dict[str, dict[str, Any]] = {}
-        started_at = datetime.now(UTC).isoformat()
+        # Restore or initialize execution state
+        if session_state:
+            # Resume mode: restore completed tasks and results
+            task_results = session_state.pattern_state.get("task_results", {})
+            completed_tasks = set(session_state.pattern_state.get("completed_tasks", []))
+            current_layer = session_state.pattern_state.get("current_layer", 0)
+            cumulative_tokens = get_cumulative_tokens(session_state)
+            started_at = session_state.metadata.created_at
+            logger.info(
+                "workflow_resume",
+                session_id=session_state.metadata.session_id,
+                completed_tasks=len(completed_tasks),
+                current_layer=current_layer,
+                total_layers=len(execution_layers),
+            )
+            span.add_event(
+                "workflow_resume",
+                {
+                    "session_id": session_state.metadata.session_id,
+                    "completed_tasks": len(completed_tasks),
+                    "current_layer": current_layer,
+                },
+            )
+        else:
+            # Fresh start
+            task_results: dict[str, dict[str, Any]] = {}
+            completed_tasks: set[str] = set()
+            current_layer = 0
+            cumulative_tokens = 0
+            started_at = datetime.now(UTC).isoformat()
+
+        # Initialize workflow state
+        _, max_tokens = _initialize_workflow_state(spec)
 
         # Phase 6.1: Create context manager and hooks for compaction
         context_manager = create_from_policy(spec.context_policy, spec)
@@ -477,19 +537,33 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
         # Phase 5: Create AgentCache for agent reuse across tasks
         cache = AgentCache()
         try:
-            # Execute each layer
-            for layer_index, layer_task_ids in enumerate(execution_layers):
+            # Execute each layer starting from current_layer
+            for layer_index in range(current_layer, len(execution_layers)):
+                layer_task_ids = execution_layers[layer_index]
+
+                # Filter out completed tasks
+                pending_tasks = [tid for tid in layer_task_ids if tid not in completed_tasks]
+
+                if not pending_tasks:
+                    logger.debug(
+                        "workflow_layer_skipped",
+                        layer=layer_index,
+                        all_completed=True,
+                    )
+                    continue  # Layer already complete
+
                 logger.info(
                     "workflow_layer_start",
                     layer=layer_index,
-                    tasks=layer_task_ids,
+                    pending_tasks=pending_tasks,
+                    total_tasks=len(layer_task_ids),
                 )
 
                 # Phase 5: Direct await instead of asyncio.run() per layer
                 try:
                     layer_results = await _execute_workflow_layer(
                         spec,
-                        layer_task_ids,
+                        pending_tasks,  # Only execute pending tasks
                         task_map,
                         task_results,
                         variables,
@@ -506,11 +580,13 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                         f"Layer {layer_index} execution failed: {e}"
                     ) from e
 
-                # Process results
+                # Process results for pending tasks only
+                layer_tokens = 0
                 for task_id, (response_text, estimated_tokens) in zip(
-                    layer_task_ids, layer_results, strict=True
+                    pending_tasks, layer_results, strict=True
                 ):
                     cumulative_tokens += estimated_tokens
+                    layer_tokens += estimated_tokens
 
                     # Store result with agent ID for tracking
                     task_results[task_id] = {
@@ -519,6 +595,7 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                         "tokens_estimated": estimated_tokens,
                         "agent": task_map[task_id].agent,  # Track which agent executed this task
                     }
+                    completed_tasks.add(task_id)
 
                     logger.info(
                         "workflow_task_complete",
@@ -537,16 +614,38 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                         },
                     )
 
+                # Checkpoint after layer completion
+                if session_state and session_repo:
+                    await checkpoint_pattern_state(
+                        session_state,
+                        session_repo,
+                        pattern_state_updates={
+                            "task_results": task_results,
+                            "completed_tasks": list(completed_tasks),
+                            "current_layer": layer_index + 1,
+                        },
+                        token_increment=layer_tokens,
+                    )
+                    logger.debug(
+                        "workflow_layer_checkpointed",
+                        layer=layer_index,
+                        session_id=session_state.metadata.session_id,
+                    )
+
                 logger.info(
                     "workflow_layer_complete",
                     layer=layer_index,
-                    tasks_completed=len(layer_task_ids),
+                    tasks_completed=len(pending_tasks),
                 )
 
             completed_at = datetime.now(UTC).isoformat()
             started_dt = datetime.fromisoformat(started_at)
             completed_dt = datetime.fromisoformat(completed_at)
             duration = (completed_dt - started_dt).total_seconds()
+
+            # Finalize session if persistence enabled
+            if session_state and session_repo:
+                await finalize_session(session_state, session_repo)
 
             # Final response is from last executed task
             last_task_id = execution_layers[-1][-1]

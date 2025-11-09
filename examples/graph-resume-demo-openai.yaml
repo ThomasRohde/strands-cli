@@ -1,0 +1,159 @@
+# Graph Pattern Resume Demo
+#
+# This workflow demonstrates session resume functionality for the graph pattern.
+# Executes a state machine for content analysis with conditional transitions.
+#
+# Resume Features:
+# - Node results restoration: All completed node outputs preserved
+# - Execution path tracking: Maintains sequence of nodes visited
+# - Iteration counts: Per-node visit counts for cycle protection
+# - Deterministic transitions: Resume from current_node with full context
+#
+# Usage:
+#   # Fresh run (will create session)
+#   strands run graph-resume-demo-openai.yaml \
+#     --session my-analysis-session \
+#     --var content="Sample text to analyze..."
+#
+#   # Resume from checkpoint (skips completed nodes)
+#   strands sessions resume my-analysis-session
+#
+#   # List session details
+#   strands sessions list --verbose
+
+version: 0
+name: graph-resume-demo
+description: >
+  Graph pattern with session resume support. Implements a content analysis
+  state machine with conditional transitions. Demonstrates checkpoint-based
+  resume with node state restoration.
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  budgets:
+    max_tokens: 10000
+    max_steps: 15  # Global limit on node executions
+
+agents:
+  loader:
+    prompt: |
+      You are a data loader. Load and validate the following content for analysis.
+      Return a brief summary (2-3 sentences) of what was loaded.
+
+  analyzer:
+    prompt: |
+      You are a content analyzer. Analyze the following content and determine its
+      quality level.
+      
+      Return: "high", "medium", or "low" quality based on:
+      - Clarity and coherence
+      - Depth of information
+      - Structure and organization
+
+  detailed_analyzer:
+    prompt: |
+      You are an expert content analyst. Provide a detailed analysis of this content
+      including strengths, weaknesses, and recommendations.
+
+  quick_reviewer:
+    prompt: |
+      You are a quick reviewer. Provide a brief quality assessment (2-3 sentences).
+
+  reporter:
+    prompt: |
+      You are a report generator. Create a final report summarizing all analysis.
+
+inputs:
+  values:
+    content: "Enter your content here for analysis"
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 10  # Per-node cycle protection
+    
+    nodes:
+      load:
+        agent: loader
+        input: |
+          Load and validate: {{ content }}
+      
+      analyze:
+        agent: analyzer
+        input: |
+          Analyze the loaded content: {{ nodes.load.response }}
+          
+          Return only one word: "high", "medium", or "low"
+      
+      detailed_analysis:
+        agent: detailed_analyzer
+        input: |
+          Provide detailed analysis of: {{ nodes.load.response }}
+      
+      quick_review:
+        agent: quick_reviewer
+        input: |
+          Quick review of: {{ nodes.load.response }}
+      
+      report:
+        agent: reporter
+        input: |
+          Create final report based on:
+          
+          Loaded Content: {{ nodes.load.response }}
+          Quality Assessment: {{ nodes.analyze.response }}
+          {% if nodes.detailed_analysis.response %}
+          Detailed Analysis: {{ nodes.detailed_analysis.response }}
+          {% elif nodes.quick_review.response %}
+          Quick Review: {{ nodes.quick_review.response }}
+          {% endif %}
+    
+    edges:
+      - from: load
+        to: [analyze]
+      
+      - from: analyze
+        choose:
+          - when: "nodes.analyze.response contains 'high'"
+            to: detailed_analysis
+          - when: "nodes.analyze.response contains 'medium'"
+            to: quick_review
+          - when: else
+            to: report  # Low quality goes straight to report
+      
+      - from: detailed_analysis
+        to: [report]
+      
+      - from: quick_review
+        to: [report]
+
+outputs:
+  artifacts:
+    - path: ./artifacts/analysis-report.md
+      from: |
+        # Content Analysis Report
+        
+        ## Executive Summary
+        {{ nodes.report.response }}
+        
+        ---
+        
+        ## Execution Details
+        
+        - Pattern: Graph State Machine
+        - Total Nodes Visited: {{ execution_context.total_steps }}
+        - Execution Path: {{ execution_context.execution_path | join(" → ") }}
+        
+        ### Node Results
+        
+        {% for node_id, result in execution_context.nodes.items() %}
+        **{{ node_id }}** ({{ result.agent }}):
+        {% if result.response %}
+        {{ result.response }}
+        {% else %}
+        _Not executed_
+        {% endif %}
+        
+        {% endfor %}

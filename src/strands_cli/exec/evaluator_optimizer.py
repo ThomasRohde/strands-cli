@@ -50,6 +50,14 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.session import SessionState, SessionStatus
+from strands_cli.session.checkpoint_utils import (
+    checkpoint_pattern_state,
+    finalize_session,
+    get_cumulative_tokens,
+    validate_session_params,
+)
+from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.types import EvaluatorDecision, PatternType, RunResult, Spec
 
@@ -274,8 +282,13 @@ def _validate_evaluator_optimizer_config(spec: Spec) -> None:
         )
 
 
-async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
-    """Execute evaluator-optimizer pattern workflow.
+async def run_evaluator_optimizer(
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:  # noqa: C901
+    """Execute evaluator-optimizer pattern workflow with optional session persistence.
 
     Phase 4 Implementation:
     - Producer-evaluator feedback loops with iterative refinement
@@ -285,16 +298,27 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
     - Agent caching for producer/evaluator reuse
     - Cumulative token budget tracking across all iterations
 
+    Phase 3.3 Session Support:
+    - Resume from checkpoint: Skip completed iterations on resume
+    - Incremental checkpointing: Save state after each iteration
+    - Iteration history restoration: Preserve draft and evaluation history
+    - Acceptance check on resume: Exit early if already accepted
+
     Args:
         spec: Validated workflow specification
         variables: User-provided template variables
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with final draft and execution metadata
 
     Raises:
         EvaluatorOptimizerExecutionError: On configuration errors, max iterations, or unrecoverable failures
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters
+    validate_session_params(session_state, session_repo)
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.evaluator_optimizer") as span:
@@ -331,7 +355,7 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
 
         # Initialize state
         started_at = datetime.now(UTC).isoformat()
-        cumulative_tokens = 0
+        cumulative_tokens = get_cumulative_tokens(session_state)
         max_tokens = spec.runtime.budgets.get("max_tokens") if spec.runtime.budgets else None
 
         producer_agent_id = config.producer
@@ -358,10 +382,74 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
         # Build initial producer prompt
         initial_prompt = render_template(producer_config.prompt, variables or {})
 
-        # Iteration tracking
+        # Iteration tracking - restore from session state if resuming
         iteration_history: list[dict[str, Any]] = []
         current_draft = ""
         final_score = 0
+        start_iteration = 1
+
+        if session_state and session_repo:
+            # Restore pattern state from checkpoint
+            pattern_state = session_state.pattern_state
+            current_draft = pattern_state.get("current_draft", "")
+            iteration_history = pattern_state.get("iteration_history", [])
+            final_score = pattern_state.get("final_score", 0)
+            start_iteration = pattern_state.get("current_iteration", 1)
+            accepted = pattern_state.get("accepted", False)
+
+            # Check if already accepted on resume
+            if accepted and final_score >= min_score:
+                logger.info(
+                    "resume_already_accepted",
+                    session_id=session_state.metadata.session_id,
+                    final_score=final_score,
+                    min_score=min_score,
+                    iterations=len(iteration_history),
+                )
+
+                # Mark session as complete
+                await finalize_session(session_state, session_repo)
+
+                # Return result from checkpoint
+                end_time = datetime.now(UTC)
+                duration = (end_time - datetime.fromisoformat(started_at)).total_seconds()
+
+                execution_context = {
+                    "iterations": len(iteration_history),
+                    "final_score": final_score,
+                    "min_score": min_score,
+                    "max_iters": max_iters,
+                    "history": iteration_history,
+                    "cumulative_tokens": cumulative_tokens,
+                    "resumed": True,
+                }
+
+                if iteration_history:
+                    last_iteration = iteration_history[-1]
+                    execution_context["last_evaluation"] = {
+                        "score": last_iteration["score"],
+                        "issues": last_iteration["issues"],
+                        "fixes": last_iteration["fixes"],
+                    }
+
+                return RunResult(
+                    success=True,
+                    last_response=current_draft,
+                    agent_id=producer_agent_id,
+                    pattern_type=PatternType.EVALUATOR_OPTIMIZER,
+                    started_at=started_at,
+                    completed_at=end_time.isoformat(),
+                    duration_seconds=duration,
+                    execution_context=execution_context,
+                )
+
+            logger.info(
+                "resuming_evaluator_optimizer",
+                session_id=session_state.metadata.session_id,
+                start_iteration=start_iteration,
+                completed_iterations=len(iteration_history),
+                current_draft_length=len(current_draft),
+            )
 
         # Phase 6: Create context manager and hooks for compaction
         context_manager = create_from_policy(spec.context_policy, spec)
@@ -409,14 +497,41 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
                 worker_index=None,
             )
 
-            # Iteration 1: Initial production
-            current_draft, estimated_tokens = await _run_initial_production(
-                producer_agent, initial_prompt, max_attempts, wait_min, wait_max
-            )
-            cumulative_tokens += estimated_tokens
+            # Iteration 1: Initial production (skip if resuming)
+            if start_iteration == 1:
+                current_draft, estimated_tokens = await _run_initial_production(
+                    producer_agent, initial_prompt, max_attempts, wait_min, wait_max
+                )
+                cumulative_tokens += estimated_tokens
+
+                # Checkpoint after initial production (iteration 1)
+                if session_state and session_repo:
+                    await checkpoint_pattern_state(
+                        session_state,
+                        session_repo,
+                        pattern_state_updates={
+                            "current_iteration": 1,
+                            "current_draft": current_draft,
+                            "iteration_history": iteration_history,
+                            "final_score": 0,
+                            "accepted": False,
+                        },
+                        token_increment=estimated_tokens,
+                        status=SessionStatus.RUNNING,
+                    )
+
+                # Update start iteration after initial production
+                start_iteration = 2
+            else:
+                # Resuming - current_draft already loaded
+                logger.info(
+                    "skipping_initial_production",
+                    reason="resuming_from_checkpoint",
+                    start_iteration=start_iteration,
+                )
 
             # Evaluation loop
-            for iteration in range(1, max_iters + 1):
+            for iteration in range(start_iteration, max_iters + 1):
                 logger.info("iteration_start", iteration=iteration, phase="evaluation")
                 span.add_event("iteration_start", {"iteration_number": iteration})
 
@@ -513,6 +628,23 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
                 # Check acceptance criteria
                 if evaluation.score >= min_score:
                     logger.info("draft_accepted", iteration=iteration, score=evaluation.score)
+
+                    # Checkpoint accepted state
+                    if session_state and session_repo:
+                        await checkpoint_pattern_state(
+                            session_state,
+                            session_repo,
+                            pattern_state_updates={
+                                "current_iteration": iteration,
+                                "current_draft": current_draft,
+                                "iteration_history": iteration_history,
+                                "final_score": final_score,
+                                "accepted": True,
+                            },
+                            token_increment=0,
+                            status=SessionStatus.RUNNING,
+                        )
+
                     break
 
                 # Check if max iterations exhausted
@@ -548,6 +680,22 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
                 estimated_tokens = estimate_tokens(revision_prompt, current_draft)
                 cumulative_tokens += estimated_tokens
 
+                # Checkpoint after revision
+                if session_state and session_repo:
+                    await checkpoint_pattern_state(
+                        session_state,
+                        session_repo,
+                        pattern_state_updates={
+                            "current_iteration": iteration + 1,
+                            "current_draft": current_draft,
+                            "iteration_history": iteration_history,
+                            "final_score": final_score,
+                            "accepted": False,
+                        },
+                        token_increment=estimated_tokens,
+                        status=SessionStatus.RUNNING,
+                    )
+
                 # Add optimization_complete event
                 improved = (
                     len(iteration_history) > 1 and evaluation.score > iteration_history[-2]["score"]
@@ -573,6 +721,10 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
                 final_score=final_score,
                 duration_seconds=duration,
             )
+
+            # Finalize session if using sessions
+            if session_state and session_repo:
+                await finalize_session(session_state, session_repo)
 
             # Add execution_complete event
             span.add_event(

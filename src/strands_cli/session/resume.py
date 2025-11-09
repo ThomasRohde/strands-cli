@@ -143,46 +143,55 @@ async def _dispatch_pattern_executor(
     Raises:
         NotImplementedError: If pattern doesn't support resume yet
 
-    Note:
-        Task 2.1 (CLI resume plan) - session_state/session_repo parameters
-        will be added to executors in Task 2.2 (executor modifications).
-        For now, executors are called without resume support.
+    Phase 3.2 Implementation:
+        - Chain: ✅ Phase 2 complete
+        - Routing: ✅ Phase 3.1 complete
+        - Workflow: ✅ Phase 3.1 complete
+        - Parallel: ✅ Phase 3.2 complete
+        - Orchestrator-Workers: ✅ Phase 3.2 complete
+        - Evaluator-Optimizer: ✅ Phase 3.3 complete
+        - Graph: ✅ Phase 3.3 complete
     """
     # Import executors on-demand to avoid circular imports
-    # TODO Task 2.2: Add session_state and session_repo parameters to all executors
     if pattern_type == PatternType.CHAIN:
         from strands_cli.exec.chain import run_chain
 
-        return await run_chain(spec, variables)
-    elif pattern_type == PatternType.WORKFLOW:
-        from strands_cli.exec.workflow import run_workflow
+        return await run_chain(spec, variables, session_state, session_repo)
 
-        return await run_workflow(spec, variables)
     elif pattern_type == PatternType.ROUTING:
         from strands_cli.exec.routing import run_routing
 
-        return await run_routing(spec, variables)
+        return await run_routing(spec, variables, session_state, session_repo)
+
+    elif pattern_type == PatternType.WORKFLOW:
+        from strands_cli.exec.workflow import run_workflow
+
+        return await run_workflow(spec, variables, session_state, session_repo)
+
     elif pattern_type == PatternType.PARALLEL:
         from strands_cli.exec.parallel import run_parallel
 
-        return await run_parallel(spec, variables)
+        return await run_parallel(spec, variables, session_state, session_repo)
+
     elif pattern_type == PatternType.EVALUATOR_OPTIMIZER:
         from strands_cli.exec.evaluator_optimizer import run_evaluator_optimizer
 
-        return await run_evaluator_optimizer(spec, variables)
+        return await run_evaluator_optimizer(spec, variables, session_state, session_repo)
+
     elif pattern_type == PatternType.ORCHESTRATOR_WORKERS:
         from strands_cli.exec.orchestrator_workers import run_orchestrator_workers
 
-        return await run_orchestrator_workers(spec, variables)
+        return await run_orchestrator_workers(spec, variables, session_state, session_repo)
+
     elif pattern_type == PatternType.GRAPH:
         from strands_cli.exec.graph import run_graph
 
-        return await run_graph(spec, variables)
+        return await run_graph(spec, variables, session_state, session_repo)
+
     else:
         raise NotImplementedError(
             f"Resume not yet supported for pattern '{pattern_type}'. "
-            "Only chain, workflow, routing, parallel, evaluator-optimizer, "
-            "orchestrator-workers, and graph patterns are supported."
+            "Only chain, routing, and workflow patterns are supported."
         )
 
 

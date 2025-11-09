@@ -48,6 +48,9 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.session import SessionState, SessionStatus
+from strands_cli.session.file_repository import FileSessionRepository
+from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
@@ -458,23 +461,74 @@ async def _execute_workers_batch(
 
 
 async def run_orchestrator_workers(
-    spec: Spec, variables: dict[str, str] | None = None
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
 ) -> RunResult:
-    """Execute orchestrator-workers pattern workflow.
+    """Execute orchestrator-workers pattern workflow with optional session persistence.
+
+    Phase 3.2 Session Support:
+    - Resume from checkpoint: Skip orchestrator if workers already executed
+    - Worker-level checkpointing: Save state after workers complete
+    - Reduce/writeup gates: Execute once after workers
 
     Args:
         spec: Validated workflow specification
         variables: CLI variable overrides (from --var flags)
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with final response and execution metadata
 
     Raises:
         OrchestratorExecutionError: If orchestrator or worker execution fails
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters (both or neither)
+    if (session_state is None) != (session_repo is None):
+        raise ValueError("session_state and session_repo must both be provided or both be None")
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.orchestrator_workers") as span:
+        # Determine starting point and restore state for resume
+        if session_state:
+            # Resume mode: restore worker results and reduce/writeup state
+            workers_executed = session_state.pattern_state.get("workers_executed", False)
+            worker_results = session_state.pattern_state.get("worker_results", [])
+            reduce_executed = session_state.pattern_state.get("reduce_executed", False)
+            writeup_executed = session_state.pattern_state.get("writeup_executed", False)
+            cumulative_tokens = (
+                session_state.token_usage.total_input_tokens
+                + session_state.token_usage.total_output_tokens
+            )
+            started_at = session_state.metadata.created_at
+            logger.info(
+                "orchestrator_resume",
+                session_id=session_state.metadata.session_id,
+                workers_executed=workers_executed,
+                reduce_executed=reduce_executed,
+                writeup_executed=writeup_executed,
+            )
+            span.add_event(
+                "orchestrator_resume",
+                {
+                    "session_id": session_state.metadata.session_id,
+                    "workers_executed": workers_executed,
+                    "reduce_executed": reduce_executed,
+                    "writeup_executed": writeup_executed,
+                },
+            )
+        else:
+            # Fresh start
+            workers_executed = False
+            worker_results = []
+            reduce_executed = False
+            writeup_executed = False
+            cumulative_tokens = 0
+            started_at = datetime.now(UTC).isoformat()
+
         start_time = datetime.now(UTC)
         config = spec.pattern.config
 
@@ -511,59 +565,161 @@ async def run_orchestrator_workers(
         context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(spec)
 
         try:
-            # Execute orchestrator round
-            subtasks, cumulative_tokens = await _execute_orchestrator_round(
-                cache, spec, execution_params, context_manager, hook_factory, notes_manager
-            )
+            # Execute orchestrator round (skip if workers already executed on resume)
+            if not workers_executed:
+                subtasks, cumulative_tokens = await _execute_orchestrator_round(
+                    cache, spec, execution_params, context_manager, hook_factory, notes_manager
+                )
 
-            # Add orchestrator_planning event
-            span.add_event("orchestrator_planning", {"task_count": len(subtasks)})
-            span.set_attribute("orchestrator_workers.worker_count", len(subtasks))
+                # Add orchestrator_planning event
+                span.add_event("orchestrator_planning", {"task_count": len(subtasks)})
+                span.set_attribute("orchestrator_workers.worker_count", len(subtasks))
 
-            # Execute workers
-            worker_results, cumulative_tokens = await _execute_workers_round(
-                cache,
-                spec,
-                execution_params,
-                subtasks,
-                context_manager,
-                hook_factory,
-                notes_manager,
-                cumulative_tokens,
-            )
+                # Execute workers
+                worker_results, cumulative_tokens = await _execute_workers_round(
+                    cache,
+                    spec,
+                    execution_params,
+                    subtasks,
+                    context_manager,
+                    hook_factory,
+                    notes_manager,
+                    cumulative_tokens,
+                )
+
+                # Checkpoint after workers complete (before reduce/writeup)
+                if session_state and session_repo:
+                    session_state.pattern_state["workers_executed"] = True
+                    session_state.pattern_state["worker_results"] = worker_results
+                    session_state.pattern_state["reduce_executed"] = False
+                    session_state.pattern_state["writeup_executed"] = False
+                    session_state.metadata.updated_at = now_iso8601()
+                    session_state.metadata.status = SessionStatus.RUNNING
+                    session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                    session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+
+                    try:
+                        spec_content = ""  # Spec snapshot already saved at session creation
+                        await session_repo.save(session_state, spec_content)
+                        logger.debug(
+                            "orchestrator_workers_checkpointed",
+                            session_id=session_state.metadata.session_id,
+                            num_workers=len(worker_results),
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "orchestrator_checkpoint_failed",
+                            session_id=session_state.metadata.session_id,
+                            error=str(e),
+                        )
+            else:
+                # Workers already executed - restore from checkpoint
+                logger.info(
+                    "Workers restored from checkpoint",
+                    session_id=session_state.metadata.session_id if session_state else None,
+                    num_workers=len(worker_results),
+                )
+                span.add_event("workers_restored", {"worker_count": len(worker_results)})
 
             # Build execution context
             execution_context = _build_execution_context(
                 worker_results, execution_params["user_variables"]
             )
 
-            # Execute reduce step if configured
-            final_response, cumulative_tokens = await _execute_reduce_step_if_needed(
-                cache,
-                spec,
-                config,
-                execution_context,
-                context_manager,
-                hook_factory,
-                notes_manager,
-                cumulative_tokens,
-            )
+            # Execute reduce step if configured (skip if already done on resume)
+            final_response = ""
+            if config.reduce and not reduce_executed:
+                final_response, cumulative_tokens = await _execute_reduce_step_if_needed(
+                    cache,
+                    spec,
+                    config,
+                    execution_context,
+                    context_manager,
+                    hook_factory,
+                    notes_manager,
+                    cumulative_tokens,
+                )
+                reduce_executed = True
+
+                # Checkpoint after reduce
+                if session_state and session_repo:
+                    session_state.pattern_state["reduce_executed"] = True
+                    session_state.pattern_state["reduce_response"] = final_response
+                    session_state.metadata.updated_at = now_iso8601()
+                    session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                    session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+
+                    try:
+                        spec_content = ""
+                        await session_repo.save(session_state, spec_content)
+                        logger.debug(
+                            "orchestrator_reduce_checkpointed",
+                            session_id=session_state.metadata.session_id,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "orchestrator_reduce_checkpoint_failed",
+                            session_id=session_state.metadata.session_id,
+                            error=str(e),
+                        )
+            elif config.reduce and reduce_executed:
+                # Reduce already executed - restore from checkpoint
+                assert session_state is not None  # For type checker
+                final_response = session_state.pattern_state.get("reduce_response", "")
+                logger.info(
+                    "Reduce step restored from checkpoint",
+                    session_id=session_state.metadata.session_id,
+                )
+                span.add_event("reduce_restored")
 
             # Add orchestrator_synthesis event
             span.add_event("orchestrator_synthesis", {"results_count": len(worker_results)})
 
-            # Execute writeup step if configured
-            final_response, cumulative_tokens = await _execute_writeup_step_if_needed(
-                cache,
-                spec,
-                config,
-                execution_context,
-                context_manager,
-                hook_factory,
-                notes_manager,
-                cumulative_tokens,
-                final_response,
-            )
+            # Execute writeup step if configured (skip if already done on resume)
+            if config.writeup and not writeup_executed:
+                final_response, cumulative_tokens = await _execute_writeup_step_if_needed(
+                    cache,
+                    spec,
+                    config,
+                    execution_context,
+                    context_manager,
+                    hook_factory,
+                    notes_manager,
+                    cumulative_tokens,
+                    final_response,
+                )
+                writeup_executed = True
+
+                # Checkpoint after writeup
+                if session_state and session_repo:
+                    session_state.pattern_state["writeup_executed"] = True
+                    session_state.pattern_state["writeup_response"] = final_response
+                    session_state.metadata.updated_at = now_iso8601()
+                    session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                    session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+
+                    try:
+                        spec_content = ""
+                        await session_repo.save(session_state, spec_content)
+                        logger.debug(
+                            "orchestrator_writeup_checkpointed",
+                            session_id=session_state.metadata.session_id,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "orchestrator_writeup_checkpoint_failed",
+                            session_id=session_state.metadata.session_id,
+                            error=str(e),
+                        )
+            elif config.writeup and writeup_executed:
+                # Writeup already executed - restore from checkpoint
+                assert session_state is not None  # For type checker
+                final_response = session_state.pattern_state.get("writeup_response", "")
+                logger.info(
+                    "Writeup step restored from checkpoint",
+                    session_id=session_state.metadata.session_id,
+                )
+                span.add_event("writeup_restored")
 
             # Build final response if no reduce/writeup
             if not final_response:
@@ -577,6 +733,24 @@ async def run_orchestrator_workers(
                 "execution_complete",
                 {"total_tasks": len(worker_results), "duration_seconds": duration_seconds},
             )
+
+            # Mark session as completed if session persistence enabled
+            if session_state and session_repo:
+                session_state.metadata.status = SessionStatus.COMPLETED
+                session_state.metadata.updated_at = now_iso8601()
+                try:
+                    spec_content = ""  # Spec snapshot already saved
+                    await session_repo.save(session_state, spec_content)
+                    logger.info(
+                        "orchestrator_session_completed",
+                        session_id=session_state.metadata.session_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "orchestrator_session_completion_failed",
+                        session_id=session_state.metadata.session_id,
+                        error=str(e),
+                    )
 
             # Build and return result
             return _build_run_result(

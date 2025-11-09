@@ -1,0 +1,105 @@
+version: 0
+name: parallel-resume-demo
+description: |
+  Demonstrates parallel pattern with session persistence and resume.
+  
+  This workflow executes 3 research branches in parallel, then reduces the results.
+  With --persist, you can stop execution (Ctrl+C) and resume later with --resume.
+  
+  Usage:
+    # Start with persistence
+    strands run parallel-resume-demo-openai.yaml --persist --var topic="AI safety"
+    
+    # If interrupted, resume with the session ID
+    strands sessions list
+    strands run --resume <session-id>
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 100000
+    warn_threshold: 0.8
+  retries:
+    max_attempts: 3
+    wait_min: 1
+    wait_max: 10
+  max_parallel: 2  # Limit concurrent branches
+
+inputs:
+  values:
+    topic: "quantum computing"
+
+agents:
+  web_researcher:
+    prompt: |
+      You are a web research specialist. Research the given topic from web sources.
+      Provide a concise summary of key findings (2-3 paragraphs).
+    
+  docs_researcher:
+    prompt: |
+      You are a documentation researcher. Research the given topic from technical docs.
+      Provide a concise summary of key findings (2-3 paragraphs).
+    
+  academic_researcher:
+    prompt: |
+      You are an academic researcher. Research the given topic from academic sources.
+      Provide a concise summary of key findings (2-3 paragraphs).
+    
+  synthesizer:
+    prompt: |
+      You are a research synthesizer. Combine findings from multiple research branches.
+      Create a unified report highlighting key themes and insights.
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: web
+        steps:
+          - agent: web_researcher
+            input: |
+              Research topic: {{ topic }}
+              Focus on recent web articles and blog posts.
+      
+      - id: docs
+        steps:
+          - agent: docs_researcher
+            input: |
+              Research topic: {{ topic }}
+              Focus on official documentation and technical guides.
+      
+      - id: academic
+        steps:
+          - agent: academic_researcher
+            input: |
+              Research topic: {{ topic }}
+              Focus on academic papers and research publications.
+    
+    reduce:
+      agent: synthesizer
+      input: |
+        Synthesize the following research findings on "{{ topic }}":
+        
+        Web Research:
+        {{ branches.web.response }}
+        
+        Documentation Research:
+        {{ branches.docs.response }}
+        
+        Academic Research:
+        {{ branches.academic.response }}
+        
+        Create a comprehensive summary highlighting:
+        1. Common themes across sources
+        2. Key technical insights
+        3. Notable differences in perspectives
+        4. Recommended next steps for deeper research
+
+outputs:
+  artifacts:
+    - path: parallel-research-report.md
+      content: |
+        # Research Report: {{ topic }}
+        
+        {{ last_response }}

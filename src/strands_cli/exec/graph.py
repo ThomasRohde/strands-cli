@@ -49,6 +49,14 @@ from strands_cli.exec.utils import (
     invoke_agent_with_retry,
 )
 from strands_cli.loader import render_template
+from strands_cli.session import SessionState, SessionStatus
+from strands_cli.session.checkpoint_utils import (
+    checkpoint_pattern_state,
+    finalize_session,
+    get_cumulative_tokens,
+    validate_session_params,
+)
+from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.types import GraphEdge, PatternType, RunResult, Spec
 
@@ -359,21 +367,37 @@ def _check_iteration_limit(
         )
 
 
-async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
-    """Execute a graph pattern workflow.
+async def run_graph(
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:
+    """Execute a graph pattern workflow with optional session persistence.
 
     Executes nodes via edge traversal with condition evaluation and cycle protection.
+
+    Phase 3.3 Session Support:
+    - Resume from checkpoint: Restore node results and execution path
+    - Incremental checkpointing: Save state after each node execution
+    - Iteration count restoration: Preserve per-node visit counts for cycle protection
+    - Deterministic edge evaluation: Resume from current_node with full context
 
     Args:
         spec: Workflow spec with graph pattern configuration
         variables: User-provided variables from --var flags
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with terminal node response and execution metadata
 
     Raises:
         GraphExecutionError: If graph configuration invalid or execution fails
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters
+    validate_session_params(session_state, session_repo)
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.graph") as span:
@@ -430,12 +454,39 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
         iteration_counts: dict[str, int] = {}
         total_steps = 0
-        cumulative_tokens = 0
+        cumulative_tokens = get_cumulative_tokens(session_state)
         max_tokens = spec.runtime.budgets.get("max_tokens") if spec.runtime.budgets else None
 
         # Entry node: first in YAML order (dict insertion order in Python 3.12+)
         current_node_id = start_node
-        logger.info("graph_entry_node", node=current_node_id)
+
+        # Restore state from session if resuming
+        if session_state and session_repo:
+            pattern_state = session_state.pattern_state
+            current_node_id = pattern_state.get("current_node", start_node)
+            restored_node_results = pattern_state.get("node_results", {})
+            iteration_counts = pattern_state.get("iteration_counts", {})
+            total_steps = pattern_state.get("total_steps", 0)
+            execution_path = pattern_state.get("execution_path", [])
+
+            # Merge restored results into pre-populated structure
+            for node_id, result in restored_node_results.items():
+                node_results[node_id] = result
+
+            # Find last executed node from execution path
+            if execution_path:
+                last_executed_node = execution_path[-1]
+
+            logger.info(
+                "resuming_graph",
+                session_id=session_state.metadata.session_id,
+                current_node=current_node_id,
+                completed_nodes=len([r for r in node_results.values() if r["status"] == "success"]),
+                total_steps=total_steps,
+            )
+        else:
+            execution_path: list[str] = []
+            logger.info("graph_entry_node", node=current_node_id)
 
         # Create AgentCache
         cache = AgentCache()
@@ -481,10 +532,34 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 # Track last successfully executed node
                 last_executed_node = current_node_id
 
+                # Track execution path
+                if not (session_state and session_repo):
+                    # Fresh execution - initialize execution_path if not done
+                    if "execution_path" not in locals() or not isinstance(execution_path, list):
+                        execution_path = []
+
+                execution_path.append(current_node_id)
+
                 # Find next node via edge traversal
                 next_node_id = _get_next_node(
                     current_node_id, spec.pattern.config.edges, node_results
                 )
+
+                # Checkpoint after node execution
+                if session_state and session_repo:
+                    await checkpoint_pattern_state(
+                        session_state,
+                        session_repo,
+                        pattern_state_updates={
+                            "current_node": next_node_id if next_node_id else current_node_id,
+                            "node_results": node_results,
+                            "iteration_counts": iteration_counts,
+                            "total_steps": total_steps + 1,
+                            "execution_path": execution_path,
+                        },
+                        token_increment=response_tokens,
+                        status=SessionStatus.RUNNING,
+                    )
 
                 # Add node_complete event
                 span.add_event(
@@ -547,6 +622,10 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 duration_seconds=duration,
                 tokens=cumulative_tokens,
             )
+
+            # Finalize session if using sessions
+            if session_state and session_repo:
+                await finalize_session(session_state, session_repo)
 
             # Add execution_complete event
             span.add_event(

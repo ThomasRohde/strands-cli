@@ -1,0 +1,134 @@
+# Evaluator-Optimizer Pattern Resume Demo
+# 
+# This workflow demonstrates session resume functionality for the evaluator-optimizer pattern.
+# The producer generates content which is iteratively refined based on evaluator feedback.
+#
+# Resume Features:
+# - Iteration state restoration: Resumes from last completed iteration
+# - Draft preservation: Current draft is restored from checkpoint
+# - Evaluation history: Full iteration history maintained across resume
+# - Acceptance check: Early exit if minimum score already achieved
+#
+# Usage:
+#   # Fresh run (will create session)
+#   strands run evaluator-optimizer-resume-demo-openai.yaml \
+#     --session my-writing-session \
+#     --var topic="the importance of code reviews"
+#
+#   # Resume from checkpoint (skips completed iterations)
+#   strands sessions resume my-writing-session
+#
+#   # List session details
+#   strands sessions list --verbose
+
+version: 0
+name: evaluator-optimizer-resume-demo
+description: >
+  Evaluator-optimizer pattern with session resume support. Producer generates
+  content iteratively refined by evaluator feedback. Demonstrates checkpoint-based
+  resume with iteration state restoration.
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  budgets:
+    max_tokens: 15000  # Token budget tracked across resume
+
+agents:
+  writer:
+    prompt: |
+      You are a skilled technical writer. Write a concise, well-structured essay
+      about {{ topic }}. Focus on clarity, practical examples, and actionable insights.
+      
+      Your essay should be approximately 300-400 words.
+
+  critic:
+    prompt: |
+      You are a writing critic and editor. Evaluate the following essay and provide
+      constructive feedback.
+      
+      Return your response as JSON with this exact structure:
+      {
+        "score": <number 0-100>,
+        "issues": ["issue 1", "issue 2", ...],
+        "fixes": ["suggested fix 1", "suggested fix 2", ...]
+      }
+      
+      Scoring criteria:
+      - 90-100: Excellent - publication ready
+      - 80-89: Good - minor polish needed
+      - 70-79: Adequate - some improvements needed
+      - Below 70: Needs significant revision
+
+inputs:
+  values:
+    topic: "software testing best practices"
+
+pattern:
+  type: evaluator_optimizer
+  config:
+    producer: writer
+    evaluator:
+      agent: critic
+      input: |
+        Evaluate this essay:
+        
+        {{ draft }}
+    
+    accept:
+      min_score: 85      # Minimum score for acceptance
+      max_iters: 5       # Maximum refinement iterations
+    
+    revise_prompt: |
+      Revise your essay based on the following feedback.
+      
+      Current draft:
+      {{ draft }}
+      
+      Evaluation Score: {{ evaluation.score }}/100
+      
+      {% if evaluation.issues %}
+      Issues identified:
+      {% for issue in evaluation.issues %}
+      - {{ issue }}
+      {% endfor %}
+      {% endif %}
+      
+      {% if evaluation.fixes %}
+      Suggested improvements:
+      {% for fix in evaluation.fixes %}
+      - {{ fix }}
+      {% endfor %}
+      {% endif %}
+      
+      Please provide an improved version that addresses all feedback while
+      maintaining the essay's core message.
+
+outputs:
+  artifacts:
+    - path: ./artifacts/final-essay.md
+      from: |
+        # Essay: {{ topic }}
+        
+        {{ last_response }}
+        
+        ---
+        
+        ## Evaluation Summary
+        
+        - Final Score: {{ execution_context.final_score }}/100
+        - Iterations: {{ execution_context.iterations }}
+        - Status: {% if execution_context.final_score >= 85 %}✅ Accepted{% else %}⚠️ Max iterations reached{% endif %}
+        
+        ### Iteration History
+        
+        {% for iter in execution_context.history %}
+        **Iteration {{ iter.iteration }}** - Score: {{ iter.score }}/100
+        {% if iter.issues %}
+        - Issues: {{ iter.issues | join(", ") }}
+        {% endif %}
+        {% if iter.fixes %}
+        - Fixes applied: {{ iter.fixes | join(", ") }}
+        {% endif %}
+        {% endfor %}

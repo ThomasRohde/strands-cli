@@ -45,6 +45,9 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.session import SessionState, SessionStatus
+from strands_cli.session.file_repository import FileSessionRepository
+from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
@@ -114,8 +117,10 @@ async def _execute_branch(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
-) -> tuple[str, int]:
-    """Execute all steps in a branch sequentially.
+    start_step: int = 0,
+    restored_step_history: list[dict[str, Any]] | None = None,
+) -> tuple[str, int, list[dict[str, Any]]]:
+    """Execute all steps in a branch sequentially with optional resume support.
 
     Args:
         spec: Workflow spec
@@ -125,23 +130,37 @@ async def _execute_branch(
         max_attempts: Maximum retry attempts per step
         wait_min: Minimum wait time for exponential backoff (seconds)
         wait_max: Maximum wait time for exponential backoff (seconds)
+        context_manager: Optional conversation manager
+        hooks: Optional agent hooks
+        notes_manager: Optional notes manager
+        start_step: Step index to start from (for resume)
+        restored_step_history: Previously completed steps (for resume)
 
     Returns:
-        Tuple of (final_response, cumulative_tokens)
+        Tuple of (final_response, cumulative_tokens, step_history)
 
     Raises:
         ParallelExecutionError: If any step fails after retries
     """
-    step_history: list[dict[str, Any]] = []
-    cumulative_tokens = 0
+    # Restore or initialize step history
+    if restored_step_history is not None:
+        step_history = restored_step_history.copy()
+        cumulative_tokens = sum(s["tokens_estimated"] for s in step_history)
+    else:
+        step_history = []
+        cumulative_tokens = 0
 
     logger.info(
         "Executing branch",
         branch_id=branch.id,
         num_steps=len(branch.steps),
+        start_step=start_step,
+        restored_steps=len(step_history),
     )
 
-    for step_index, step in enumerate(branch.steps):
+    # Execute steps from start_step onward
+    for step_index in range(start_step, len(branch.steps)):
+        step = branch.steps[step_index]
         logger.info(
             "Executing branch step",
             branch_id=branch.id,
@@ -235,7 +254,7 @@ async def _execute_branch(
         cumulative_tokens=cumulative_tokens,
     )
 
-    return final_response, cumulative_tokens
+    return final_response, cumulative_tokens, step_history
 
 
 async def _execute_reduce_step(
@@ -343,8 +362,10 @@ async def _execute_all_branches_async(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
-) -> list[tuple[str, int]]:
-    """Execute all branches with semaphore control.
+    completed_branches: set[str] | None = None,
+    branch_results_dict: dict[str, dict[str, Any]] | None = None,
+) -> list[tuple[str, tuple[str, int, list[dict[str, Any]]]]]:
+    """Execute all branches with semaphore control and resume support.
 
     Args:
         spec: Workflow spec
@@ -355,20 +376,48 @@ async def _execute_all_branches_async(
         max_attempts: Maximum retry attempts per step
         wait_min: Minimum wait time for exponential backoff (seconds)
         wait_max: Maximum wait time for exponential backoff (seconds)
+        context_manager: Optional conversation manager
+        hooks: Optional agent hooks
+        notes_manager: Optional notes manager
+        completed_branches: Set of already-completed branch IDs (for resume)
+        branch_results_dict: Previously completed branch results (for resume)
 
     Returns:
-        List of (response, tokens) tuples for each branch
+        List of (branch_id, (response, tokens, step_history)) tuples
 
     Raises:
         ParallelExecutionError: If any branch fails (fail-fast)
     """
+    completed_branches = completed_branches or set()
+    branch_results_dict = branch_results_dict or {}
+
     semaphore = asyncio.Semaphore(max_parallel) if max_parallel else None
 
-    async def _execute_with_semaphore(branch: ParallelBranch) -> tuple[str, int]:
-        """Execute branch with semaphore limit."""
+    async def _execute_with_semaphore(
+        branch: ParallelBranch,
+    ) -> tuple[str, tuple[str, int, list[dict[str, Any]]]]:
+        """Execute branch with semaphore limit or return cached result."""
+        # Return cached result if branch already completed
+        if branch.id in completed_branches:
+            cached = branch_results_dict[branch.id]
+            logger.info(
+                "Branch restored from checkpoint",
+                branch_id=branch.id,
+                tokens=cached["tokens_estimated"],
+            )
+            return (
+                branch.id,
+                (
+                    cached["response"],
+                    cached["tokens_estimated"],
+                    cached.get("step_history", []),
+                ),
+            )
+
+        # Execute branch (with semaphore if configured)
         if semaphore:
             async with semaphore:
-                return await _execute_branch(
+                result = await _execute_branch(
                     spec,
                     branch,
                     user_vars,
@@ -379,9 +428,11 @@ async def _execute_all_branches_async(
                     context_manager,
                     hooks,
                     notes_manager,
+                    start_step=0,
+                    restored_step_history=None,
                 )
         else:
-            return await _execute_branch(
+            result = await _execute_branch(
                 spec,
                 branch,
                 user_vars,
@@ -392,7 +443,10 @@ async def _execute_all_branches_async(
                 context_manager,
                 hooks,
                 notes_manager,
+                start_step=0,
+                restored_step_history=None,
             )
+        return (branch.id, result)
 
     # Execute all branches in parallel (fail-fast with return_exceptions=False)
     results = await asyncio.gather(
@@ -405,38 +459,85 @@ async def _execute_all_branches_async(
 async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch orchestration
     spec: Spec,
     variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
 ) -> RunResult:
-    """Execute parallel pattern with concurrent branches.
+    """Execute parallel pattern with concurrent branches and optional session persistence.
 
     Phase 6 Performance Optimization:
     - Async execution with shared AgentCache across all branches and reduce step
     - Single event loop eliminates per-branch loop churn
     - Agents reused when branches use same agent configuration
 
+    Phase 3.2 Session Support:
+    - Resume from checkpoint: Skip completed branches on resume
+    - Branch-level checkpointing: Save state after all branches complete
+    - Reduce gate: Execute reduce step once after all branches
+
     Args:
         spec: Validated workflow spec with parallel pattern
         variables: CLI --var overrides
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with final response (reduced or aggregated)
 
     Raises:
         ParallelExecutionError: If validation, execution, or reduce fails
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters (both or neither)
+    if (session_state is None) != (session_repo is None):
+        raise ValueError("session_state and session_repo must both be provided or both be None")
+
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.parallel") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)
-        span.set_attribute("spec.version", spec.version)
+        span.set_attribute("spec.version", spec.version or 0)
         span.set_attribute("pattern.type", "parallel")
         span.set_attribute("runtime.provider", spec.runtime.provider)
-        span.set_attribute("runtime.model_id", spec.runtime.model_id)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id or "default")
         if spec.runtime.region:
             span.set_attribute("runtime.region", spec.runtime.region)
 
         # Add execution start event
         span.add_event("execution_start")
+
+        # Determine starting point and restore state for resume
+        if session_state:
+            # Resume mode: restore branch results and reduce state
+            completed_branches = set(session_state.pattern_state.get("completed_branches", []))
+            branch_results_dict = session_state.pattern_state.get("branch_results", {})
+            reduce_executed = session_state.pattern_state.get("reduce_executed", False)
+            cumulative_tokens = (
+                session_state.token_usage.total_input_tokens
+                + session_state.token_usage.total_output_tokens
+            )
+            started_at = session_state.metadata.created_at
+            logger.info(
+                "parallel_resume",
+                session_id=session_state.metadata.session_id,
+                completed_branches=len(completed_branches),
+                reduce_executed=reduce_executed,
+            )
+            span.add_event(
+                "parallel_resume",
+                {
+                    "session_id": session_state.metadata.session_id,
+                    "completed_branches": len(completed_branches),
+                    "reduce_executed": reduce_executed,
+                },
+            )
+        else:
+            # Fresh start
+            completed_branches = set()
+            branch_results_dict = {}
+            reduce_executed = False
+            cumulative_tokens = 0
+            started_at = datetime.now(UTC).isoformat()
 
         start_time = datetime.now(UTC)
 
@@ -518,9 +619,9 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
         cache = AgentCache()
 
         try:
-            # Execute all branches concurrently
+            # Execute all branches concurrently (skip already completed branches on resume)
             try:
-                branch_results = await _execute_all_branches_async(
+                branch_exec_results = await _execute_all_branches_async(
                     spec,
                     spec.pattern.config.branches,
                     user_vars,
@@ -532,6 +633,8 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                     context_manager,
                     hooks,
                     notes_manager,
+                    completed_branches,
+                    branch_results_dict,
                 )
             except Exception as e:
                 end_time = datetime.now(UTC)
@@ -548,29 +651,32 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                     error=str(e),
                     agent_id="parallel",
                     pattern_type=PatternType.PARALLEL,
-                    started_at=start_time.isoformat(),
+                    started_at=started_at,
                     completed_at=end_time.isoformat(),
                     duration_seconds=duration,
                 )
 
             # Build branches dictionary (alphabetically ordered by branch ID)
             branches_dict: dict[str, dict[str, Any]] = {}
-            cumulative_tokens = 0
 
-            for branch, (response, tokens) in zip(
-                spec.pattern.config.branches, branch_results, strict=True
-            ):
-                cumulative_tokens += tokens
-                branches_dict[branch.id] = {
+            # Process results from branch execution
+            for branch_id, (response, tokens, step_history) in branch_exec_results:
+                # Update cumulative tokens (only for newly executed branches)
+                if branch_id not in completed_branches:
+                    cumulative_tokens += tokens
+                    completed_branches.add(branch_id)
+
+                branches_dict[branch_id] = {
                     "response": response,
                     "status": "success",
                     "tokens_estimated": tokens,
+                    "step_history": step_history,
                 }
                 # Add branch_complete event for each branch
                 span.add_event(
                     "branch_complete",
                     {
-                        "branch_id": branch.id,
+                        "branch_id": branch_id,
                         "response_length": len(response),
                         "tokens": tokens,
                     },
@@ -582,28 +688,87 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                 cumulative_tokens=cumulative_tokens,
             )
 
+            # Checkpoint after all branches complete (before reduce)
+            if session_state and session_repo and not reduce_executed:
+                session_state.pattern_state["completed_branches"] = list(completed_branches)
+                session_state.pattern_state["branch_results"] = branches_dict
+                session_state.pattern_state["reduce_executed"] = False
+                session_state.metadata.updated_at = now_iso8601()
+                session_state.metadata.status = SessionStatus.RUNNING
+                session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+
+                try:
+                    spec_content = ""  # Spec snapshot already saved at session creation
+                    await session_repo.save(session_state, spec_content)
+                    logger.debug(
+                        "parallel_branches_checkpointed",
+                        session_id=session_state.metadata.session_id,
+                        completed_branches=len(completed_branches),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "parallel_checkpoint_failed",
+                        session_id=session_state.metadata.session_id,
+                        error=str(e),
+                    )
+
             # Execute reduce step if present or aggregate branches
             final_response: str
             final_agent_id: str
 
             if spec.pattern.config.reduce:
-                span.add_event("reduce_start")
-                reduce_response, reduce_tokens = await _execute_reduce_step(
-                    spec,
-                    spec.pattern.config.reduce,
-                    user_vars,
-                    branches_dict,
-                    cache,
-                    max_attempts,
-                    wait_min,
-                    wait_max,
-                    context_manager,
-                    hooks,
-                    notes_manager,
-                )
-                final_response = reduce_response
-                final_agent_id = spec.pattern.config.reduce.agent
-                cumulative_tokens += reduce_tokens
+                # Execute reduce only if not already done (resume gate)
+                if not reduce_executed:
+                    span.add_event("reduce_start")
+                    reduce_response, reduce_tokens = await _execute_reduce_step(
+                        spec,
+                        spec.pattern.config.reduce,
+                        user_vars,
+                        branches_dict,
+                        cache,
+                        max_attempts,
+                        wait_min,
+                        wait_max,
+                        context_manager,
+                        hooks,
+                        notes_manager,
+                    )
+                    final_response = reduce_response
+                    final_agent_id = spec.pattern.config.reduce.agent
+                    cumulative_tokens += reduce_tokens
+                    reduce_executed = True
+
+                    # Checkpoint after reduce
+                    if session_state and session_repo:
+                        session_state.pattern_state["reduce_executed"] = True
+                        session_state.pattern_state["final_response"] = final_response
+                        session_state.metadata.updated_at = now_iso8601()
+                        session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                        session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+
+                        try:
+                            spec_content = ""
+                            await session_repo.save(session_state, spec_content)
+                            logger.debug(
+                                "parallel_reduce_checkpointed",
+                                session_id=session_state.metadata.session_id,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "parallel_reduce_checkpoint_failed",
+                                session_id=session_state.metadata.session_id,
+                                error=str(e),
+                            )
+                else:
+                    # Reduce already executed on previous run - restore from checkpoint
+                    assert session_state is not None  # For type checker (already validated reduce_executed implies session_state)
+                    final_response = session_state.pattern_state.get("final_response", "")
+                    final_agent_id = spec.pattern.config.reduce.agent
+                    logger.info(
+                        "Reduce step restored from checkpoint",
+                        session_id=session_state.metadata.session_id,
+                    )
             else:
                 # No reduce step - aggregate branch responses alphabetically
                 logger.info("No reduce step - aggregating branch responses")
@@ -632,12 +797,30 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                 },
             )
 
+            # Mark session as completed if session persistence enabled
+            if session_state and session_repo:
+                session_state.metadata.status = SessionStatus.COMPLETED
+                session_state.metadata.updated_at = now_iso8601()
+                try:
+                    spec_content = ""  # Spec snapshot already saved
+                    await session_repo.save(session_state, spec_content)
+                    logger.info(
+                        "parallel_session_completed",
+                        session_id=session_state.metadata.session_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "parallel_session_completion_failed",
+                        session_id=session_state.metadata.session_id,
+                        error=str(e),
+                    )
+
             return RunResult(
                 success=True,
                 last_response=final_response,
                 agent_id=final_agent_id,
                 pattern_type=PatternType.PARALLEL,
-                started_at=start_time.isoformat(),
+                started_at=started_at,
                 completed_at=end_time.isoformat(),
                 duration_seconds=duration,
                 execution_context={"branches": branches_dict},
