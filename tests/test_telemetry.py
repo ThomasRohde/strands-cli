@@ -155,6 +155,60 @@ class TestTraceCollector:
         assert data["span_count"] == 0
         assert data["spans"] == []
         assert data["trace_id"] == "unknown"
+        assert data["evicted_count"] == 0
+
+    def test_span_limit_eviction(self, mock_span: ReadableSpan) -> None:
+        """Verify FIFO eviction with configurable limit."""
+        collector = TraceCollector(max_spans=10)
+
+        # Add 15 spans
+        for i in range(15):
+            span = Mock(spec=ReadableSpan)
+            span.name = f"span-{i}"
+            span.start_time = i * 1000000000
+            span.end_time = (i + 1) * 1000000000
+            span.context = mock_span.context
+            span.attributes = {"index": i}
+            span.events = []
+            span.status = mock_span.status
+            collector.add_span(span)
+
+        trace_data = collector.get_trace_data()
+
+        # Should have exactly 10 spans (oldest 5 evicted)
+        assert trace_data["span_count"] == 10
+        assert trace_data["evicted_count"] == 5
+
+        # Verify oldest spans evicted (span-0 to span-4 gone)
+        span_names = [s["name"] for s in trace_data["spans"]]
+        assert "span-0" not in span_names
+        assert "span-4" not in span_names
+        assert "span-5" in span_names  # First kept span
+        assert "span-14" in span_names  # Most recent preserved
+
+    def test_span_limit_from_env_var(self, mock_span: ReadableSpan, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify max_spans can be set via environment variable."""
+        monkeypatch.setenv("STRANDS_MAX_TRACE_SPANS", "5")
+
+        collector = TraceCollector()
+
+        # Add 8 spans
+        for i in range(8):
+            span = Mock(spec=ReadableSpan)
+            span.name = f"span-{i}"
+            span.start_time = i * 1000000000
+            span.end_time = (i + 1) * 1000000000
+            span.context = mock_span.context
+            span.attributes = {}
+            span.events = []
+            span.status = mock_span.status
+            collector.add_span(span)
+
+        trace_data = collector.get_trace_data()
+
+        # Should respect env var limit of 5
+        assert trace_data["span_count"] == 5
+        assert trace_data["evicted_count"] == 3
 
     def test_format_timestamp_converts_nanoseconds(self, trace_collector: TraceCollector) -> None:
         """Test that _format_timestamp converts nanoseconds to ISO 8601."""
@@ -247,6 +301,40 @@ class TestTelemetryConfiguration:
 
         configure_telemetry({})
         assert get_trace_collector() is None
+
+    def test_force_flush_timeout_returns_false(self, mocker: pytest.Mock) -> None:
+        """Verify timeout detection and logging."""
+        from strands_cli.telemetry import otel
+        from strands_cli.telemetry.otel import force_flush_telemetry
+
+        mock_provider = mocker.Mock()
+        mock_provider.force_flush.return_value = False  # Simulate timeout
+        otel._tracer_provider = mock_provider
+
+        # Mock the logger to verify warning was called
+        mock_logger_instance = mocker.Mock()
+        mocker.patch("strands_cli.telemetry.otel.logger", mock_logger_instance)
+
+        result = force_flush_telemetry(timeout_millis=1000)
+
+        assert result is False
+        mock_provider.force_flush.assert_called_once_with(1000)
+        # Verify warning was logged
+        assert mock_logger_instance.warning.called
+
+    def test_force_flush_success_returns_true(self, mocker: pytest.Mock) -> None:
+        """Verify successful flush returns True."""
+        from strands_cli.telemetry import otel
+        from strands_cli.telemetry.otel import force_flush_telemetry
+
+        mock_provider = mocker.Mock()
+        mock_provider.force_flush.return_value = True
+        otel._tracer_provider = mock_provider
+
+        result = force_flush_telemetry(timeout_millis=5000)
+
+        assert result is True
+        mock_provider.force_flush.assert_called_once_with(5000)
 
 
 class TestTraceArtifacts:

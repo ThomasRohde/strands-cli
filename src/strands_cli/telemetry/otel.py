@@ -20,6 +20,7 @@ Span Architecture:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from threading import Lock
@@ -48,17 +49,29 @@ class TraceCollector:
     Captures spans as they are exported by BatchSpanProcessor,
     storing them for later retrieval as trace artifacts.
 
-    Thread-safe for concurrent span collection.
+    Thread-safe for concurrent span collection with bounded memory usage.
+    Uses FIFO eviction when span limit is exceeded to prevent OOM.
     """
 
-    def __init__(self) -> None:
-        """Initialize empty trace collector."""
+    DEFAULT_MAX_SPANS = 1000  # ~5MB max memory
+
+    def __init__(self, max_spans: int | None = None) -> None:
+        """Initialize empty trace collector.
+
+        Args:
+            max_spans: Maximum number of spans to store (default: 1000).
+                       Can also be set via STRANDS_MAX_TRACE_SPANS env var.
+        """
         self._spans: list[dict[str, Any]] = []
         self._lock = Lock()
         self._trace_id: str | None = None
+        self._max_spans = max_spans or int(
+            os.getenv("STRANDS_MAX_TRACE_SPANS", str(self.DEFAULT_MAX_SPANS))
+        )
+        self._evicted_count = 0  # Track total evictions
 
     def add_span(self, span: ReadableSpan, redacted_attrs: dict[str, Any] | None = None) -> None:
-        """Add span to collection.
+        """Add span to collection with FIFO eviction if limit exceeded.
 
         Args:
             span: ReadableSpan to store
@@ -103,6 +116,17 @@ class TraceCollector:
                 },
             }
 
+            # FIFO eviction if limit exceeded
+            if len(self._spans) >= self._max_spans:
+                evicted = self._spans.pop(0)
+                self._evicted_count += 1
+                logger.warning(
+                    "span_evicted_fifo",
+                    limit=self._max_spans,
+                    evicted_name=evicted.get("name"),
+                    evicted_total=self._evicted_count,
+                )
+
             self._spans.append(span_data)
 
     def get_trace_data(
@@ -115,7 +139,7 @@ class TraceCollector:
             pattern: Pattern type for metadata
 
         Returns:
-            Trace data with trace_id, spans, metadata
+            Trace data with trace_id, spans, metadata, and eviction stats
         """
         with self._lock:
             total_duration = sum(span.get("duration_ms", 0) for span in self._spans)
@@ -126,14 +150,16 @@ class TraceCollector:
                 "pattern": pattern or "unknown",
                 "duration_ms": round(total_duration, 3),
                 "span_count": len(self._spans),
+                "evicted_count": self._evicted_count,
                 "spans": self._spans.copy(),
             }
 
     def clear(self) -> None:
-        """Clear all collected spans."""
+        """Clear all collected spans and reset counters."""
         with self._lock:
             self._spans.clear()
             self._trace_id = None
+            self._evicted_count = 0
 
     @staticmethod
     def _format_timestamp(ns: int | None) -> str:
@@ -301,6 +327,9 @@ _tracer_provider: TracerProvider | NoOpTracerProvider = NoOpTracerProvider()
 # Global trace collector (initially None)
 _trace_collector: TraceCollector | None = None
 
+# Global lock for thread-safe configuration
+_telemetry_lock = Lock()
+
 
 def get_tracer(name: str) -> trace.Tracer | NoOpTracer:
     """Get tracer for instrumenting code.
@@ -324,10 +353,22 @@ def get_trace_collector() -> TraceCollector | None:
 
 
 def configure_telemetry(spec_telemetry: dict[str, Any] | None = None) -> None:
-    """Configure OpenTelemetry tracing.
+    """Configure OpenTelemetry tracing (thread-safe).
 
     Sets up global TracerProvider with sampling, OTLP/Console exporters,
     and auto-instrumentation for httpx and logging.
+
+    Thread-safe: Multiple concurrent calls will be serialized with a lock.
+
+    Args:
+        spec_telemetry: Telemetry config from spec (otel, redact)
+    """
+    with _telemetry_lock:
+        _configure_telemetry_locked(spec_telemetry)
+
+
+def _configure_telemetry_locked(spec_telemetry: dict[str, Any] | None = None) -> None:
+    """Internal implementation of configure_telemetry (assumes lock held).
 
     Args:
         spec_telemetry: Telemetry config from spec (otel, redact)
@@ -466,6 +507,12 @@ def force_flush_telemetry(timeout_millis: int = 30000) -> bool:
     if hasattr(_tracer_provider, "force_flush"):
         logger.debug("telemetry_force_flush_start", timeout_ms=timeout_millis)
         result = _tracer_provider.force_flush(timeout_millis)
+        if not result:
+            logger.warning(
+                "telemetry_flush_timeout",
+                timeout_ms=timeout_millis,
+                message="Trace export incomplete - some spans may be missing",
+            )
         logger.debug("telemetry_force_flush_complete", success=result)
         return result
     return True  # No-op provider, nothing to flush

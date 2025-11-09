@@ -522,22 +522,64 @@ uv run strands run workflow.yaml --debug
 
 ### Large Trace Files
 
-**Symptom:** Trace JSON files >10MB
+**Symptom:** Trace JSON files >10MB or warning about span eviction
 
-**Cause:** Long workflows with >1000 spans
+**Cause:** Long workflows exceeding the span collection limit (default: 1000 spans)
 
-**Mitigation:**
+**Solutions:**
 
-1. **Reduce sampling:**
+1. **Increase span limit** (for comprehensive traces):
+   ```bash
+   # Increase to 5000 spans for longer workflows
+   export STRANDS_MAX_TRACE_SPANS=5000
+   uv run strands run workflow.yaml --trace
+   ```
+
+2. **Check logs for eviction warnings:**
+   ```bash
+   # Look for span_evicted_fifo warnings
+   uv run strands run workflow.yaml --debug | grep "span_evicted_fifo"
+   ```
+
+3. **Reduce sampling** (for production):
    ```yaml
    telemetry:
      otel:
        sample_ratio: 0.1  # 10% sampling
    ```
 
-2. **Filter spans in collector** (not yet supported in strands-cli)
+4. **Split long workflows** into smaller specs
 
-3. **Split long workflows** into smaller specs
+**Note:** Evicted spans won't appear in trace artifacts. Monitor logs for `span_evicted_fifo` warnings and check the `evicted_count` field in trace metadata.
+
+### Trace Artifact Empty or Incomplete
+
+**Symptom:** `trace.json` has 0 spans or fewer spans than expected, or timeout warning displayed
+
+**Causes & Solutions:**
+
+1. **Flush timeout** - Slow OTLP collector or network
+   ```bash
+   # Check logs for: telemetry_flush_timeout
+   # Look for the warning:
+   # "⚠ Warning: Trace export timed out. Artifact may be incomplete."
+   ```
+   **Solution:** Check OTLP endpoint connectivity or increase timeout (future enhancement)
+
+2. **Span eviction** - Workflow exceeded span limit
+   ```bash
+   # Check logs for: span_evicted_fifo
+   export STRANDS_MAX_TRACE_SPANS=5000
+   uv run strands run workflow.yaml --trace
+   ```
+
+3. **Telemetry not configured** - Missing `telemetry.otel` in spec
+   ```yaml
+   telemetry:
+     otel:
+       service_name: "my-workflow"
+       sample_ratio: 1.0
+   ```
 
 ### Over-Redaction
 

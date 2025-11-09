@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - 2025-11-09
 
+### Fixed - Phase 10.1 Production Hardening
+- **Thread-safe telemetry configuration** - Added `_telemetry_lock` for safe concurrent configuration
+  - Protects global `_tracer_provider` and `_trace_collector` from race conditions
+  - Multiple concurrent workflows can now safely configure telemetry
+  - No performance impact on single-workflow execution
+- **Bounded span collection** - FIFO eviction prevents OOM in long-running workflows
+  - Default limit: 1000 spans (~5MB memory)
+  - Configurable via `STRANDS_MAX_TRACE_SPANS` environment variable
+  - Warning logged when spans evicted: `span_evicted_fifo`
+  - Eviction count tracked in trace metadata: `evicted_count` field
+- **Flush timeout detection** - User warnings when trace export times out
+  - Returns `False` from `force_flush_telemetry()` on timeout
+  - User-facing warning in CLI with remediation guidance
+  - Structured logging: `telemetry_flush_timeout` event
+  - Trace artifact still written (best-effort) on timeout
+
 ### Added - Phase 10 (Observability & Debugging)
 
 #### OpenTelemetry Tracing

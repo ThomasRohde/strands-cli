@@ -371,7 +371,12 @@ def _write_trace_artifact(spec: Spec, out: str, force: bool) -> str | None:
         # Phase 10: Force flush pending spans before collecting trace data
         # BatchSpanProcessor exports on background thread, so we need to flush
         # to ensure all spans are exported before we read the collector
-        force_flush_telemetry(timeout_millis=5000)
+        flush_success = force_flush_telemetry(timeout_millis=5000)
+        if not flush_success:
+            console.print(
+                "[yellow]⚠ Warning:[/yellow] Trace export timed out. "
+                "Artifact may be incomplete. Try increasing timeout or check OTLP endpoint."
+            )
 
         # Get trace data with spec metadata
         trace_data = collector.get_trace_data(

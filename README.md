@@ -2,7 +2,7 @@
 
 Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
 
-**Current Version**: v0.10.0 | 795 tests passing | 82% coverage
+**Current Version**: v0.10.0 | 869 tests passing | 82% coverage
 
 ## Features
 
