@@ -358,7 +358,7 @@ def _write_trace_artifact(spec: Spec, out: str, force: bool) -> str | None:
         SystemExit: With EX_IO on write failure
     """
     from strands_cli.artifacts import sanitize_filename
-    from strands_cli.telemetry import get_trace_collector
+    from strands_cli.telemetry import force_flush_telemetry, get_trace_collector
 
     collector = get_trace_collector()
     if not collector:
@@ -368,6 +368,11 @@ def _write_trace_artifact(spec: Spec, out: str, force: bool) -> str | None:
         return None
 
     try:
+        # Phase 10: Force flush pending spans before collecting trace data
+        # BatchSpanProcessor exports on background thread, so we need to flush
+        # to ensure all spans are exported before we read the collector
+        force_flush_telemetry(timeout_millis=5000)
+
         # Get trace data with spec metadata
         trace_data = collector.get_trace_data(
             spec_name=spec.name, pattern=spec.pattern.type if spec.pattern else None

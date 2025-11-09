@@ -445,6 +445,28 @@ def configure_telemetry(spec_telemetry: dict[str, Any] | None = None) -> None:
     logger.info("telemetry_configured", provider_type=type(provider).__name__)
 
 
+def force_flush_telemetry(timeout_millis: int = 30000) -> bool:
+    """Force flush pending spans to exporters.
+
+    This ensures all queued spans in BatchSpanProcessor are exported
+    before proceeding. Critical for trace artifact generation.
+
+    Args:
+        timeout_millis: Maximum time to wait for flush (default: 30 seconds)
+
+    Returns:
+        True if flush succeeded within timeout, False otherwise
+    """
+    global _tracer_provider
+
+    if hasattr(_tracer_provider, "force_flush"):
+        logger.debug("telemetry_force_flush_start", timeout_ms=timeout_millis)
+        result = _tracer_provider.force_flush(timeout_millis)
+        logger.debug("telemetry_force_flush_complete", success=result)
+        return result
+    return True  # No-op provider, nothing to flush
+
+
 def shutdown_telemetry() -> None:
     """Shutdown telemetry and flush pending spans."""
     global _tracer_provider

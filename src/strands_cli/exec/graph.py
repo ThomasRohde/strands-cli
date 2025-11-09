@@ -53,7 +53,6 @@ from strands_cli.loader import render_template
 from strands_cli.types import GraphEdge, PatternType, RunResult, Spec
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 
 class GraphExecutionError(Exception):
@@ -375,6 +374,8 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
     Raises:
         GraphExecutionError: If graph configuration invalid or execution fails
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("execute.graph") as span:
         logger.info("graph_execution_start", spec_name=spec.name, spec_version=spec.version)
         start_time = datetime.now(UTC)

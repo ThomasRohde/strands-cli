@@ -52,7 +52,6 @@ class ChainExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
-tracer = get_tracer(__name__)
 
 
 def _build_step_context(
@@ -116,6 +115,8 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
     Raises:
         ChainExecutionError: If chain execution fails at any step
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = get_tracer(__name__)
     # Phase 10: Create root span for chain execution with attributes
     with tracer.start_span("execute.chain") as span:
         # Set span attributes (queryable metadata)

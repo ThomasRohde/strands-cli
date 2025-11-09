@@ -78,6 +78,7 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
         ExecutionError: If pattern is unsupported, template rendering fails,
                        or agent construction fails (not for agent runtime errors)
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     logger = structlog.get_logger(__name__)
     started_at = datetime.now(UTC)

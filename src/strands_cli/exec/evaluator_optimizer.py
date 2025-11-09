@@ -61,7 +61,6 @@ class EvaluatorOptimizerExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 
 async def _run_initial_production(
@@ -296,6 +295,8 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
     Raises:
         EvaluatorOptimizerExecutionError: On configuration errors, max iterations, or unrecoverable failures
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("execute.evaluator_optimizer") as span:
         logger.info("evaluator_optimizer_execution_start", spec_name=spec.name)
 

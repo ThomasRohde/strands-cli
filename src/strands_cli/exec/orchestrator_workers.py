@@ -65,7 +65,6 @@ class OrchestratorExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 
 def _parse_orchestrator_json(response_text: str) -> list[dict[str, Any]] | None:
@@ -472,6 +471,8 @@ async def run_orchestrator_workers(
     Raises:
         OrchestratorExecutionError: If orchestrator or worker execution fails
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("execute.orchestrator_workers") as span:
         start_time = datetime.now(UTC)
         config = spec.pattern.config

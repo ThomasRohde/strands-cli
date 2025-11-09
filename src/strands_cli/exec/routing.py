@@ -47,7 +47,6 @@ class RoutingExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 
 def _parse_router_response(response: str, attempt: int) -> RouterDecision:
@@ -331,6 +330,8 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
     Raises:
         RoutingExecutionError: If routing execution fails
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = trace.get_tracer(__name__)
     with tracer.start_span("execute.routing") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)

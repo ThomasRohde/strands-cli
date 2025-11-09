@@ -59,7 +59,6 @@ class WorkflowExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
-tracer = get_tracer(__name__)
 
 
 def _topological_sort(tasks: list[Any]) -> list[list[str]]:
@@ -390,6 +389,8 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     Raises:
         WorkflowExecutionError: If workflow execution fails
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = get_tracer(__name__)
     # Phase 10: Create root span for workflow execution with attributes
     with tracer.start_span("execute.workflow") as span:
         # Set span attributes (queryable metadata)

@@ -63,7 +63,6 @@ class ParallelExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 
 def _build_branch_step_context(
@@ -424,6 +423,8 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
     Raises:
         ParallelExecutionError: If validation, execution, or reduce fails
     """
+    # Phase 10: Get tracer after configure_telemetry() has been called
+    tracer = trace.get_tracer(__name__)
     with tracer.start_span("execute.parallel") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)

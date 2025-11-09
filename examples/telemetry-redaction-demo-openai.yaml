@@ -51,8 +51,8 @@ agents:
 
 outputs:
   artifacts:
-    - path: ./artifacts/redaction-demo-result.txt
+    - path: ./redaction-demo-result.txt
       from: "{{ last_response }}"
 
-    - path: ./artifacts/redaction-demo-trace.json
+    - path: ./redaction-demo-trace.json
       from: "{{ TRACE }}"
