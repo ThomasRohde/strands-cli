@@ -1,82 +1,110 @@
-# strands-cli
+# Strands CLI
 
-Execute agentic workflows (YAML/JSON) on AWS Bedrock/Ollama with strong observability, schema validation, and safe orchestration.
+<div align="center">
 
-**Current Version**: v0.10.0 | 869 tests passing | 82% coverage
+**Execute declarative agentic workflows on AWS Bedrock, Ollama, and OpenAI**
 
-## Features
+[![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.11.0-brightgreen.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-795+-success.svg)](#development)
+[![Coverage](https://img.shields.io/badge/coverage-82%25-yellow.svg)](#development)
 
-### Core Capabilities (v0.10.0)
-- ✅ **Full OpenTelemetry tracing** - Production-ready observability with OTLP/Console exporters, trace artifacts, and PII redaction
-- ✅ **Enhanced debugging** - Structured debug logging with `--debug` flag for variable resolution, template rendering, and LLM interactions
-- ✅ **Orchestrator-Workers pattern** - Dynamic task delegation with worker pools and optional reduce/writeup steps
-- ✅ **Graph pattern** - Explicit control flow with conditionals, loops, and cycle protection
-- ✅ **Evaluator-Optimizer pattern** - Iterative refinement with quality gates and convergence detection
-- ✅ **Parallel execution pattern** - Concurrent branch execution with optional reduce step for aggregation
-- ✅ **Multi-agent workflows** - Support for multiple agents in chain, workflow, routing, and parallel patterns
-- ✅ **Routing pattern** - Dynamic agent selection based on input classification with JSON-based routing
-- ✅ **Multi-step chain workflows** - Sequential execution with context threading across steps
-- ✅ **Multi-task DAG workflows** - Parallel execution with dependency resolution
-- ✅ **Template-based context** - Access prior step/task/branch outputs via `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`
-- ✅ **AWS Bedrock, Ollama, and OpenAI** provider support with comprehensive authentication
-- ✅ **Schema validation** using JSON Schema Draft 2020-12 with JSONPointer error reporting
-- ✅ **Capability checking** with graceful degradation (exit code 18)
-- ✅ **Variable substitution** via `--var` flags and Jinja2 templates
-- ✅ **HTTP executor tools** with timeout/retry
-- ✅ **Python tool allowlist** (`strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time`)
-- ✅ **Artifact output** with overwrite protection (`--force` to override)
-- ✅ **Skills metadata** injection (no code execution)
-- ✅ **Environment secrets** (`source: env`)
-- ✅ **Budget enforcement** - Token and time limits with cumulative tracking
-- ✅ **Concurrency control** - Semaphore-based limits via `runtime.max_parallel`
-- ✅ **Exponential backoff** retry logic per step/task/branch
-- ✅ **Rich CLI interface** with progress indicators
-- ✅ **OpenTelemetry integration** - Full OTLP tracing with span exports to Jaeger/Zipkin/Honeycomb
-- ✅ **Trace artifacts** - Export execution traces to JSON with `{{ $TRACE }}` variable or `--trace` flag
-- ✅ **PII redaction** - Automatic scrubbing of sensitive data from tool inputs/outputs in traces
-- ✅ **Structured debug logging** - `--debug` flag for detailed workflow execution insights
+*Schema-validated • Multi-provider • Production-ready observability*
 
-### Performance Optimizations
-- ⚡ **Agent Caching** - Agents are reused across steps/tasks/branches with identical configurations, reducing initialization overhead by ~90% in multi-step workflows
-- ⚡ **Model Client Pooling** - LRU cache shares model clients (Bedrock/Ollama/OpenAI) across agents, eliminating redundant connection setup
-- ⚡ **Single Event Loop** - One async event loop per workflow execution eliminates per-step loop creation/teardown overhead
-- ⚡ **Resource Cleanup** - HTTP clients and tool adapters properly closed after execution to prevent resource leaks
+[Quick Start](#quick-start) • [Documentation](#documentation) • [Examples](examples/) • [Contributing](CONTRIBUTING.md)
 
-### Future Roadmap
-- ✅ **Orchestrator-workers pattern** - Dynamic task delegation with worker pools (Phase 7 - v0.8.0)
-- ✅ **Graph pattern** - Explicit control flow with conditionals and loops (Phase 8 - v0.9.0)
-- ✅ **Full OTEL tracing** - Production observability and debugging (Phase 10 - v0.10.0)
-- 🚧 MCP tools integration (Phase 9)
-- 🚧 Guardrails enforcement (Phase 5)
-- 🚧 Context policy execution
+</div>
+
+---
+
+## Overview
+
+Strands CLI is a Python 3.12+ command-line tool that executes declarative agentic workflows defined in YAML or JSON. It provides enterprise-grade orchestration for AI agent workflows with comprehensive observability, strict schema validation, and multi-provider support.
+
+### Key Features
+
+🎯 **7 Workflow Patterns**
+- **Chain**: Sequential multi-step execution with context threading
+- **Workflow**: DAG-based parallel task execution with dependency resolution  
+- **Routing**: Dynamic agent selection based on input classification
+- **Parallel**: Concurrent branch execution with optional reduce/aggregation
+- **Evaluator-Optimizer**: Iterative refinement with quality gates
+- **Orchestrator-Workers**: Dynamic task delegation to worker pools
+- **Graph**: Explicit control flow with conditionals, loops, and cycle protection
+
+🔌 **Multi-Provider Support**
+- **AWS Bedrock** (Anthropic Claude, Amazon Titan)
+- **Ollama** (local models: llama2, mistral, mixtral, etc.)
+- **OpenAI** (GPT-4, GPT-4o, o1-preview, o1-mini)
+
+📊 **Production Observability**
+- Full OpenTelemetry tracing (OTLP/Console exporters)
+- Trace artifact export with `{{ $TRACE }}` or `--trace` flag
+- PII redaction for sensitive data protection
+- Structured debug logging with `--debug` flag
+- Comprehensive span instrumentation across all patterns
+
+🔒 **Security & Validation**
+- JSON Schema Draft 2020-12 validation with JSONPointer error reporting
+- Sandboxed Jinja2 templates (blocks code execution)
+- HTTP URL validation (SSRF prevention)
+- Path traversal protection for artifact writes
+- Environment-based secrets management
+
+⚡ **Performance Optimizations**
+- Agent caching (90% reduction in multi-step workflow overhead)
+- Model client pooling (LRU cache for Bedrock/Ollama/OpenAI)
+- Single async event loop per workflow execution
+- Proper resource cleanup (HTTP clients, tool adapters)
+
+🛠️ **Built-in Tools**
+- HTTP executors with timeout/retry
+- Python tools: `http_request`, `file_read`, `file_write`, `calculator`, `current_time`
+- Native tool registry with auto-discovery
+- MCP (Model Context Protocol) support (experimental)
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
-Before using strands-cli, ensure you have:
+- **Python 3.12+** ([Download](https://www.python.org/downloads/))
+- **uv package manager** (recommended): `pip install uv` or see [uv docs](https://github.com/astral-sh/uv)
 
-- **Python 3.12+**: Check with `python --version`
-- **uv package manager** (recommended): Install from [uv docs](https://github.com/astral-sh/uv)
-- **For Ollama workflows**:
-  - [Install Ollama](https://ollama.ai/)
-  - Start the server: `ollama serve` (runs on http://localhost:11434)
-  - Pull a model: `ollama pull gpt-oss` (or your preferred model)
-- **For AWS Bedrock workflows**:
-  - AWS credentials configured: `aws configure` or environment variables
-  - Appropriate Bedrock model access in your AWS region
-- **For OpenAI workflows**:
-  - OpenAI API key: Set `OPENAI_API_KEY` environment variable
-  - Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+**Provider-specific requirements:**
 
-**Verify your setup** with the health check:
-```bash
-uv run strands doctor
-```
+<details>
+<summary><b>Ollama</b> (local models)</summary>
+
+1. [Install Ollama](https://ollama.ai/)
+2. Start the server: `ollama serve`
+3. Pull a model: `ollama pull llama2`
+4. Verify: `curl http://localhost:11434/api/tags`
+
+</details>
+
+<details>
+<summary><b>AWS Bedrock</b> (cloud models)</summary>
+
+1. Configure AWS credentials: `aws configure`
+2. Ensure model access in your region (e.g., `us-east-1`)
+3. Verify: `aws bedrock list-foundation-models`
+
+</details>
+
+<details>
+<summary><b>OpenAI</b> (GPT models)</summary>
+
+1. Get API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Set environment variable: `export OPENAI_API_KEY=your-key-here`
+
+</details>
 
 ### Installation
 
-**From Source** (MVP - not published to PyPI yet):
+**From source** (not yet published to PyPI):
 
 ```bash
 git clone https://github.com/ThomasRohde/strands-cli.git
@@ -84,207 +112,717 @@ cd strands-cli
 uv sync
 ```
 
-### Basic Usage
-
-#### Validate a workflow spec
+**Verify installation:**
 
 ```bash
-uv run strands validate examples/single-agent-chain-ollama.yaml
+uv run strands --version
+uv run strands doctor  # Run health check
 ```
 
-Output:
+### Your First Workflow
+
+Create a simple workflow file `hello.yaml`:
+
+```yaml
+name: hello-world
+version: 1
+description: A simple greeting workflow
+
+runtime:
+  provider: ollama  # or bedrock, openai
+  model_id: llama2
+
+agents:
+  greeter:
+    prompt: "You are a friendly assistant. Greet the user warmly."
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent_id: greeter
+        prompt: "Say hello to {{ name }}!"
+
+inputs:
+  values:
+    name: "World"
+
+outputs:
+  artifacts:
+    - path: "./greeting.txt"
+      from: "{{ last_response }}"
 ```
-✓ Spec is valid: single-agent-chain-ollama
-  Version: 0
-  Agents: 1
+
+**Run it:**
+
+```bash
+# Using default variable
+uv run strands run hello.yaml
+
+# Override variable
+uv run strands run hello.yaml --var name="Alice"
+
+# Force overwrite output
+uv run strands run hello.yaml --force
+
+# Enable debug logging
+uv run strands run hello.yaml --debug --verbose
+```
+
+**Output:**
+
+```
+Running workflow: hello-world
+
+✓ Workflow completed successfully
+Duration: 1.23s
+
+Artifacts written:
+  • ./greeting.txt
+```
+
+---
+
+## Core Concepts
+
+### Workflow Patterns
+
+Strands CLI supports seven execution patterns, each optimized for different use cases:
+
+#### 1. Chain Pattern
+Sequential execution with context passing between steps.
+
+```yaml
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent_id: researcher
+        prompt: "Research {{ topic }}"
+      - agent_id: writer
+        prompt: "Write a summary based on: {{ steps[0].response }}"
+      - agent_id: editor
+        prompt: "Edit this draft: {{ steps[1].response }}"
+```
+
+**Use cases:** Research → Write → Edit pipelines, multi-stage processing
+
+#### 2. Workflow Pattern
+DAG-based parallel execution with dependency resolution.
+
+```yaml
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: fetch_data
+        agent_id: fetcher
+        prompt: "Fetch data for {{ query }}"
+      
+      - id: analyze_data
+        agent_id: analyst
+        depends_on: [fetch_data]
+        prompt: "Analyze: {{ tasks.fetch_data.response }}"
+      
+      - id: visualize_data
+        agent_id: visualizer
+        depends_on: [fetch_data]
+        prompt: "Visualize: {{ tasks.fetch_data.response }}"
+      
+      - id: report
+        agent_id: reporter
+        depends_on: [analyze_data, visualize_data]
+        prompt: "Create report from analysis and visualization"
+```
+
+**Use cases:** Data pipelines, parallel processing with dependencies
+
+#### 3. Routing Pattern
+Dynamic agent selection based on input classification.
+
+```yaml
+pattern:
+  type: routing
+  config:
+    classifier_id: router
+    routes:
+      - agent_id: tech_support
+        condition: "technical issue"
+      - agent_id: sales
+        condition: "pricing or purchase"
+      - agent_id: general
+        condition: "general inquiry"
+```
+
+**Use cases:** Customer support routing, task classification, conditional execution
+
+#### 4. Parallel Pattern
+Concurrent execution with optional result aggregation.
+
+```yaml
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: perspective_a
+        agent_id: analyst_a
+        steps:
+          - prompt: "Analyze from perspective A"
+      
+      - id: perspective_b
+        agent_id: analyst_b
+        steps:
+          - prompt: "Analyze from perspective B"
+    
+    reduce:
+      agent_id: synthesizer
+      prompt: "Synthesize: {{ branches.perspective_a.response }} and {{ branches.perspective_b.response }}"
+```
+
+**Use cases:** Multi-perspective analysis, A/B testing, concurrent research
+
+#### 5. Evaluator-Optimizer Pattern
+Iterative refinement with quality gates.
+
+```yaml
+pattern:
+  type: evaluator_optimizer
+  config:
+    generator_id: writer
+    evaluator_id: critic
+    max_iterations: 5
+    acceptance:
+      min_score: 8.0
+      convergence_threshold: 0.1
+```
+
+**Use cases:** Iterative content improvement, quality-driven generation
+
+#### 6. Orchestrator-Workers Pattern
+Dynamic task delegation to worker pools.
+
+```yaml
+pattern:
+  type: orchestrator_workers
+  config:
+    orchestrator:
+      agent_id: task_planner
+      limits:
+        max_workers: 5
+        max_rounds: 3
+    
+    worker_template:
+      agent_id: worker
+    
+    reduce:
+      agent_id: aggregator
+```
+
+**Use cases:** Dynamic task decomposition, research swarms, data processing
+
+#### 7. Graph Pattern
+Explicit control flow with conditionals and loops.
+
+```yaml
+pattern:
+  type: graph
+  config:
+    nodes:
+      - id: start
+        agent_id: analyzer
+        edges:
+          - choose:
+              - when: "{{ node.start.response.needs_refinement }}"
+                to: refine
+              - when: "{{ node.start.response.is_complete }}"
+                to: finalize
+      
+      - id: refine
+        agent_id: refiner
+        edges:
+          - to: start  # Loop back
+      
+      - id: finalize
+        agent_id: finalizer
+```
+
+**Use cases:** State machines, iterative refinement with conditionals, decision trees
+
+### Template Variables
+
+Access execution context in prompts and artifact outputs:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{ last_response }}` | Most recent agent response | Basic chain output |
+| `{{ steps[0].response }}` | Specific step output (0-indexed) | Reference earlier step |
+| `{{ tasks.task_id.response }}` | Task output by ID | Workflow DAG results |
+| `{{ branches.branch_id.response }}` | Branch output by ID | Parallel execution results |
+| `{{ nodes.node_id.response }}` | Node output by ID | Graph execution results |
+| `{{ $TRACE }}` | Complete execution trace | Debugging/observability |
+
+**Example artifact with templates:**
+
+```yaml
+outputs:
+  artifacts:
+    - path: "./report-{{ topic }}.md"
+      from: |
+        # Research Report: {{ topic }}
+        
+        ## Initial Analysis
+        {{ steps[0].response }}
+        
+        ## Detailed Findings
+        {{ steps[1].response }}
+        
+        ## Conclusions
+        {{ steps[2].response }}
+```
+
+### Budget Enforcement
+
+Control resource usage with token and time limits:
+
+```yaml
+runtime:
+  budgets:
+    max_tokens: 100000  # Total tokens across all LLM calls
+    max_duration_s: 300  # Maximum execution time (5 minutes)
+```
+
+**Behavior:**
+- **80% threshold**: Warning logged, execution continues
+- **100% threshold**: Execution halts with `BudgetExceededError`
+- **Cumulative tracking**: Tokens summed across all steps/tasks/branches
+
+### Concurrency Control
+
+Limit parallel execution with semaphores:
+
+```yaml
+runtime:
+  max_parallel: 3  # Max 3 concurrent tasks/branches
+```
+
+**Applies to:**
+- Workflow tasks (when dependencies allow)
+- Parallel branches
+- Orchestrator workers
+
+---
+
+## CLI Commands
+
+### `strands run`
+
+Execute a workflow from a YAML/JSON specification.
+
+```bash
+# Basic execution
+uv run strands run workflow.yaml
+
+# Override variables
+uv run strands run workflow.yaml --var topic="AI" --var format="markdown"
+
+# Custom output directory
+uv run strands run workflow.yaml --out ./results
+
+# Force overwrite existing artifacts
+uv run strands run workflow.yaml --force
+
+# Skip file_write consent prompts (for CI/CD)
+uv run strands run workflow.yaml --bypass-tool-consent
+
+# Generate trace artifact
+uv run strands run workflow.yaml --trace
+
+# Enable debug logging
+uv run strands run workflow.yaml --debug
+
+# Combine options
+uv run strands run workflow.yaml --var topic="ML" --trace --debug --force
+```
+
+**Exit codes:**
+- `0` - Success
+- `3` - Schema validation failed
+- `10` - Runtime error (provider/model/tool)
+- `12` - I/O error (artifact write)
+- `18` - Unsupported features detected
+- `70` - Unexpected error
+
+### `strands validate`
+
+Validate a workflow spec against the JSON Schema.
+
+```bash
+uv run strands validate workflow.yaml
+
+# With debug output
+uv run strands validate workflow.yaml --debug --verbose
+```
+
+**Output:**
+```
+✓ Spec is valid: my-workflow
+  Version: 1
+  Agents: 3
   Pattern: chain
 ```
 
-#### Run a workflow (Ollama)
+### `strands plan`
+
+Display execution plan without running the workflow.
 
 ```bash
-# Make sure Ollama is running locally
-uv run strands run examples/single-agent-chain-ollama.yaml --var topic="AI ethics"
+# Human-readable Markdown format (default)
+uv run strands plan workflow.yaml
+
+# JSON format for scripting
+uv run strands plan workflow.yaml --format=json
+
+# With debug output
+uv run strands plan workflow.yaml --debug
 ```
 
-Output:
-```
-Running workflow: single-agent-chain-ollama
+**Output includes:**
+- Runtime configuration (provider, model, region)
+- Agent inventory
+- Pattern type and configuration
+- MVP compatibility status
+- Graph visualization (for graph patterns)
 
-✓ Workflow completed successfully
-Duration: 3.45s
+### `strands explain`
 
-Artifacts written:
-  • ./artifacts/analysis-ollama.md
-```
-
-#### Run a workflow (AWS Bedrock)
+Show unsupported features and migration guidance.
 
 ```bash
-# Requires AWS credentials configured
-export AWS_REGION=us-east-1
-uv run strands run examples/single-agent-chain-bedrock.yaml --out ./output --force
+uv run strands explain legacy-workflow.yaml
 ```
 
-#### Run a workflow (OpenAI)
+**Output:**
+```
+Unsupported Features in legacy-workflow:
 
-```bash
-# Requires OPENAI_API_KEY environment variable
-export OPENAI_API_KEY=your-api-key
-uv run strands run examples/single-agent-chain-openai.yaml --var topic="quantum computing"
+1. /pattern/type
+   Reason: Pattern 'custom_pattern' is not supported
+   → Remediation: Use one of: chain, workflow, routing, parallel, evaluator_optimizer, orchestrator_workers, graph
+
+2. /tools/mcp
+   Reason: MCP tools are experimental
+   → Remediation: Use http_executors or allowlisted Python tools
 ```
 
-#### Run workflow with file_write tool (bypass consent for automation)
+### `strands list-supported`
 
-```bash
-# Interactive mode (prompts for file write consent)
-uv run strands run examples/workflow-file-operations-openai.yaml
-
-# Automation mode (bypasses consent prompts)
-uv run strands run examples/workflow-file-operations-openai.yaml --bypass-tool-consent
-```
-
-#### Show execution plan
-
-```bash
-uv run strands plan examples/single-agent-chain-ollama.yaml
-```
-
-Output shows runtime configuration, agents, pattern, and MVP compatibility.
-
-#### Explain unsupported features
-
-```bash
-uv run strands explain examples/multi-agent-unsupported.yaml
-```
-
-Shows detailed remediation for specs with unsupported features.
-
-#### List MVP-supported features
+Display all supported features in the current version.
 
 ```bash
 uv run strands list-supported
 ```
 
-Shows all MVP capabilities: providers, patterns, tools, constraints.
+### `strands list-tools`
 
-#### Check installation health
+List all available native tools from the registry.
+
+```bash
+uv run strands list-tools
+```
+
+### `strands doctor`
+
+Run diagnostic checks on your installation.
 
 ```bash
 uv run strands doctor
 ```
 
-Verifies Python version, schema file, Ollama connectivity, and dependencies.
+**Checks:**
+- Python version (≥3.12)
+- Schema file integrity
+- Core dependencies
+- Ollama connectivity (optional)
 
-### Common Workflows
+### `strands version`
 
-#### Override variables
-
-```bash
-uv run strands run workflow.yaml \
-  --var topic="Climate Change" \
-  --var output_format="markdown" \
-  --out ./results
-```
-
-#### Force overwrite artifacts
+Show the CLI version.
 
 ```bash
-uv run strands run workflow.yaml --force
+uv run strands version
+# Output: strands-cli version 0.11.0
 ```
 
-#### Bypass file_write consent for automation
+---
+
+## Configuration
+
+### Environment Variables
+
+Configure Strands CLI behavior with environment variables (prefix: `STRANDS_`):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STRANDS_AWS_REGION` | AWS region for Bedrock | `us-east-1` |
+| `STRANDS_BEDROCK_MODEL_ID` | Default Bedrock model | `anthropic.claude-3-sonnet-20240229-v1:0` |
+| `STRANDS_VERBOSE` | Enable verbose logging | `false` |
+| `STRANDS_DEBUG` | Enable debug logging | `false` |
+| `STRANDS_CONFIG_DIR` | Config directory path | `~/.config/strands` (Linux/macOS)<br>`%APPDATA%\strands` (Windows) |
+| `STRANDS_MAX_TRACE_SPANS` | Max spans in trace collector | `1000` |
+| `OPENAI_API_KEY` | OpenAI API key | *(required for OpenAI provider)* |
+
+**Example:**
 
 ```bash
-# Review workflow first
-uv run strands validate workflow.yaml
+# Set AWS region
+export STRANDS_AWS_REGION=us-west-2
 
-# Run with bypassed consent (for CI/CD)
-uv run strands run workflow.yaml --bypass-tool-consent --force
+# Set OpenAI API key
+export OPENAI_API_KEY=sk-...
+
+# Increase trace span limit for long workflows
+export STRANDS_MAX_TRACE_SPANS=5000
 ```
 
-#### Verbose output
+### Runtime Configuration
 
-```bash
-uv run strands run workflow.yaml --verbose
-```
+Specify provider and model in workflow specs:
 
-#### Debug mode with detailed logging
-
-```bash
-# Enable structured debug logging for troubleshooting
-uv run strands run workflow.yaml --debug
-
-# Combine with verbose for maximum detail
-uv run strands run workflow.yaml --debug --verbose
-```
-
-#### Export execution trace
-
-```bash
-# Auto-generate trace artifact
-uv run strands run workflow.yaml --trace
-
-# Trace saved to: ./artifacts/<spec-name>-trace.json
-```
-
-## Security Considerations
-
-Strands CLI implements defense-in-depth security for user-editable workflow specs. All user-controlled inputs (YAML specs, templates, variables) are treated as potentially malicious.
-
-### Key Security Features
-
-**🔒 Template Sandboxing** - Jinja2 templates use `SandboxedEnvironment` to prevent code execution
 ```yaml
-# [X] BLOCKED: Python introspection attacks
+runtime:
+  # Provider selection
+  provider: bedrock  # or ollama, openai
+  
+  # Model configuration
+  model_id: anthropic.claude-3-sonnet-20240229-v1:0
+  
+  # AWS-specific
+  region: us-east-1
+  
+  # Ollama-specific
+  host: http://localhost:11434
+  
+  # Budgets
+  budgets:
+    max_tokens: 100000
+    max_duration_s: 600
+  
+  # Concurrency
+  max_parallel: 5
+  
+  # Retries
+  failure_policy:
+    retry_count: 3
+    wait_min: 1.0
+    wait_max: 10.0
+```
+
+### Security Configuration
+
+Configure security features for production deployments:
+
+```yaml
+# Block additional HTTP endpoints
+export STRANDS_HTTP_BLOCKED_PATTERNS='["^https://internal\.company\.com"]'
+
+# Enforce HTTP allowlist
+export STRANDS_HTTP_ALLOWED_DOMAINS='["^https://api\.openai\.com", "^https://api\.anthropic\.com"]'
+```
+
+See [`docs/security.md`](docs/security.md) for comprehensive security documentation.
+
+---
+
+## Observability & Debugging
+
+### OpenTelemetry Tracing
+
+Enable production observability with OTLP exporters:
+
+```yaml
+telemetry:
+  otel:
+    enabled: true
+    endpoint: "http://localhost:4318/v1/traces"
+    service_name: "my-workflow"
+    sample_ratio: 1.0  # 100% sampling
+    exporter: otlp  # or console
+  
+  redact:
+    tool_inputs: true   # Redact PII from tool inputs
+    tool_outputs: true  # Redact PII from tool outputs
+```
+
+**Supported backends:**
+- Jaeger
+- Zipkin
+- Honeycomb
+- Any OTLP-compatible collector
+
+**Span hierarchy:**
+```
+execute.chain
+├── execute.chain.step[0]
+│   ├── llm.completion
+│   └── tool.http_request
+├── execute.chain.step[1]
+│   └── llm.completion
+└── execute.chain.step[2]
+    └── llm.completion
+```
+
+### Trace Artifacts
+
+Export execution traces to JSON for analysis:
+
+**Method 1: Template variable**
+```yaml
 outputs:
   artifacts:
-    - path: "{{ ''.__class__.__mro__ }}"  # Sandbox blocks this
+    - path: "./traces/{{ spec.name }}-trace.json"
+      from: "{{ $TRACE }}"
 ```
 
-**🔒 SSRF Prevention** - HTTP executors validate URLs against blocklist
+**Method 2: CLI flag**
+```bash
+uv run strands run workflow.yaml --trace
+# Generates: ./artifacts/workflow-trace.json
+```
+
+**Trace format:**
+```json
+{
+  "metadata": {
+    "spec_name": "my-workflow",
+    "pattern_type": "chain",
+    "total_duration_ms": 5234.56
+  },
+  "trace_id": "abc123...",
+  "spans": [
+    {
+      "span_id": "def456...",
+      "name": "execute.chain.step[0]",
+      "start_time": "2025-11-09T10:30:00Z",
+      "end_time": "2025-11-09T10:30:02Z",
+      "attributes": {
+        "agent.id": "researcher",
+        "runtime.provider": "bedrock",
+        "runtime.model_id": "claude-3-sonnet-20240229-v1:0"
+      }
+    }
+  ]
+}
+```
+
+### PII Redaction
+
+Automatically scrub sensitive data from traces:
+
+**Redacted patterns:**
+- Email addresses: `user@example.com` → `***REDACTED***`
+- Credit cards: `4111-1111-1111-1111` → `***REDACTED***`
+- SSN: `123-45-6789` → `***REDACTED***`
+- Phone numbers: `555-123-4567` → `***REDACTED***`
+- API keys: Long alphanumeric strings → `***REDACTED***`
+
+**Custom patterns:**
 ```yaml
-# [X] BLOCKED: Internal network access
-tools:
-  http_executors:
-    - base_url: "http://169.254.169.254"  # AWS metadata endpoint blocked
+telemetry:
+  redact:
+    tool_inputs: true
+    tool_outputs: true
+    custom_patterns:
+      - '\bINTERNAL-[A-Z0-9]{8}\b'  # Internal IDs
+      - '\b[A-Z]{3}-\d{6}\b'         # Ticket numbers
 ```
 
-**🔒 Path Traversal Protection** - Artifact paths validated and sanitized
+### Debug Logging
+
+Enable structured debug logging for troubleshooting:
+
 ```bash
-# [X] BLOCKED: Directory escape attempts
-strands run spec.yaml --var path="../../etc/passwd"
+uv run strands run workflow.yaml --debug
 ```
 
-### Security Controls
+**Debug output includes:**
+- Variable resolution steps (parse → merge → final context)
+- Template rendering (before/after with previews)
+- Capability check details
+- Agent cache hits/misses
+- LLM request/response metadata
 
-1. **Sandboxed Jinja2 Templates**: Blocks `__class__`, `__mro__`, `eval`, `__import__`, etc.
-2. **HTTP URL Validation**: Blocks localhost, private IPs (RFC1918), cloud metadata endpoints, file:// protocol
-3. **Artifact Path Validation**: Rejects absolute paths, blocks `..` traversal, sanitizes components, prevents symlink following
-4. **Audit Logging**: All security violations logged at WARNING level with structured fields
-
-### Configuration
-
-**Block additional HTTP endpoints** (production):
-```bash
-export STRANDS_HTTP_BLOCKED_PATTERNS='["^https://internal\\.company\\.com"]'
+**Example output:**
+```
+[DEBUG] variable.resolution parsed_vars={'topic': 'AI'} source='cli_flags'
+[DEBUG] template.render template='{{ topic }}' rendered='AI' truncated=False
+[DEBUG] agent_cache.miss agent_id='researcher' reason='first_use'
+[DEBUG] llm.request provider='bedrock' model='claude-3-sonnet' input_tokens=245
+[DEBUG] llm.response output_tokens=1523 duration_ms=2341.2
+[DEBUG] agent_cache.hit agent_id='researcher' reused=True
 ```
 
-**Enforce HTTP allowlist** (CI/CD):
-```bash
-export STRANDS_HTTP_ALLOWED_DOMAINS='["^https://api\\.openai\\.com", "^https://api\\.anthropic\\.com"]'
-```
+---
 
-**📖 Full Documentation**: See [`docs/security.md`](docs/security.md) for comprehensive threat model, attack examples, and configuration details.
+## Examples
+
+The [`examples/`](examples/) directory contains 50+ workflow specifications demonstrating all patterns and features.
+
+### Chain Pattern Examples
+
+- [`single-agent-chain-ollama.yaml`](examples/single-agent-chain-ollama.yaml) - Basic sequential workflow
+- [`chain-3-step-research-openai.yaml`](examples/chain-3-step-research-openai.yaml) - Research → Write → Edit pipeline
+- [`chain-calculator-openai.yaml`](examples/chain-calculator-openai.yaml) - Multi-step math with calculator tool
+
+### Workflow Pattern Examples
+
+- [`single-agent-workflow-ollama.yaml`](examples/single-agent-workflow-ollama.yaml) - Basic DAG workflow
+- [`workflow-parallel-research-openai.yaml`](examples/workflow-parallel-research-openai.yaml) - Parallel data collection
+- [`workflow-linear-dag-openai.yaml`](examples/workflow-linear-dag-openai.yaml) - Linear dependency chain
+
+### Routing Pattern Examples
+
+- [`routing-customer-support-openai.yaml`](examples/routing-customer-support-openai.yaml) - Support ticket routing
+- [`routing-task-classification-openai.yaml`](examples/routing-task-classification-openai.yaml) - Dynamic task routing
+- [`routing-multi-tool-openai.yaml`](examples/routing-multi-tool-openai.yaml) - Tool-specific routing
+
+### Parallel Pattern Examples
+
+- [`parallel-simple-2-branches.yaml`](examples/parallel-simple-2-branches.yaml) - Basic concurrent execution
+- [`parallel-with-reduce.yaml`](examples/parallel-with-reduce.yaml) - Multi-perspective analysis with synthesis
+- [`parallel-multi-step-branches.yaml`](examples/parallel-multi-step-branches.yaml) - Complex multi-step branches
+
+### Evaluator-Optimizer Examples
+
+- [`evaluator-optimizer-writing-openai.yaml`](examples/evaluator-optimizer-writing-openai.yaml) - Iterative writing improvement
+- [`evaluator-optimizer-code-review-openai.yaml`](examples/evaluator-optimizer-code-review-openai.yaml) - Code quality iteration
+
+### Orchestrator-Workers Examples
+
+- [`orchestrator-research-swarm-openai.yaml`](examples/orchestrator-research-swarm-openai.yaml) - Research task delegation
+- [`orchestrator-data-processing-openai.yaml`](examples/orchestrator-data-processing-openai.yaml) - Data processing swarm
+- [`orchestrator-minimal-openai.yaml`](examples/orchestrator-minimal-openai.yaml) - Minimal orchestrator setup
+
+### Graph Pattern Examples
+
+- [`graph-decision-tree-openai.yaml`](examples/graph-decision-tree-openai.yaml) - Multi-branch decision tree
+- [`graph-iterative-refinement-openai.yaml`](examples/graph-iterative-refinement-openai.yaml) - Loop-based refinement
+- [`graph-state-machine-openai.yaml`](examples/graph-state-machine-openai.yaml) - State machine workflow
+
+### Telemetry & Debugging Examples
+
+- [`telemetry-simple-openai.yaml`](examples/telemetry-simple-openai.yaml) - Basic OTLP tracing
+- [`telemetry-redaction-demo-openai.yaml`](examples/telemetry-redaction-demo-openai.yaml) - PII redaction demo
+- [`debug-demo-openai.yaml`](examples/debug-demo-openai.yaml) - Debug logging examples
+
+### Tool Usage Examples
+
+- [`simple-file-read-openai.yaml`](examples/simple-file-read-openai.yaml) - File reading
+- [`workflow-file-operations-openai.yaml`](examples/workflow-file-operations-openai.yaml) - File read/write
+- [`github-api-example-openai.yaml`](examples/github-api-example-openai.yaml) - HTTP executor with GitHub API
+
+---
 
 ## Development
-
-### Prerequisites
-
-- Python 3.12+
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- AWS credentials (for Bedrock provider)
-- Ollama (for Ollama provider)
 
 ### Setup
 
@@ -297,275 +835,359 @@ cd strands-cli
 uv sync --dev
 
 # Verify installation
-uv run strands --version
 uv run strands doctor
 ```
 
 ### Development Commands
 
-**Using PowerShell automation** (recommended on Windows):
+**PowerShell automation** (recommended on Windows):
 
 ```powershell
-# Run all tests
-.\scripts\dev.ps1 test
-
-# Run tests with coverage
-.\scripts\dev.ps1 test-cov
-
-# Run specific test file
-.\scripts\dev.ps1 test tests/test_schema.py -v
-
-# Lint code
-.\scripts\dev.ps1 lint
-
-# Auto-format code
-.\scripts\dev.ps1 format
-
-# Type check
-.\scripts\dev.ps1 typecheck
-
-# Full CI pipeline (lint + typecheck + test + coverage)
-.\scripts\dev.ps1 ci
-
-# Validate all example specs
-.\scripts\dev.ps1 validate-examples
+.\scripts\dev.ps1 test          # Run all tests
+.\scripts\dev.ps1 test-cov      # Tests + coverage report
+.\scripts\dev.ps1 lint          # Ruff linting
+.\scripts\dev.ps1 format        # Auto-format code
+.\scripts\dev.ps1 typecheck     # Mypy strict type checking
+.\scripts\dev.ps1 ci            # Full CI pipeline (lint + typecheck + test-cov)
+.\scripts\dev.ps1 validate-examples  # Validate all example specs
 ```
 
-**Using uv directly**:
+**Direct commands** (cross-platform):
 
 ```bash
-# Run tests
-uv run pytest
-
-# Run tests with coverage
-uv run pytest --cov=src/strands_cli --cov-report=term-missing
-
-# Lint code
-uv run ruff check .
-
-# Auto-format code
-uv run ruff format .
-
-# Type check
-uv run mypy src
-
-# Run CLI locally
-uv run strands --help
-uv run strands validate examples/single-agent-chain-ollama.yaml
+uv run pytest                                           # Run tests
+uv run pytest --cov=src/strands_cli --cov-report=html  # Coverage report
+uv run ruff check .                                     # Lint
+uv run ruff format .                                    # Format
+uv run mypy src                                         # Type check
 ```
+
+### Code Quality Requirements
+
+Before committing, ensure all checks pass:
+
+```powershell
+.\scripts\dev.ps1 ci
+```
+
+**Requirements:**
+- ✅ Ruff linting (zero violations)
+- ✅ Mypy type checking (strict mode)
+- ✅ Pytest (all 795+ tests passing)
+- ✅ Coverage ≥83%
 
 ### Project Structure
 
 ```
 strands-cli/
 ├── src/strands_cli/          # Main package
-│   ├── __main__.py           # CLI entry point (Typer app)
-│   ├── config.py             # Pydantic Settings
+│   ├── __main__.py           # CLI entry point (Typer)
+│   ├── types.py              # Pydantic models
+│   ├── config.py             # Settings
 │   ├── exit_codes.py         # Exit code constants
-│   ├── types.py              # Pydantic models for specs
 │   ├── schema/               # JSON Schema validation
-│   │   └── validator.py      # Compile & validate with fastjsonschema
-│   ├── loader/               # YAML/JSON parsing & templating
-│   │   ├── yaml_loader.py    # Load & merge variables
+│   │   ├── strands-workflow.schema.json
+│   │   └── validator.py
+│   ├── loader/               # YAML/JSON parsing
+│   │   ├── yaml_loader.py
 │   │   └── template.py       # Jinja2 rendering
 │   ├── capability/           # MVP constraint checking
-│   │   ├── checker.py        # Validate MVP compatibility
-│   │   └── reporter.py       # Generate remediation reports
+│   │   ├── checker.py
+│   │   └── reporter.py
 │   ├── runtime/              # Provider adapters
-│   │   ├── providers.py      # Bedrock & Ollama clients
-│   │   ├── strands_adapter.py # Map Spec → Strands Agent
-│   │   └── tools.py          # Safe tool adapters
-│   ├── exec/                 # Workflow execution
-│   │   └── single_agent.py   # Single-agent orchestration
+│   │   ├── providers.py      # Bedrock/Ollama/OpenAI clients
+│   │   ├── strands_adapter.py
+│   │   └── tools.py          # Tool adapters
+│   ├── exec/                 # Workflow executors
+│   │   ├── single_agent.py
+│   │   ├── chain.py
+│   │   ├── workflow.py
+│   │   ├── routing.py
+│   │   ├── parallel.py
+│   │   ├── evaluator_optimizer.py
+│   │   ├── orchestrator_workers.py
+│   │   └── graph.py
 │   ├── artifacts/            # Output handling
-│   │   └── io.py             # Write artifacts with overwrite guards
-│   └── telemetry/            # Observability (scaffolding)
-│       └── otel.py           # OTEL no-op (ready for future)
-├── tests/                    # Test suite (177 tests, 88% coverage)
+│   │   └── io.py
+│   ├── telemetry/            # Observability
+│   │   ├── otel.py           # OpenTelemetry
+│   │   └── redaction.py      # PII scrubbing
+│   └── tools/                # Native tool registry
+│       ├── registry.py
+│       └── python_exec.py
+├── tests/                    # Test suite (795+ tests, 82% coverage)
 │   ├── conftest.py           # Shared fixtures
-│   ├── test_schema.py        # Schema validation tests
-│   ├── test_loader.py        # YAML/template tests
-│   ├── test_capability.py    # Capability checker tests
-│   ├── test_runtime.py       # Provider adapter tests
-│   ├── test_executor.py      # Execution & artifacts tests
-│   ├── test_e2e.py           # End-to-end workflow tests
-│   ├── test_cli.py           # CLI command tests
-│   └── fixtures/             # Test data
-│       ├── valid/            # Valid specs
-│       ├── invalid/          # Schema-invalid specs
-│       └── unsupported/      # MVP-unsupported specs
+│   ├── test_schema.py
+│   ├── test_loader.py
+│   ├── test_capability.py
+│   ├── test_runtime.py
+│   ├── test_chain.py
+│   ├── test_workflow.py
+│   ├── test_routing.py
+│   ├── test_parallel.py
+│   ├── test_evaluator_optimizer.py
+│   ├── test_orchestrator_workers.py
+│   ├── test_graph.py
+│   └── test_e2e.py
+├── examples/                 # 50+ workflow examples
 ├── docs/                     # Documentation
-│   ├── strands-workflow-manual.md    # Comprehensive spec manual
-│   ├── PRD_SingleAgent_MVP.md        # MVP requirements
-│   └── stack.md              # Dependency rationale
-├── src/strands_cli/schema/   # Schema validation (source of truth)
-│   ├── strands-workflow.schema.json  # Statically bundled with package
-│   └── validator.py          # JSON Schema validation
-├── examples/                 # Sample workflows
-│   ├── single-agent-chain-ollama.yaml
-│   ├── single-agent-chain-bedrock.yaml
-│   └── multi-agent-unsupported.yaml (for testing)
+│   ├── strands-workflow-manual.md
+│   ├── security.md
+│   ├── TOOL_DEVELOPMENT.md
+│   └── STREAMING_DESIGN.md
 ├── scripts/                  # Automation
 │   └── dev.ps1               # PowerShell dev workflow
-├── pyproject.toml            # Project config & dependencies
-└── README.md                 # This file
+├── pyproject.toml            # Project config
+├── README.md                 # This file
+├── CHANGELOG.md              # Version history
+└── CONTRIBUTING.md           # Contribution guidelines
 ```
 
-### Running Tests
+### Adding Features
 
-```bash
-# All tests
-uv run pytest
+1. **Update JSON Schema** (`src/strands_cli/schema/strands-workflow.schema.json`)
+2. **Update Pydantic models** (`src/strands_cli/types.py`)
+3. **Write tests first** (TDD approach)
+4. **Implement feature** (follow existing patterns)
+5. **Run CI pipeline** (`.\scripts\dev.ps1 ci`)
+6. **Update docs** (`README.md`, `CHANGELOG.md`)
+7. **Submit PR** (see [`CONTRIBUTING.md`](CONTRIBUTING.md))
 
-# Specific test class
-uv run pytest tests/test_e2e.py::TestOllamaE2E -v
+### Writing Native Tools
 
-# With coverage report
-uv run pytest --cov=src/strands_cli --cov-report=html
-# Open htmlcov/index.html
-
-# Watch mode (with pytest-watch)
-uv run ptw -- tests/
-```
-
-### Code Quality
-
-**Before committing**, ensure all checks pass:
-
-```powershell
-.\scripts\dev.ps1 ci
-```
-
-This runs:
-1. Ruff linting (zero violations)
-2. Mypy type checking (strict mode)
-3. Pytest with coverage (≥85% required)
-4. Example spec validation
-
-**Exit Codes**: See `src/strands_cli/exit_codes.py` for all exit codes (0, 2, 3, 10, 12, 18, 70).
-
-### Adding New Features
-
-1. **Update schema**: Edit `src/strands_cli/schema/strands-workflow.schema.json` (source of truth)
-2. **Update types**: Add Pydantic models in `src/strands_cli/types.py`
-4. **Write tests first**: Add fixtures and tests
-5. **Implement**: Follow existing patterns (see `CONTRIBUTING.md`)
-6. **Run CI**: `.\scripts\dev.ps1 ci`
-7. **Update docs**: Update `README.md`, `CHANGELOG.md`
-
-## Configuration
-
-Environment variables (prefix: `STRANDS_`):
-
-- `STRANDS_AWS_REGION`: AWS region for Bedrock (default: `us-east-1`)
-- `STRANDS_BEDROCK_MODEL_ID`: Default Bedrock model
-- `STRANDS_VERBOSE`: Enable verbose logging
-- `STRANDS_CONFIG_DIR`: Config directory (uses `platformdirs` by default)
-- `STRANDS_MAX_TRACE_SPANS`: Maximum spans in trace collector (default: `1000`). Increase for long workflows to prevent span eviction.
-
-### Context Management Presets
-
-Simplify context management configuration with predefined presets. Instead of manually configuring compaction, notes, and retrieval settings, use one of four presets optimized for common scenarios:
-
-**Available Presets:**
-
-- **`minimal`** - Compaction disabled (best for short workflows, 1-3 steps)
-- **`balanced`** - Standard settings (most workflows, 3-10 steps, 100K token threshold)
-- **`long_run`** - Optimized for research workflows (10+ steps, 80K threshold, notes + JIT tools enabled)
-- **`interactive`** - Chat-optimized (50K threshold, 16 recent messages preserved)
-
-**Example - Using presets in Python:**
+Create new tools in `src/strands_cli/tools/`:
 
 ```python
-from strands_cli.presets import get_context_preset
+"""My custom tool."""
 
-# Get a preset configuration
-policy = get_context_preset("long_run")
+from typing import Any
 
-# Apply to your spec
-spec.context_policy = policy
+# Required: Export TOOL_SPEC for auto-discovery
+TOOL_SPEC = {
+    "name": "my_tool",
+    "description": "What my tool does",
+    "inputSchema": {
+        "json": {
+            "type": "object",
+            "properties": {
+                "param": {"type": "string"}
+            },
+            "required": ["param"]
+        }
+    }
+}
+
+def my_tool(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    """Tool implementation."""
+    tool_use_id = tool.get("toolUseId", "")
+    tool_input = tool.get("input", {})
+    
+    try:
+        result = f"Processed: {tool_input.get('param')}"
+        return {
+            "toolUseId": tool_use_id,
+            "status": "success",
+            "content": [{"text": result}]
+        }
+    except Exception as e:
+        return {
+            "toolUseId": tool_use_id,
+            "status": "error",
+            "content": [{"text": str(e)}]
+        }
 ```
 
-**Example - Manual configuration:**
+See [`docs/TOOL_DEVELOPMENT.md`](docs/TOOL_DEVELOPMENT.md) for comprehensive guide.
 
-```yaml
-# Instead of manually configuring:
-context_policy:
-  compaction:
-    enabled: true
-    when_tokens_over: 80000
-    summary_ratio: 0.40
-    preserve_recent_messages: 20
-  notes:
-    file: "artifacts/notes.md"
-    include_last: 20
-  retrieval:
-    jit_tools: ["grep", "search", "head", "tail"]
+---
 
-# Simply reference the preset (future feature):
-context_preset: "long_run"
-```
+## Documentation
 
-Presets merge with existing configuration - your custom values take precedence. See `src/strands_cli/presets.py` for implementation details.
+### Core Documentation
 
-## Supported Workflow Features
+- **[Workflow Manual](docs/strands-workflow-manual.md)** - Comprehensive spec reference for all 7 patterns
+- **[Security Guide](docs/security.md)** - Threat model, attack examples, configuration
+- **[Tool Development](docs/TOOL_DEVELOPMENT.md)** - Native tool creation guide
+- **[Contributing](CONTRIBUTING.md)** - Development workflow and code conventions
+- **[Changelog](CHANGELOG.md)** - Version history and migration guides
 
-| Feature | Support | Notes |
-|---------|---------|-------|
-| **Agents** | Multiple agents | Single or multi-agent workflows |
-| **Patterns** | `chain`, `workflow`, `routing`, `parallel`, `evaluator_optimizer`, `graph` | All patterns fully supported |
-| **Providers** | `bedrock`, `ollama`, `openai` | Full authentication support |
-| **Python Tools** | Allowlist only | `strands_tools.http_request`, `strands_tools.file_read`, `strands_tools.file_write`, `strands_tools.calculator`, `strands_tools.current_time` (both old and new path formats supported) |
-| **HTTP Executors** | ✅ Full support | Timeout, retries, headers |
-| **Secrets** | `source: env` only | Secrets Manager/SSM → future |
-| **Skills** | Metadata injection | Code execution → future |
-| **Budgets** | ✅ Enforced | Cumulative token tracking with warnings/hard limits |
-| **Concurrency** | ✅ Semaphore control | Via `runtime.max_parallel` |
-| **Retries** | ✅ Exponential backoff | Configurable via `failure_policy` |
-| **Artifacts** | Template support | `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`, `{{ nodes.<id>.response }}`, `{{ $TRACE }}` |
-| **OTEL** | ✅ Full support | OTLP/Console exporters, trace artifacts, PII redaction |
+### Schema Reference
 
-### Unsupported Patterns (exit code 18)
-- Orchestrator-workers pattern
-- MCP tools (`tools.mcp`)
-- Guardrails enforcement
-- Context policy execution
+- **JSON Schema**: [`src/strands_cli/schema/strands-workflow.schema.json`](src/strands_cli/schema/strands-workflow.schema.json)
+- **Validation**: Draft 2020-12 with JSONPointer error reporting
 
-For unsupported features, the CLI exits with code 18 and generates a detailed remediation report.
+### Additional Resources
+
+- **Examples**: [`examples/`](examples/) - 50+ workflow specifications
+- **Stack Decisions**: [`docs/stack.md`](docs/stack.md) - Dependency rationale
+- **Streaming Design**: [`docs/STREAMING_DESIGN.md`](docs/STREAMING_DESIGN.md) - Future JIT tool improvements
+
+---
 
 ## Troubleshooting
 
-### Schema validation errors (exit code 3)
+### Schema Validation Errors (Exit Code 3)
 
 ```bash
+# Get detailed error with JSONPointer
 uv run strands validate workflow.yaml --verbose
 ```
 
-Check the error message for JSONPointer to exact location.
+**Common issues:**
+- Missing required fields (check schema for `required` array)
+- Type mismatches (e.g., string instead of array)
+- Unknown properties (schema uses `"additionalProperties": false`)
 
-### Unsupported features (exit code 18)
+### Unsupported Features (Exit Code 18)
 
 ```bash
+# Get remediation guidance
 uv run strands explain workflow.yaml
 ```
 
-Shows detailed remediation (e.g., "Reduce chain.steps to 1").
+**Common patterns:**
+- MCP tools → Use `http_executors` or Python tools
+- Custom patterns → Use one of the 7 supported patterns
+- Secrets Manager → Use `source: env`
 
-### Runtime errors (exit code 10)
+### Runtime Errors (Exit Code 10)
 
-- **Bedrock**: Verify AWS credentials: `aws sts get-caller-identity`
-- **Ollama**: Ensure Ollama is running: `ollama list`
+**Bedrock connectivity:**
+```bash
+# Verify AWS credentials
+aws sts get-caller-identity
 
-### Provider connection issues
+# Test Bedrock access
+aws bedrock list-foundation-models --region us-east-1
+```
+
+**Ollama connectivity:**
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Start Ollama
+ollama serve
+```
+
+**OpenAI connectivity:**
+```bash
+# Verify API key is set
+echo $OPENAI_API_KEY
+
+# Test API access
+curl https://api.openai.com/v1/models \
+  -H "Authorization: Bearer $OPENAI_API_KEY"
+```
+
+### Debugging Workflows
 
 ```bash
-# Test Bedrock connectivity
-aws bedrock-runtime invoke-model --model-id <model-id> --body '{"prompt":"test"}' /tmp/out
+# Enable debug logging
+uv run strands run workflow.yaml --debug --verbose
 
-# Test Ollama
-curl http://localhost:11434/api/tags
+# Generate trace artifact for inspection
+uv run strands run workflow.yaml --trace
+
+# Check execution plan before running
+uv run strands plan workflow.yaml
 ```
+
+### Health Check
+
+```bash
+# Run comprehensive diagnostics
+uv run strands doctor
+```
+
+---
+
+## Roadmap
+
+### Current Version (v0.11.0)
+
+✅ All 7 workflow patterns (chain, workflow, routing, parallel, evaluator-optimizer, orchestrator-workers, graph)  
+✅ Full OpenTelemetry tracing with OTLP export  
+✅ PII redaction and trace artifacts  
+✅ Multi-provider support (Bedrock, Ollama, OpenAI)  
+✅ Native tool registry with auto-discovery  
+✅ Comprehensive security controls  
+
+### In Progress
+
+🚧 MCP (Model Context Protocol) tools integration  
+🚧 Context management presets  
+🚧 JIT tools for dynamic codebase access  
+
+### Future
+
+🔮 Guardrails enforcement  
+🔮 Context policy execution  
+🔮 Streaming support for large files  
+🔮 Plugin system for custom executors  
+🔮 Web UI for workflow visualization  
+
+See [`CHANGELOG.md`](CHANGELOG.md) for detailed version history.
+
+---
+
+## Contributing
+
+We welcome contributions! Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
+
+- Development setup
+- Code style guidelines
+- Testing requirements
+- Pull request process
+- Architecture guidelines
+
+**Quick start:**
+
+```bash
+# Fork and clone
+git clone https://github.com/YOUR-USERNAME/strands-cli.git
+cd strands-cli
+
+# Install dev dependencies
+uv sync --dev
+
+# Run tests
+.\scripts\dev.ps1 ci
+
+# Submit PR
+```
+
+---
 
 ## License
 
-Apache-2.0
+Apache-2.0 License - see [`LICENSE`](LICENSE) for details.
+
+---
+
+## Acknowledgments
+
+Built with:
+- [Strands Agents SDK](https://github.com/awslabs/strands) - Agent framework
+- [Typer](https://typer.tiangolo.com/) - CLI framework
+- [Pydantic](https://docs.pydantic.dev/) - Data validation
+- [OpenTelemetry](https://opentelemetry.io/) - Observability
+- [Rich](https://rich.readthedocs.io/) - Terminal output
+
+---
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/ThomasRohde/strands-cli/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/ThomasRohde/strands-cli/discussions)
+- **Documentation**: [`docs/`](docs/)
+
+---
+
+<div align="center">
+
+**[⬆ Back to Top](#strands-cli)**
+
+Made with ❤️ by [Thomas Klok Rohde](https://github.com/ThomasRohde)
+
+</div>

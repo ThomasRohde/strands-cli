@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**strands-cli** is a Python 3.12+ CLI that executes declarative agentic workflows (YAML/JSON) on AWS Bedrock/Ollama/OpenAI with schema validation, observability scaffolding, and safe orchestration. Version 0.4.0 (287 tests, 83% coverage) supports **multi-agent workflows** with chain, workflow, routing, and parallel patterns.
+**strands-cli** is a Python 3.12+ CLI that executes declarative agentic workflows (YAML/JSON) on AWS Bedrock/Ollama/OpenAI with schema validation, observability scaffolding, and safe orchestration. Version 0.4.0 (287 tests, 83% coverage) supports **all 7 workflow patterns**: chain, workflow, routing, parallel, evaluator-optimizer, orchestrator-workers, and graph.
 
 **Key Design Principle**: Parse the full schema, but gracefully stop with actionable errors (exit code 18) on unsupported features rather than silently ignoring them.
 
@@ -45,6 +45,9 @@ src/strands_cli/
 │   ├── workflow.py       # Workflow/DAG pattern executor (async)
 │   ├── parallel.py       # Parallel pattern executor (async)
 │   ├── routing.py        # Routing pattern executor (async)
+│   ├── evaluator_optimizer.py  # Evaluator-optimizer pattern executor (async)
+│   ├── orchestrator.py   # Orchestrator-workers pattern executor (async)
+│   ├── graph.py          # Graph pattern executor (async)
 │   └── utils.py          # AgentCache and shared executor utilities
 ├── artifacts/
 │   └── io.py             # Write output files with overwrite guards
@@ -72,23 +75,30 @@ CLI run command
 
 ## Supported Workflow Features (MVP Scope)
 
-**MUST support**:
+**Fully Supported Workflow Patterns**:
+- **chain**: Sequential multi-step execution with single agent
+- **workflow**: Multi-task DAG execution with dependencies
+- **routing**: Dynamic agent selection based on classifier decisions
+- **parallel**: Concurrent branch execution with optional reduce step
+- **evaluator-optimizer**: Iterative refinement with evaluation feedback loop
+- **orchestrator-workers**: Orchestrator decomposes tasks, workers execute in parallel
+- **graph**: State machine with conditional transitions between nodes
+
+**Core Features**:
 - **Multiple agents** in `agents:` map with caching and reuse
-- Pattern types: `chain` (multi-step), `workflow` (multi-task DAG), `routing` (dynamic agent selection), `parallel` (concurrent branches with optional reduce)
-- Tools: `python` (allowlist: `strands_tools.http_request`, `strands_tools.file_read`), `http_executors`
+- Tools: `python` (allowlist: `strands_tools.http_request`, `strands_tools.file_read`), `http_executors`, native tools via registry
 - Runtime: `provider={bedrock|ollama|openai}`, `model_id`, `region`, budgets (enforced), retries (exponential backoff), `max_parallel` (semaphore control)
 - Inputs: `--var` overrides with Jinja2 templating
-- Outputs: `artifacts` with templating: `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`
+- Outputs: `artifacts` with templating: `{{ last_response }}`, `{{ steps[n].response }}`, `{{ tasks.<id>.response }}`, `{{ branches.<id>.response }}`, `{{ nodes.<id>.response }}`
 - Skills: inject `id/path` metadata into system prompt (no code exec)
 - Secrets: `source=env` only
 - **Performance**: Agent caching (AgentCache), model client pooling (@lru_cache), single event loop per workflow
 
-**MUST reject with EX_UNSUPPORTED (18)**:
-- `pattern.type` in `{orchestrator_workers, evaluator_optimizer, graph}`
+**Features parsed but not enforced (logged only)**:
 - Skills with executable assets
-- `security.guardrails` enforcement (parse but only log)
-- `context_policy` execution (parse but only log)
-- OTEL tracing activation (parse config but no-op for now)
+- `security.guardrails` enforcement
+- `context_policy` execution
+- OTEL tracing activation (scaffolding in place for future)
 
 ## Development Workflow (Critical Commands)
 
@@ -260,7 +270,7 @@ def create_model(runtime: Runtime) -> Model:
 - **Fixture organization**: All shared fixtures in `tests/conftest.py`
   - Valid specs: `minimal_ollama_spec`, `minimal_bedrock_spec`, `with_tools_spec`
   - Invalid: `missing_required_spec`, `invalid_provider_spec`, `malformed_spec`
-  - Unsupported: `orchestrator_pattern_spec`, `graph_pattern_spec`
+  - Pattern examples: `chain_spec`, `workflow_spec`, `routing_spec`, `parallel_spec`, `evaluator_optimizer_spec`, `orchestrator_spec`, `graph_spec`
 - **Mocking pattern**: Use `mocker` fixture from pytest-mock; see `tests/test_runtime.py`
 - **Test naming**: `test_<what>_<when>_<expected>` (e.g., `test_load_spec_with_invalid_yaml_raises_load_error`)
 - **Async tests**: Use `@pytest.mark.asyncio` for async executor tests

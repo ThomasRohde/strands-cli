@@ -1,0 +1,138 @@
+site_name: Strands CLI
+site_url: https://thomasrohde.github.io/strands-cli/
+site_description: Execute agentic workflows with strong observability and schema validation
+site_author: Thomas Klok Rohde
+repo_url: https://github.com/ThomasRohde/strands-cli
+repo_name: ThomasRohde/strands-cli
+edit_uri: edit/main/manual/
+
+docs_dir: manual
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.code.annotate
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - Quickstart (Ollama): tutorials/quickstart-ollama.md
+      - Quickstart (Bedrock): tutorials/quickstart-bedrock.md
+      - Quickstart (OpenAI): tutorials/quickstart-openai.md
+      - First Multi-Step Workflow: tutorials/first-multi-step.md
+  - How-To:
+      - Validate Workflows: howto/validate-workflows.md
+      - Run Workflows: howto/run-workflows.md
+      - Context Management: howto/context-management.md
+      - Telemetry: howto/telemetry.md
+      - Tools: howto/tools.md
+      - Secrets: howto/secrets.md
+      - Budgets: howto/budgets.md
+      - Patterns:
+          - Chain: howto/patterns/chain.md
+          - Workflow: howto/patterns/workflow.md
+          - Routing: howto/patterns/routing.md
+          - Parallel: howto/patterns/parallel.md
+          - Evaluator-Optimizer: howto/patterns/evaluator-optimizer.md
+          - Graph: howto/patterns/graph.md
+          - Orchestrator-Workers: howto/patterns/orchestrator-workers.md
+  - Explanation:
+      - Architecture: explanation/architecture.md
+      - Patterns: explanation/patterns.md
+      - Design Decisions: explanation/design-decisions.md
+      - Performance: explanation/performance.md
+      - Security Model: explanation/security-model.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Schema: reference/schema.md
+      - Exit Codes: reference/exit-codes.md
+      - Environment: reference/environment.md
+      - Examples: reference/examples.md
+      - API:
+          - Overview: reference/api/index.md
+          - Runtime: reference/api/runtime.md
+          - Execution: reference/api/exec.md
+          - Loader: reference/api/loader.md
+          - Schema: reference/api/schema.md
+          - Telemetry: reference/api/telemetry.md
+          - Tools: reference/api/tools.md
+          - Artifacts: reference/api/artifacts.md
+          - Visualization: reference/api/visualization.md
+          - Capability: reference/api/capability.md
+          - Types: reference/api/types.md
+          - Config: reference/api/config.md
+          - Exit Codes: reference/api/exit-codes.md
+          - Utils: reference/api/utils.md
+
+plugins:
+  - search:
+      lang: en
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            show_root_toc_entry: false
+            heading_level: 2
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      check_paths: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ThomasRohde/strands-cli

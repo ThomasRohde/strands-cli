@@ -61,3 +61,6 @@ Thumbs.db
 # Artifacts
 
 artifacts/
+
+# Manual
+site/
