@@ -1,3 +1,9 @@
+---
+title: Telemetry and Observability
+description: OpenTelemetry setup, trace exports, and PII redaction
+keywords: telemetry, observability, opentelemetry, otel, tracing, spans, otlp, pii redaction
+---
+
 # How to Use Telemetry and Observability
 
 This guide shows you how to enable OpenTelemetry tracing, export traces, enable debug logging, and redact PII in Strands workflows.

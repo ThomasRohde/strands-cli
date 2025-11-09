@@ -1,3 +1,9 @@
+---
+title: Working with Tools
+description: HTTP executors, Python tools, and file operations
+keywords: tools, http, python, file operations, mcp, tool use, function calling
+---
+
 # How to Work with Tools
 
 This guide shows you how to use tools in Strands workflows, including HTTP executors, Python tools, and file operations.

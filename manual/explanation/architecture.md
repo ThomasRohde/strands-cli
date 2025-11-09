@@ -1,3 +1,9 @@
+---
+title: Architecture Overview
+description: System design, components, and execution model of Strands CLI
+keywords: architecture, design, components, execution model, async, caching, performance, modules
+---
+
 # Architecture Overview
 
 This document explains the high-level architecture of Strands CLI, how components interact, and the execution model used for running agentic workflows.

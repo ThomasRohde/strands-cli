@@ -1,3 +1,9 @@
+---
+title: Validating Workflows
+description: Validate workflow specifications and fix schema errors
+keywords: validate, validation, schema, json schema, errors, debugging, troubleshooting
+---
+
 # How to Validate Workflows
 
 This guide shows you how to validate your Strands workflow specifications before execution.

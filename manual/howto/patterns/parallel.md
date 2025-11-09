@@ -1,3 +1,9 @@
+---
+title: Parallel Pattern
+description: Concurrent branch execution with optional reduce step
+keywords: parallel, pattern, concurrent, branches, reduce, fan-out, fan-in
+---
+
 # Parallel Pattern
 
 The Parallel pattern executes multiple independent branches concurrently, with an optional reduce step to aggregate results. This is ideal for scenarios where you need to perform similar operations on different data or gather multiple perspectives simultaneously.

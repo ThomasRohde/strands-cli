@@ -1,3 +1,9 @@
+---
+title: Building Your First Multi-Step Workflow
+description: Create a chain pattern workflow with context threading
+keywords: tutorial, multi-step, chain, context, variables, templates, getting started
+---
+
 # Building Your First Multi-Step Workflow
 
 This tutorial teaches you how to build powerful multi-step workflows using the **chain pattern**. You'll learn how to pass context between steps, transform data, and create complex AI-driven processes.

@@ -1,3 +1,9 @@
+---
+title: Quickstart with AWS Bedrock
+description: Get started with Strands CLI using AWS Bedrock for managed AI model execution
+keywords: aws, bedrock, quickstart, tutorial, claude, anthropic, amazon, credentials, iam
+---
+
 # Quickstart with AWS Bedrock
 
 This tutorial will guide you through setting up and running your first Strands workflow using AWS Bedrock, Amazon's managed service for foundation models. Bedrock provides enterprise-grade AI with built-in security, compliance, and scalability.

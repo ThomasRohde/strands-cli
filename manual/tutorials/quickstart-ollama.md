@@ -1,3 +1,9 @@
+---
+title: Quickstart with Ollama
+description: Get started with Strands CLI using Ollama for local AI model execution
+keywords: ollama, quickstart, tutorial, local llm, llama, mistral, installation, getting started
+---
+
 # Quickstart with Ollama
 
 This tutorial will guide you through setting up and running your first Strands workflow using Ollama, a local AI model runtime that lets you run large language models on your own hardware without API costs.
@@ -297,9 +303,27 @@ strands --help
 strands run --help
 ```
 
-## Further Reading
+## See Also
+
+**Next Steps:**
+
+- [First Multi-Step Workflow](first-multi-step.md) - Build a chain pattern workflow
+- [Quickstart with Bedrock](quickstart-bedrock.md) - Use AWS Bedrock instead
+- [Quickstart with OpenAI](quickstart-openai.md) - Use OpenAI models
+
+**How-To Guides:**
+
+- [Run Workflows](../howto/run-workflows.md) - Advanced execution options
+- [Validate Workflows](../howto/validate-workflows.md) - Schema validation techniques
+- [Working with Tools](../howto/tools.md) - Add tools to your agents
+
+**Reference:**
+
+- [CLI Reference](../reference/cli.md) - All available commands
+- [Schema Reference](../reference/schema.md) - Complete YAML spec
+- [Examples Catalog](../reference/examples.md) - Browse example workflows
+
+**External:**
 
 - [Ollama Model Library](https://ollama.com/library) - Browse available models
-- [Workflow Schema Reference](../reference/schema.md) - Complete YAML spec
-- [CLI Reference](../reference/cli.md) - All available commands
-- [Pattern Guide](../explanation/patterns.md) - Understanding workflow patterns
+- [Ollama Documentation](https://github.com/ollama/ollama) - Official Ollama docs

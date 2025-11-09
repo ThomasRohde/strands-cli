@@ -1,3 +1,9 @@
+---
+title: Workflow Pattern
+description: DAG-based parallel task execution with dependencies
+keywords: workflow, pattern, dag, directed acyclic graph, parallel, dependencies, tasks
+---
+
 # Workflow Pattern
 
 The Workflow pattern executes tasks as a Directed Acyclic Graph (DAG), enabling parallel execution of independent tasks while respecting dependencies. This is ideal for complex workflows where multiple tasks can run concurrently but some tasks depend on others completing first.

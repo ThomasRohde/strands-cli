@@ -1,3 +1,9 @@
+---
+title: Chain Pattern
+description: Sequential multi-step workflow execution with context threading
+keywords: chain, pattern, sequential, multi-step, pipeline, context, last_response
+---
+
 # Chain Pattern
 
 The Chain pattern executes a series of steps sequentially, where each step can access the results of previous steps. This is ideal for workflows that require ordered processing with context passing.

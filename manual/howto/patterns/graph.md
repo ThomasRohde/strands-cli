@@ -1,3 +1,9 @@
+---
+title: Graph Pattern
+description: State machine with conditional transitions between nodes
+keywords: graph, pattern, state machine, conditional, transitions, loops, nodes
+---
+
 # Graph Pattern
 
 The Graph pattern implements state machines with explicit control flow using nodes and conditional edges. Unlike other patterns, Graph gives you complete control over execution order through JMESPath conditions, enabling loops, branching, and complex decision trees. This is ideal for workflows requiring dynamic routing based on runtime conditions.

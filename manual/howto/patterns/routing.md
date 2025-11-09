@@ -1,3 +1,9 @@
+---
+title: Routing Pattern
+description: Dynamic agent selection based on input classification
+keywords: routing, pattern, classifier, dynamic, agent selection, conditional, branching
+---
+
 # Routing Pattern
 
 The Routing pattern dynamically selects the appropriate execution path based on input classification. A router agent analyzes the input and chooses which route to follow, then executes a sequence of steps specific to that route. This is ideal for scenarios where different inputs require different handling strategies.

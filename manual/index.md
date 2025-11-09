@@ -1,3 +1,9 @@
+---
+title: Home
+description: Execute declarative agentic workflows with strong observability and schema validation
+keywords: strands, cli, workflow, agent, llm, bedrock, ollama, openai, yaml, json schema, observability, telemetry
+---
+
 # Strands CLI Documentation
 
 Welcome to the **Strands CLI** documentation. Strands CLI is a powerful command-line tool for executing agentic workflows with strong observability, schema validation, and safe orchestration.

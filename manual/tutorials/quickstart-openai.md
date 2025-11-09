@@ -1,3 +1,9 @@
+---
+title: Quickstart with OpenAI
+description: Get started with Strands CLI using OpenAI API for GPT-4 and o1 models
+keywords: openai, quickstart, tutorial, gpt-4, gpt-4o, o1, api key, chatgpt
+---
+
 # Quickstart with OpenAI
 
 This tutorial will guide you through setting up and running your first Strands workflow using OpenAI's API. OpenAI provides access to powerful models like GPT-4o, GPT-4, and o1 with a simple pay-as-you-go pricing model.

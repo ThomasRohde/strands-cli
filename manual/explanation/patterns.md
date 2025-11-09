@@ -1,3 +1,9 @@
+---
+title: Pattern Philosophy
+description: Understanding when and why to use each workflow pattern
+keywords: patterns, workflow, chain, dag, routing, parallel, graph, orchestrator, evaluator, comparison
+---
+
 # Pattern Philosophy
 
 This document explains the conceptual foundation of workflow patterns in Strands CLI, why they exist, when to use each, and how to choose the right pattern for your use case.

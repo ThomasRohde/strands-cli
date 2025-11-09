@@ -94,6 +94,11 @@ nav:
 plugins:
   - search:
       lang: en
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+      pipeline:
+        - stemmer
+        - stopWordFilter
+        - trimmer
   - mkdocstrings:
       handlers:
         python:
@@ -105,6 +110,7 @@ plugins:
             heading_level: 2
   - literate-nav:
       nav_file: SUMMARY.md
+      implicit_index: true
   - section-index
   - minify:
       minify_html: true

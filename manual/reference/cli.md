@@ -1,3 +1,9 @@
+---
+title: CLI Reference
+description: Complete command-line interface reference for all Strands commands
+keywords: cli, command line, reference, run, validate, plan, explain, tools, version, commands
+---
+
 # CLI Reference
 
 Complete command-line interface reference for Strands CLI.

@@ -1,3 +1,9 @@
+---
+title: Context Management
+description: Manage workflow context with presets, notes, and JIT tools
+keywords: context, presets, notes, jit tools, context policy, compaction, minimal, balanced
+---
+
 # How to Manage Context
 
 This guide shows you how to manage conversation context in Strands workflows using presets, notes, JIT tools, and context compaction.
