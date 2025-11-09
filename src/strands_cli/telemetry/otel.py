@@ -547,3 +547,49 @@ def add_otel_context(logger: Any, method_name: str, event_dict: dict[str, Any]) 
         event_dict["trace_id"] = format(ctx.trace_id, "032x")
         event_dict["span_id"] = format(ctx.span_id, "016x")
     return event_dict
+
+
+def add_session_attributes(
+    session_id: str | None = None,
+    resumed: bool = False,
+    steps_skipped: int = 0,
+    checkpoint_count: int = 0,
+) -> None:
+    """Add session-specific attributes to current span.
+
+    Instruments workflow execution with session metrics for observability
+    and debugging. Call this from executors when session persistence is active.
+
+    Args:
+        session_id: Session ID if using session persistence
+        resumed: Whether execution was resumed from checkpoint
+        steps_skipped: Number of steps/tasks/branches skipped during resume
+        checkpoint_count: Number of checkpoints saved during execution
+
+    Example:
+        >>> from strands_cli.telemetry import add_session_attributes
+        >>> add_session_attributes(
+        ...     session_id="abc-123",
+        ...     resumed=True,
+        ...     steps_skipped=5,
+        ...     checkpoint_count=3
+        ... )
+    """
+    span = trace.get_current_span()
+    if span.get_span_context().is_valid:
+        if session_id:
+            span.set_attribute("session.id", session_id)
+        span.set_attribute("session.resumed", resumed)
+        if resumed:
+            span.set_attribute("session.steps_skipped", steps_skipped)
+        if checkpoint_count > 0:
+            span.set_attribute("session.checkpoint_count", checkpoint_count)
+
+        logger.debug(
+            "session_attributes_added",
+            session_id=session_id,
+            resumed=resumed,
+            steps_skipped=steps_skipped,
+            checkpoint_count=checkpoint_count,
+        )
+

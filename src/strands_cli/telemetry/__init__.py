@@ -6,6 +6,7 @@ from strands_cli.telemetry.otel import (
     NoOpTracerProvider,
     TraceCollector,
     add_otel_context,
+    add_session_attributes,
     configure_telemetry,
     force_flush_telemetry,
     get_trace_collector,
@@ -19,9 +20,11 @@ __all__ = [
     "NoOpTracerProvider",
     "TraceCollector",
     "add_otel_context",
+    "add_session_attributes",
     "configure_telemetry",
     "force_flush_telemetry",
     "get_trace_collector",
     "get_tracer",
     "shutdown_telemetry",
 ]
+

@@ -20,9 +20,8 @@ Implement session persistence and resume capabilities for Strands CLI workflows,
 5. **Human-in-the-Loop**: Natural pause points for approvals (future Phase 12)
 
 **Key Design Principles:**
-- Leverage Strands SDK's native `FileSessionManager` and `S3SessionManager`
-- File-based MVP for local development (Phase 1-2)
-- S3-based production support (Phase 3)
+- Leverage Strands SDK's native `FileSessionManager`
+- File-based storage for local and production use
 - Checkpoint after each step/task/branch/node completion
 - Idempotent resume logic (safe to resume multiple times)
 - Pattern-specific state serialization for all 7 workflow types
@@ -94,7 +93,7 @@ Session State = {
 ### Storage Architecture
 
 ```
-Phase 1-2 (MVP): File-based storage
+File-based storage:
 /.strands/sessions/
 ├── session_<uuid>/
 │   ├── session.json              # Session metadata
@@ -105,10 +104,6 @@ Phase 1-2 (MVP): File-based storage
 │       │   ├── agent.json        # Agent state
 │       │   └── messages/
 │       │       └── message_*.json
-
-Phase 3: S3-based storage
-s3://my-bucket/strands-sessions/
-└── <same structure as file-based>
 ```
 
 ---
@@ -774,13 +769,13 @@ async def test_chain_resume_after_step_2(mock_ollama, tmp_path):
 
 **Known Limitations:**
 - Only chain pattern supported; other patterns deferred to Phase 3
-- File-based storage only; S3 storage in Phase 4
+- File-based storage only
 - No concurrent execution safety (file locking in Phase 4)
 - Session cleanup not automated (manual via `sessions delete`)
 
 **Next Steps:**
 - Phase 3: Multi-pattern resume (workflow, parallel, routing, graph, etc.)
-- Phase 4: Production hardening (S3 storage, file locking, auto-cleanup)
+- Phase 4: Production hardening (file locking, auto-cleanup)
 
 ---
 
@@ -978,12 +973,11 @@ strands sessions pause <session-id>
 
 ---
 
-## Phase 4: Production Hardening & S3 Storage (Week 4)
+## Phase 4: Production Hardening (Week 4)
 
-**Goal:** Production-ready durability with S3 storage and advanced features
+**Goal:** Production-ready durability with advanced features
 
 **Deliverables:**
-- S3SessionRepository with boto3
 - Concurrent execution safety (file locking)
 - Session expiration and cleanup
 - Performance optimization (lazy loading)
@@ -991,63 +985,7 @@ strands sessions pause <session-id>
 
 ### Tasks
 
-#### 4.1 S3 Session Repository
-
-**File:** `src/strands_cli/session/s3_repository.py`
-
-```python
-"""S3-based session persistence repository."""
-
-import boto3
-from typing import Optional
-from strands_cli.session import SessionState
-
-class S3SessionRepository:
-    """S3-based session storage for production deployments.
-
-    Storage structure:
-        s3://{bucket}/{prefix}/session_{session_id}/
-        ├── session.json
-        ├── pattern_state.json
-        ├── spec_snapshot.yaml
-        └── agents/  # Managed by Strands SDK S3SessionManager
-    """
-
-    def __init__(
-        self,
-        bucket: str,
-        prefix: str = "strands-sessions",
-        region: str = "us-east-1"
-    ):
-        """Initialize S3 repository.
-
-        Args:
-            bucket: S3 bucket name
-            prefix: Key prefix for sessions
-            region: AWS region
-        """
-        self.bucket = bucket
-        self.prefix = prefix
-        self.s3 = boto3.client("s3", region_name=region)
-
-    def _session_key(self, session_id: str, filename: str) -> str:
-        """Get S3 key for session file."""
-        return f"{self.prefix}/session_{session_id}/{filename}"
-
-    def save(self, state: SessionState, spec_content: str) -> None:
-        """Save session to S3."""
-        # Similar to FileSessionRepository but using S3 PutObject
-        pass
-
-    def load(self, session_id: str) -> Optional[SessionState]:
-        """Load session from S3."""
-        # Similar to FileSessionRepository but using S3 GetObject
-        pass
-
-    # ... implement list_sessions, delete, exists
-```
-
-#### 4.2 Concurrent Execution Safety
+#### 4.1 Concurrent Execution Safety
 
 **File:** `src/strands_cli/session/locking.py`
 
@@ -1075,7 +1013,7 @@ def session_lock(session_dir: Path):
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 ```
 
-#### 4.3 Session Expiration and Cleanup
+#### 4.2 Session Expiration and Cleanup
 
 **File:** `src/strands_cli/session/cleanup.py`
 
@@ -1120,7 +1058,7 @@ Add cleanup command:
 strands sessions cleanup --max-age-days 7 --keep-completed
 ```
 
-#### 4.4 Auto-Resume on Failure
+#### 4.3 Auto-Resume on Failure
 
 **Feature:** Automatically resume on failure with `--auto-resume` flag
 
@@ -1154,7 +1092,7 @@ def run(
     ...
 ```
 
-#### 4.5 Performance Optimization
+#### 4.4 Performance Optimization
 
 **Lazy State Loading:**
 ```python
@@ -1175,7 +1113,7 @@ class LazySessionState:
         return self._pattern_state
 ```
 
-#### 4.6 Monitoring and Metrics
+#### 4.5 Monitoring and Metrics
 
 Add session metrics:
 ```python
@@ -1188,14 +1126,13 @@ span.set_attribute("session.checkpoint_count", checkpoint_count)
 
 ### Acceptance Criteria
 
-- [ ] S3SessionRepository works with boto3
 - [ ] File locking prevents concurrent session corruption
 - [ ] Session cleanup removes expired sessions
 - [ ] Auto-resume flag works correctly
 - [ ] Lazy loading improves performance for large sessions
 - [ ] Session metrics exported to telemetry
 - [ ] Documentation updated with production deployment guide
-- [ ] Tests cover S3 storage, locking, cleanup
+- [ ] Tests cover locking and cleanup
 - [ ] Coverage ≥85%
 
 ---
@@ -1222,14 +1159,12 @@ span.set_attribute("session.checkpoint_count", checkpoint_count)
 - Resume with spec changes (warn)
 - Auto-resume on failure
 - Concurrent execution with locking
-- S3 storage roundtrip
 - Session cleanup
 
 ### Performance Tests
 - Checkpoint overhead (<50ms per step)
 - Resume latency (<200ms for typical session)
 - Large session handling (1000+ steps)
-- S3 latency vs file storage
 
 ---
 
@@ -1255,14 +1190,13 @@ span.set_attribute("session.checkpoint_count", checkpoint_count)
 - Beta testing with internal users
 
 **Week 4 (Phase 4):**
-- S3 storage for production
+- File locking and cleanup for production
 - Production rollout with monitoring
 
 ### Feature Flags
 ```yaml
 # config.yaml or environment variables
 STRANDS_SESSION_ENABLED: true
-STRANDS_SESSION_STORAGE: file|s3
 STRANDS_SESSION_AUTO_CLEANUP: true
 STRANDS_SESSION_MAX_AGE_DAYS: 7
 ```
@@ -1311,7 +1245,7 @@ strands sessions cleanup --max-age-days 7
 - Architecture overview
 - Session state structure
 - Resume logic per pattern
-- Production deployment with S3
+- Production deployment
 - Troubleshooting guide
 
 ### Developer Documentation
@@ -1337,8 +1271,7 @@ strands sessions cleanup --max-age-days 7
 
 ### Access Control
 - File-based: Use OS file permissions (chmod 600)
-- S3-based: IAM policies for bucket access
-- **Mitigation:** Generate example IAM policies in docs
+- **Mitigation:** Document proper file permissions in deployment guide
 
 ### Session Tampering
 - Attacker could modify session files to inject malicious state
@@ -1359,7 +1292,7 @@ strands sessions cleanup --max-age-days 7
 | Workflow | 20 tasks | 40ms/task | 800ms (5%) |
 | Parallel | 5 branches | 50ms/branch | 250ms (4%) |
 
-### Resume Latency
+### Resume Latency (File-based Storage)
 | Pattern | Session Size | Load Time | Restore Time | Total |
 |---------|--------------|-----------|--------------|-------|
 | Chain | 10 steps | 50ms | 100ms | 150ms |
@@ -1379,7 +1312,6 @@ strands sessions cleanup --max-age-days 7
 | Session corruption on crash | Medium | High | Atomic writes, file locking, validation |
 | Strands SDK session API changes | Low | High | Pin SDK version, monitor releases |
 | Large session files (>100MB) | Low | Medium | Lazy loading, compression (gzip) |
-| S3 rate limiting | Low | Medium | Exponential backoff, caching |
 
 ### Schedule Risks
 
@@ -1397,7 +1329,7 @@ strands sessions cleanup --max-age-days 7
 - [ ] Phase 1: Session save/load with file storage works
 - [ ] Phase 2: Chain pattern resume tested with Ollama
 - [ ] Phase 3: All 7 patterns resume correctly
-- [ ] Phase 4: S3 storage tested in production-like environment
+- [ ] Phase 4: File locking and cleanup tested in production-like environment
 
 ### Quality Metrics
 - [ ] Test coverage ≥85% for session module
@@ -1416,13 +1348,10 @@ strands sessions cleanup --max-age-days 7
 
 ### Development Environment
 - Python ≥3.12
-- Strands SDK ≥1.0.0 (with FileSessionManager, S3SessionManager)
-- boto3 ≥1.28.0 (for S3 storage)
+- Strands SDK ≥1.0.0 (with FileSessionManager)
 - pytest-asyncio for async tests
 
 ### External Services
-- AWS S3 bucket (Phase 4)
-- IAM permissions for S3 access
 - Ollama server for integration tests
 
 ---

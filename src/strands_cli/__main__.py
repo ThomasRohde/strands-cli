@@ -493,6 +493,10 @@ def run(
         bool,
         typer.Option("--save-session/--no-save-session", help="Save session for resume (default: true)"),
     ] = True,
+    auto_resume: Annotated[
+        bool,
+        typer.Option("--auto-resume", help="Auto-resume from most recent failed/paused session if spec matches"),
+    ] = False,
 ) -> None:
     """Run a workflow from a YAML/JSON file or resume from saved session.
 
@@ -511,6 +515,12 @@ def run(
         4. Route to pattern-specific executor with session state
         5. Continue execution from last checkpoint
 
+    Execution flow (auto-resume):
+        1. Compute spec hash for provided spec_file
+        2. Search for most recent failed/paused session matching spec hash
+        3. If match found, automatically resume that session
+        4. If no match found, execute normally with new session
+
     Args:
         spec_file: Path to workflow specification file (.yaml, .yml, or .json) - required unless --resume
         var: CLI variable overrides in key=value format, merged into inputs.values
@@ -522,6 +532,7 @@ def run(
         verbose: Enable detailed logging and error traces
         resume: Resume from session ID (mutually exclusive with spec_file)
         save_session: Save session for resume capability (default: true)
+        auto_resume: Auto-resume from most recent failed/paused session if spec matches
 
     Exit Codes:
         EX_OK (0): Successful execution
@@ -557,6 +568,37 @@ def run(
             os.environ["BYPASS_TOOL_CONSENT"] = "true"
             if verbose:
                 console.print("[dim]BYPASS_TOOL_CONSENT enabled[/dim]")
+
+        # Auto-resume: Check for existing failed/paused session matching spec hash
+        if auto_resume and spec_file and not resume:
+            from strands_cli.session import SessionStatus
+            from strands_cli.session.file_repository import FileSessionRepository
+            from strands_cli.session.utils import compute_spec_hash
+
+            repo = FileSessionRepository()
+            spec_path = Path(spec_file)
+            
+            if spec_path.exists():
+                spec_hash = compute_spec_hash(spec_path)
+                sessions = asyncio.run(repo.list_sessions())
+                
+                # Find matching failed/paused sessions
+                matching = [
+                    s for s in sessions
+                    if s.spec_hash == spec_hash
+                    and s.status in (SessionStatus.FAILED, SessionStatus.PAUSED)
+                ]
+                
+                if matching:
+                    # Resume most recent matching session
+                    latest = max(matching, key=lambda s: s.updated_at)
+                    console.print(
+                        f"[yellow]Auto-resume detected:[/yellow] Session {latest.session_id[:12]}... "
+                        f"({latest.status.value}, updated {latest.updated_at})"
+                    )
+                    resume = latest.session_id
+                elif verbose:
+                    console.print("[dim]No matching failed/paused sessions found, starting fresh[/dim]")
 
         # Branch: Resume mode vs Normal mode
         if resume:
@@ -1268,6 +1310,68 @@ def sessions_delete(
     # Delete session
     asyncio.run(repo.delete(session_id))
     console.print(f"[green]✓[/green] Session deleted: {session_id[:12]}...")
+
+    sys.exit(EX_OK)
+
+
+@sessions_app.command("cleanup")
+def sessions_cleanup(
+    max_age_days: Annotated[
+        int,
+        typer.Option(help="Delete sessions older than this many days"),
+    ] = 7,
+    keep_completed: Annotated[
+        bool,
+        typer.Option(help="Keep completed sessions regardless of age"),
+    ] = True,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Skip confirmation prompt"),
+    ] = False,
+) -> None:
+    """Clean up expired workflow sessions.
+
+    Removes old sessions based on age to prevent storage bloat. By default,
+    keeps completed sessions for audit purposes and only removes failed/paused/running
+    sessions older than the specified age.
+
+    Examples:
+        strands sessions cleanup
+        strands sessions cleanup --max-age-days 30
+        strands sessions cleanup --max-age-days 7 --no-keep-completed
+        strands sessions cleanup --force
+    """
+    from strands_cli.session.cleanup import cleanup_expired_sessions
+    from strands_cli.session.file_repository import FileSessionRepository
+
+    repo = FileSessionRepository()
+
+    # Show what will be cleaned unless --force
+    if not force:
+        console.print(f"[yellow]Cleanup sessions older than {max_age_days} days[/yellow]")
+        if keep_completed:
+            console.print("[dim]Completed sessions will be preserved[/dim]")
+        else:
+            console.print("[dim]All sessions (including completed) will be cleaned[/dim]")
+        console.print()
+        confirm = typer.confirm("Continue?")
+        if not confirm:
+            console.print("[dim]Cancelled[/dim]")
+            sys.exit(EX_OK)
+
+    # Run cleanup
+    deleted_count = asyncio.run(
+        cleanup_expired_sessions(
+            repo,
+            max_age_days=max_age_days,
+            keep_completed=keep_completed,
+        )
+    )
+
+    if deleted_count > 0:
+        console.print(f"[green]✓[/green] Deleted {deleted_count} expired session(s)")
+    else:
+        console.print("[dim]No expired sessions found[/dim]")
 
     sys.exit(EX_OK)
 
