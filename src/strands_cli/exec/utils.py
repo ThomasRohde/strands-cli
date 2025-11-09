@@ -281,10 +281,13 @@ class AgentCache:
 
     def __init__(self) -> None:
         """Initialize empty agent cache."""
-        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, worker_index) -> Agent instance
+        # Cache key: (agent_id, frozenset(tool_ids), conversation_manager_type, worker_index, session_id) -> Agent instance
         # Notes are injected at invocation time (not build time), so they don't affect caching
         # Worker index ensures isolation for orchestrator-workers pattern
-        self._agents: dict[tuple[str, frozenset[str], str | None, int | None], Agent] = {}
+        # Session ID ensures isolation for resume mode (Phase 2)
+        self._agents: dict[
+            tuple[str, frozenset[str], str | None, int | None, str | None], Agent
+        ] = {}
 
         # Track HTTP executor tool modules separately for cleanup
         # Key: executor ID -> Module with _http_client
@@ -314,16 +317,17 @@ class AgentCache:
     ) -> Agent:
         """Get cached agent or build new one.
 
-        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type, worker_index).
-        If found, returns cached instance (cache hit). Otherwise, builds
+        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type, 
+        worker_index, session_id). If found, returns cached instance (cache hit). Otherwise, builds
         new agent and caches it (cache miss).
 
         Note: injected_notes is passed through to build_agent but NOT included in cache key,
-        as notes change per step. Agents are cached by identity and tools only.
+        as notes change per step. Agents are cached by identity, tools, and session.
 
         Phase 2 Addition:
         session_manager parameter enables agent conversation restoration from saved sessions.
         When provided, Strands SDK FileSessionManager restores message history for resume.
+        Session ID from session_manager is included in cache key to ensure proper isolation.
 
         Args:
             spec: Full workflow spec for agent construction
@@ -349,9 +353,15 @@ class AgentCache:
         # Include conversation manager type in cache key to prevent collisions
         cm_type = type(conversation_manager).__name__ if conversation_manager else None
 
-        # Create cache key including worker_index for orchestrator-workers isolation
+        # Extract session_id from session_manager for cache key (Phase 2)
+        session_id = None
+        if session_manager:
+            # FileSessionManager has session_id attribute
+            session_id = getattr(session_manager, "session_id", None)
+
+        # Create cache key including session_id for resume mode isolation (Phase 2)
         # Notes are excluded - they're injected at invocation time, not build time
-        cache_key = (agent_id, tools_key, cm_type, worker_index)
+        cache_key = (agent_id, tools_key, cm_type, worker_index, session_id)
 
         # Check cache
         if cache_key in self._agents:
@@ -361,6 +371,7 @@ class AgentCache:
                 tools=sorted(tools_key) if tools_key else None,
                 conversation_manager=cm_type,
                 worker_index=worker_index,
+                session_id=session_id,
             )
             return self._agents[cache_key]
 
@@ -371,6 +382,7 @@ class AgentCache:
             tools=sorted(tools_key) if tools_key else None,
             conversation_manager=cm_type,
             worker_index=worker_index,
+            session_id=session_id,
         )
 
         # Pass self to build_agent so it can track MCP clients

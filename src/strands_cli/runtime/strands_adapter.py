@@ -480,6 +480,7 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
             tools=tools if tools else None,
             conversation_manager=conversation_manager,
             hooks=hooks,
+            session_manager=session_manager,  # Phase 2: session restoration
         )
     except Exception as e:
         raise AdapterError(f"Failed to create Strands Agent: {e}") from e

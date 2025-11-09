@@ -50,7 +50,7 @@ strands run [OPTIONS] SPEC_FILE
 
 **Arguments**:
 
-- `SPEC_FILE` - Path to the YAML/JSON workflow specification file (required)
+- `SPEC_FILE` - Path to the YAML/JSON workflow specification file (optional when using --resume)
 
 **Options**:
 
@@ -59,14 +59,22 @@ strands run [OPTIONS] SPEC_FILE
 - `--format [json|text]` - Output format for results (default: `text`)
 - `--force` - Force overwrite existing artifact files
 - `--trace` - Enable trace artifact generation
+- `--resume SESSION_ID` - Resume workflow from saved session (mutually exclusive with SPEC_FILE)
+- `--save-session / --no-save-session` - Enable/disable session saving (default: enabled)
 - `--debug` - Enable debug logging
 - `--verbose` - Enable verbose output
 
 **Examples**:
 
 ```bash
-# Basic execution
+# Basic execution (creates session by default)
 strands run workflow.yaml
+
+# Resume from saved session
+strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# Disable session saving
+strands run workflow.yaml --no-save-session
 
 # With variable overrides
 strands run workflow.yaml --var topic="AI" --var format="markdown"
@@ -266,6 +274,114 @@ Displays:
 - Tool registry status
 - Configuration directory
 - System diagnostics
+
+---
+
+### sessions
+
+Manage workflow sessions for crash recovery and resume functionality.
+
+```bash
+strands sessions COMMAND [OPTIONS]
+```
+
+**Subcommands**:
+
+- `list` - List all saved sessions
+- `show SESSION_ID` - Show detailed session information
+- `delete SESSION_ID` - Delete a saved session
+
+---
+
+#### sessions list
+
+List all saved workflow sessions.
+
+```bash
+strands sessions list [OPTIONS]
+```
+
+**Options**:
+
+- `--status [running|paused|completed|failed]` - Filter sessions by status
+- `--verbose` - Show extended session information
+
+**Examples**:
+
+```bash
+# List all sessions
+strands sessions list
+
+# Show only running sessions
+strands sessions list --status running
+
+# Show only completed sessions
+strands sessions list --status completed
+```
+
+**Output**: Rich table with session ID, workflow name, pattern type, status, and last updated timestamp.
+
+---
+
+#### sessions show
+
+Display detailed information about a specific session.
+
+```bash
+strands sessions show SESSION_ID
+```
+
+**Arguments**:
+
+- `SESSION_ID` - Session ID to inspect (full UUID)
+
+**Examples**:
+
+```bash
+# Show session details
+strands sessions show a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+**Output**: Panel with complete session metadata including:
+- Session ID and workflow name
+- Pattern type and execution status
+- Created/updated timestamps
+- Variables and runtime configuration
+- Token usage breakdown
+- Pattern-specific execution state
+
+---
+
+#### sessions delete
+
+Delete a saved workflow session.
+
+```bash
+strands sessions delete [OPTIONS] SESSION_ID
+```
+
+**Arguments**:
+
+- `SESSION_ID` - Session ID to delete (full UUID)
+
+**Options**:
+
+- `--force` - Skip confirmation prompt
+
+**Examples**:
+
+```bash
+# Delete session (with confirmation)
+strands sessions delete a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# Delete without confirmation
+strands sessions delete a1b2c3d4-e5f6-7890-abcd-ef1234567890 --force
+```
+
+**Exit Codes**:
+
+- `0` - Success (session deleted)
+- `2` - Invalid usage (session not found)
 
 ---
 

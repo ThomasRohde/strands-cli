@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 2 (Durable Execution - Chain Pattern Resume)
+
+#### Session Persistence
+- **Session save/load infrastructure** - Foundation for crash recovery and long-running workflows
+  - New module: `session/` with Pydantic models for session state management
+  - `SessionState`, `SessionMetadata`, `SessionStatus`, `TokenUsage` models
+  - `FileSessionRepository` for file-based session persistence
+  - Session storage in `~/.strands/sessions/session_<uuid>/` directory
+  - Atomic session save with metadata, pattern state, and spec snapshot
+  - Session ID generation with `generate_session_id()` utility
+  - Spec hash validation with `compute_spec_hash()` for change detection
+
+#### Chain Pattern Resume
+- **`--resume <session-id>` flag** - Resume chain workflows from checkpoint
+  - New CLI flag in `run` command for session resumption
+  - `--save-session`/`--no-save-session` flag to control session creation (default: enabled)
+  - `run_resume()` function in `session/resume.py` module
+  - Loads session state and routes to pattern-specific executor
+  - Validates session status (prevents resuming completed sessions)
+  - Warns if spec file has changed since session creation
+
+- **Chain executor checkpointing** - Automatic state preservation after each step
+  - Modified `run_chain()` signature to accept optional `session_state` and `session_repo` parameters
+  - Step skipping logic: resume from `current_step` index, skip completed work
+  - Checkpoint saved after each step completion with updated pattern state
+  - Token usage accumulation across resume sessions
+  - Session status transitions: RUNNING → COMPLETED
+  - `pattern_state` structure: `current_step`, `step_history` with responses and token counts
+
+- **Agent conversation restoration** - Full conversation history preserved
+  - Updated `AgentCache.get_or_build_agent()` with `session_id` parameter
+  - Integration with Strands SDK `FileSessionManager` for agent session persistence
+  - Session ID format: `<session_uuid>_<agent_id>` for per-agent storage
+  - Agent messages and state restored from `agents/` subdirectory
+  - Cache key includes session_id to prevent incorrect agent reuse
+
+#### Session Management CLI
+- **`strands sessions` command group** - Manage saved sessions
+  - `sessions list` - List all sessions with filtering by status
+  - `sessions show <id>` - Display detailed session information
+  - `sessions delete <id>` - Delete session with confirmation prompt
+  - `--force` flag for delete command to skip confirmation
+  - Rich table output for session list with truncated UUIDs
+  - JSON-formatted session details in show command
+
+#### Testing & Documentation
+- **Integration test suite** - Comprehensive chain resume testing
+  - New file: `tests/test_chain_resume.py` with 10 integration tests
+  - Tests cover: fresh execution, resume after steps 1/2, agent restoration, token accumulation
+  - Checkpoint validation, session status transitions, parameter validation
+  - Test coverage: 80% overall (session module: 98%)
+
+- **Example workflow** - Resume demonstration
+  - New file: `examples/chain-3-step-resume-demo.yaml`
+  - 3-step chain: researcher → analyst → writer
+  - Manual testing instructions for crash simulation and resume
+
+- **Documentation updates** - User and developer guides
+  - Updated `README.md` with Durable Execution section
+  - Updated `DURABLE.md` with Phase 2 completion status
+  - New manual pages: `manual/howto/session-management.md`, `manual/reference/session-api.md`
+  - Session architecture diagrams and storage structure documentation
+
 ## [0.10.0] - 2025-11-09
 
 ### Fixed - Phase 10.1 Production Hardening

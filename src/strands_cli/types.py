@@ -851,6 +851,8 @@ class RunResult(BaseModel):
         duration_seconds: Total execution time
         artifacts_written: Paths to generated artifact files
         execution_context: Additional context for artifact templating (steps, tasks, etc.)
+        spec: Optional workflow spec (attached during resume for artifact writing)
+        variables: Optional user variables (attached during resume for artifact writing)
     """
 
     success: bool
@@ -863,3 +865,5 @@ class RunResult(BaseModel):
     duration_seconds: float
     artifacts_written: list[str] = Field(default_factory=list)
     execution_context: dict[str, Any] = Field(default_factory=dict)
+    spec: "Spec | None" = None  # Attached during resume for artifact writing
+    variables: dict[str, Any] | None = None  # Attached during resume for artifact writing

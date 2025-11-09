@@ -623,3 +623,161 @@ async def test_agent_cache_notes_not_in_key() -> None:
         assert agent1 is agent3  # Same agent instance
 
         await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_session_manager_creates_unique_cache_keys() -> None:
+    """Test that agents with different session managers have separate cache entries (Phase 2)."""
+    spec = Spec(
+        version=0,
+        name="test-session-cache",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent": AgentConfig(prompt="Test")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    # Mock session managers with different session_ids
+    session_manager_1 = MagicMock()
+    session_manager_1.session_id = "session-123_agent"
+
+    session_manager_2 = MagicMock()
+    session_manager_2.session_id = "session-456_agent"
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent_1 = MagicMock()
+        mock_agent_2 = MagicMock()
+        mock_build.side_effect = [mock_agent_1, mock_agent_2]
+
+        cache = AgentCache()
+
+        # Build agent with session_manager_1
+        agent1 = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+            session_manager=session_manager_1,
+        )
+        assert mock_build.call_count == 1
+        assert agent1 is mock_agent_1
+
+        # Build agent with session_manager_2 (different session_id)
+        # Should create a NEW cache entry
+        agent2 = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+            session_manager=session_manager_2,
+        )
+        assert mock_build.call_count == 2  # Two separate builds
+        assert agent2 is mock_agent_2
+        assert agent1 is not agent2  # Different agent instances
+
+        # Verify both are cached (2 entries)
+        assert len(cache._agents) == 2
+
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_same_session_manager_returns_cached_agent() -> None:
+    """Test that agents with the same session manager are cached together (Phase 2)."""
+    spec = Spec(
+        version=0,
+        name="test-session-cache",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent": AgentConfig(prompt="Test")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    # Mock session manager
+    session_manager = MagicMock()
+    session_manager.session_id = "session-123_agent"
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent = MagicMock()
+        mock_build.return_value = mock_agent
+
+        cache = AgentCache()
+
+        # Build agent with session_manager
+        agent1 = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+            session_manager=session_manager,
+        )
+        assert mock_build.call_count == 1
+        assert agent1 is mock_agent
+
+        # Build agent with same session_manager
+        # Should reuse cached agent
+        agent2 = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+            session_manager=session_manager,
+        )
+        assert mock_build.call_count == 1  # Still 1 - agent reused
+        assert agent1 is agent2  # Same agent instance
+
+        # Verify only one cache entry
+        assert len(cache._agents) == 1
+
+        await cache.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_cache_none_session_manager_separate_from_session() -> None:
+    """Test that agents with session_manager=None are separate from those with session (Phase 2)."""
+    spec = Spec(
+        version=0,
+        name="test-session-cache",
+        runtime=Runtime(provider=ProviderType.OLLAMA, host="http://localhost:11434"),
+        agents={"agent": AgentConfig(prompt="Test")},
+        pattern={"type": "chain", "config": {"steps": []}},
+    )
+
+    # Mock session manager
+    session_manager = MagicMock()
+    session_manager.session_id = "session-123_agent"
+
+    with patch("strands_cli.exec.utils.build_agent") as mock_build:
+        mock_agent_fresh = MagicMock()
+        mock_agent_session = MagicMock()
+        mock_build.side_effect = [mock_agent_fresh, mock_agent_session]
+
+        cache = AgentCache()
+
+        # Build agent without session (fresh execution)
+        agent_fresh = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+            session_manager=None,
+        )
+        assert mock_build.call_count == 1
+        assert agent_fresh is mock_agent_fresh
+
+        # Build agent with session manager (resume execution)
+        # Should create a NEW cache entry
+        agent_session = await cache.get_or_build_agent(
+            spec,
+            "agent",
+            spec.agents["agent"],
+            worker_index=None,
+            session_manager=session_manager,
+        )
+        assert mock_build.call_count == 2  # Two separate builds
+        assert agent_session is mock_agent_session
+        assert agent_fresh is not agent_session  # Different instances
+
+        # Verify both are cached (2 entries: one for None, one for session_id)
+        assert len(cache._agents) == 2
+
+        await cache.close()
+

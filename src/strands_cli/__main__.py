@@ -27,6 +27,8 @@ Key Design:
 
 import asyncio
 import json
+import logging
+import os
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -44,6 +46,7 @@ from strands_cli.capability import (
     check_capability,
     generate_markdown_report,
 )
+from strands_cli.config import StrandsConfig
 from strands_cli.exec.chain import ChainExecutionError, run_chain
 
 # Import executors
@@ -61,12 +64,18 @@ from strands_cli.exit_codes import (
     EX_OK,
     EX_RUNTIME,
     EX_SCHEMA,
+    EX_SESSION,
     EX_UNKNOWN,
     EX_UNSUPPORTED,
+    EX_USAGE,
 )
-from strands_cli.config import StrandsConfig
 from strands_cli.loader import LoadError, load_spec, parse_variables
 from strands_cli.schema import SchemaValidationError
+from strands_cli.session import (
+    SessionAlreadyCompletedError,
+    SessionError,
+    SessionNotFoundError,
+)
 from strands_cli.telemetry import add_otel_context, configure_telemetry, shutdown_telemetry
 from strands_cli.types import PatternType, RunResult, Spec
 
@@ -74,9 +83,6 @@ from strands_cli.types import PatternType, RunResult, Spec
 config = StrandsConfig()
 
 # Determine log level (INFO by default, DEBUG when STRANDS_DEBUG=true)
-import logging
-import os
-
 log_level_str = os.environ.get("STRANDS_DEBUG", "").lower()
 min_level = logging.DEBUG if log_level_str == "true" else logging.INFO
 
@@ -119,6 +125,8 @@ structlog.configure(
     ],
     logger_factory=structlog.PrintLoggerFactory(),
 )
+
+logger = structlog.get_logger(__name__)
 
 # Combine execution errors for exception handling
 ExecutionError = (
@@ -457,7 +465,7 @@ def version() -> None:
 
 @app.command()
 def run(
-    spec_file: Annotated[str, typer.Argument(help="Path to workflow YAML/JSON file")],
+    spec_file: Annotated[str | None, typer.Argument(help="Path to workflow YAML/JSON file (required unless --resume)")] = None,
     var: Annotated[
         list[str] | None, typer.Option("--var", help="Variable override (key=value)")
     ] = None,
@@ -480,10 +488,15 @@ def run(
         typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
     ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
+    resume: Annotated[str | None, typer.Option("--resume", "-r", help="Resume from session ID")] = None,
+    save_session: Annotated[
+        bool,
+        typer.Option("--save-session/--no-save-session", help="Save session for resume (default: true)"),
+    ] = True,
 ) -> None:
-    """Run a single-agent workflow from a YAML or JSON file.
+    """Run a workflow from a YAML/JSON file or resume from saved session.
 
-    Execution flow:
+    Execution flow (normal):
         1. Load and validate spec against JSON Schema
         2. Check capability compatibility (single agent, supported patterns)
         3. If unsupported features detected, generate remediation report and exit
@@ -491,26 +504,46 @@ def run(
         5. Execute workflow with retry logic for transient errors
         6. Write output artifacts using template rendering
 
+    Execution flow (resume):
+        1. Load session state from FileSessionRepository
+        2. Validate session status (can't resume COMPLETED sessions)
+        3. Load spec from snapshot file and verify spec hash
+        4. Route to pattern-specific executor with session state
+        5. Continue execution from last checkpoint
+
     Args:
-        spec_file: Path to workflow specification file (.yaml, .yml, or .json)
+        spec_file: Path to workflow specification file (.yaml, .yml, or .json) - required unless --resume
         var: CLI variable overrides in key=value format, merged into inputs.values
         out: Output directory for artifacts (default: ./artifacts)
         force: Overwrite existing artifact files without error
         bypass_tool_consent: Skip interactive tool confirmations (e.g., file_write prompts)
         trace: Auto-generate trace artifact with OTEL spans (writes <spec-name>-trace.json)
+        debug: Enable debug logging (variable resolution, templates, etc.)
         verbose: Enable detailed logging and error traces
+        resume: Resume from session ID (mutually exclusive with spec_file)
+        save_session: Save session for resume capability (default: true)
 
     Exit Codes:
         EX_OK (0): Successful execution
+        EX_USAGE (2): Invalid arguments (both spec_file and --resume specified)
         EX_SCHEMA (3): Schema validation failed
         EX_RUNTIME (10): Provider/model/tool runtime error
         EX_IO (12): Artifact write failure
+        EX_SESSION (17): Session not found or already completed
         EX_UNSUPPORTED (18): Unsupported features detected (report written)
         EX_UNKNOWN (70): Unexpected exception
     """
     import os
 
     try:
+        # Validate mutual exclusivity of spec_file and --resume
+        if resume and spec_file:
+            console.print("[red]Error:[/red] Cannot specify both spec_file and --resume")
+            sys.exit(EX_USAGE)
+        if not resume and not spec_file:
+            console.print("[red]Error:[/red] Must specify either spec_file or --resume")
+            sys.exit(EX_USAGE)
+
         # Configure debug logging level
         if debug:
             os.environ["STRANDS_DEBUG"] = "true"
@@ -525,11 +558,75 @@ def run(
             if verbose:
                 console.print("[dim]BYPASS_TOOL_CONSENT enabled[/dim]")
 
+        # Branch: Resume mode vs Normal mode
+        if resume:
+            # Resume mode: load session and continue execution
+            from strands_cli.session.resume import run_resume
+
+            try:
+                result = asyncio.run(
+                    run_resume(
+                        session_id=resume,
+                        debug=debug,
+                        verbose=verbose,
+                        trace=trace,
+                    )
+                )
+
+                if not result.success:
+                    console.print(f"\n[red]Resume failed:[/red] {result.error}")
+                    sys.exit(EX_RUNTIME)
+
+                # Write any remaining artifacts
+                if result.spec and result.spec.outputs and result.spec.outputs.artifacts:
+                    written_files = _write_and_report_artifacts(
+                        result.spec, result, out, force, result.variables
+                    )
+                    result.artifacts_written.extend(written_files)
+
+                # Generate trace artifact if --trace flag is set
+                if trace and result.spec:
+                    trace_file = _write_trace_artifact(result.spec, out, force)
+                    if trace_file:
+                        result.artifacts_written.append(trace_file)
+
+                # Show success summary
+                console.print("\n[bold green]✓ Workflow resumed successfully[/bold green]")
+                console.print(f"Duration: {result.duration_seconds:.2f}s")
+
+                if result.artifacts_written:
+                    console.print("\nArtifacts written:")
+                    for artifact in result.artifacts_written:
+                        console.print(f"  • [cyan]{artifact}[/cyan]")
+
+                # Shutdown telemetry and flush pending spans
+                shutdown_telemetry()
+                sys.exit(EX_OK)
+
+            except SessionNotFoundError as e:
+                console.print(f"[red]Session not found:[/red] {e}")
+                console.print("\n[dim]Use 'strands list-sessions' to see available sessions[/dim]")
+                sys.exit(EX_SESSION)
+            except SessionAlreadyCompletedError as e:
+                console.print(f"[yellow]Session already completed:[/yellow] {e}")
+                console.print("\n[dim]Start a new workflow or resume a different session[/dim]")
+                sys.exit(EX_SESSION)
+            except SessionError as e:
+                console.print(f"[red]Session error:[/red] {e}")
+                sys.exit(EX_SESSION)
+            except Exception as e:
+                console.print(f"\n[red]Resume failed:[/red] {e}")
+                if verbose:
+                    console.print_exception()
+                sys.exit(EX_RUNTIME)
+
+        # Normal mode: load spec and execute (with optional session saving)
+
         # Parse variables
         variables = parse_variables(var) if var else {}
 
         # Load and validate spec
-        spec, spec_path = _load_and_validate_spec(spec_file, variables, verbose)
+        spec, spec_path = _load_and_validate_spec(spec_file, variables, verbose)  # type: ignore
 
         # Check capability compatibility
         capability_report = check_capability(spec)
@@ -541,7 +638,49 @@ def run(
         if spec.telemetry:
             configure_telemetry(spec.telemetry.model_dump() if spec.telemetry else None)
 
-        # Execute workflow
+        # Create session if save_session is enabled
+        session_id = None
+        if save_session:
+            from strands_cli.session import SessionMetadata, SessionState, SessionStatus, TokenUsage
+            from strands_cli.session.file_repository import FileSessionRepository
+            from strands_cli.session.utils import (
+                compute_spec_hash,
+                generate_session_id,
+                now_iso8601,
+            )
+
+            session_id = generate_session_id()
+            repo = FileSessionRepository()
+
+            # Initialize session state
+            session_state = SessionState(
+                metadata=SessionMetadata(
+                    session_id=session_id,
+                    workflow_name=spec.name,
+                    spec_hash=compute_spec_hash(spec_path),
+                    pattern_type=spec.pattern.type.value,
+                    status=SessionStatus.RUNNING,
+                    created_at=now_iso8601(),
+                    updated_at=now_iso8601(),
+                ),
+                variables=variables or {},
+                runtime_config=spec.runtime.model_dump(),
+                pattern_state={},  # Pattern-specific state initialized by executor
+                token_usage=TokenUsage(),
+            )
+
+            # Save initial state with spec snapshot
+            spec_content = spec_path.read_text(encoding="utf-8")
+            asyncio.run(repo.save(session_state, spec_content))
+
+            logger.info("session_created", session_id=session_id, spec_name=spec.name)
+            if verbose:
+                console.print(f"[dim]Session ID: {session_id}[/dim]")
+        else:
+            session_state = None
+            repo = None
+
+        # Execute workflow (with session support if enabled)
         result = _dispatch_executor(spec, variables, verbose)
 
         if not result.success:
@@ -898,6 +1037,237 @@ def list_supported() -> None:
     console.print("\n[dim]For the full schema and roadmap, see:[/dim]")
     console.print("[dim]  src/strands_cli/schema/strands-workflow.schema.json[/dim]")
     console.print("[dim]  PLAN.md - Multi-agent roadmap[/dim]")
+
+    sys.exit(EX_OK)
+
+
+# Session management sub-commands
+sessions_app = typer.Typer(
+    name="sessions",
+    help="Manage workflow sessions for resume capability",
+    add_completion=False,
+)
+app.add_typer(sessions_app, name="sessions")
+
+
+@sessions_app.command("list")
+def sessions_list(
+    status: Annotated[
+        str | None,
+        typer.Option(help="Filter by status (running|paused|completed|failed)"),
+    ] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """List all saved workflow sessions.
+
+    Displays sessions stored in the local filesystem (~/.strands/sessions/),
+    showing key metadata like session ID, workflow name, pattern type, status,
+    and last update time.
+
+    Filter by status to find sessions that can be resumed (running/paused)
+    or view completed/failed sessions for cleanup.
+
+    Examples:
+        strands sessions list
+        strands sessions list --status running
+        strands sessions list --status completed -v
+    """
+    from strands_cli.session import SessionStatus
+    from strands_cli.session.file_repository import FileSessionRepository
+
+    repo = FileSessionRepository()
+
+    # Load sessions (async call wrapped in asyncio.run)
+    sessions = asyncio.run(repo.list_sessions())
+
+    # Filter by status if provided
+    if status:
+        try:
+            status_filter = SessionStatus(status.lower())
+            sessions = [s for s in sessions if s.status == status_filter]
+        except ValueError:
+            console.print(f"[red]Invalid status:[/red] {status}")
+            console.print("Valid values: running, paused, completed, failed")
+            sys.exit(EX_USAGE)
+
+    if not sessions:
+        if status:
+            console.print(f"[dim]No sessions found with status '{status}'[/dim]")
+        else:
+            console.print("[dim]No sessions found[/dim]")
+        console.print()
+        console.print("[dim]Sessions are saved automatically when running workflows.[/dim]")
+        console.print("[dim]Use 'strands run <spec> --save-session' to create sessions.[/dim]")
+        sys.exit(EX_OK)
+
+    # Sort by updated_at descending (most recent first)
+    sessions.sort(key=lambda s: s.updated_at, reverse=True)
+
+    # Display as table
+    table = Table(title=f"Workflow Sessions ({len(sessions)} total)")
+    table.add_column("Session ID", style="cyan", no_wrap=True)
+    table.add_column("Workflow", style="green")
+    table.add_column("Pattern", style="blue")
+    table.add_column("Status", style="yellow")
+    table.add_column("Updated", style="dim")
+
+    for session in sessions:
+        # Truncate session ID unless verbose
+        session_id_display = session.session_id if verbose else session.session_id[:12] + "..."
+
+        # Format timestamp (show full if verbose, date only if not)
+        timestamp_display = session.updated_at if verbose else session.updated_at.split("T")[0]
+
+        # Color status
+        status_color = {
+            SessionStatus.RUNNING: "yellow",
+            SessionStatus.PAUSED: "blue",
+            SessionStatus.COMPLETED: "green",
+            SessionStatus.FAILED: "red",
+        }.get(session.status, "white")
+
+        table.add_row(
+            session_id_display,
+            session.workflow_name,
+            session.pattern_type,
+            f"[{status_color}]{session.status.value}[/{status_color}]",
+            timestamp_display,
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print("[dim]Use 'strands sessions show <id>' for details[/dim]")
+    console.print("[dim]Use 'strands run --resume <id>' to resume a session[/dim]")
+
+    sys.exit(EX_OK)
+
+
+@sessions_app.command("show")
+def sessions_show(
+    session_id: Annotated[str, typer.Argument(help="Session ID to inspect")],
+) -> None:
+    """Show detailed information about a session.
+
+    Displays full session metadata, variables, runtime configuration,
+    token usage, and pattern-specific state for a saved session.
+
+    Use this to inspect session state before resuming or to debug
+    workflow execution.
+
+    Examples:
+        strands sessions show abc123...
+        strands sessions show $(strands sessions list --status running | head -n 1)
+    """
+    from strands_cli.session import SessionStatus
+    from strands_cli.session.file_repository import FileSessionRepository
+
+    repo = FileSessionRepository()
+
+    # Load session state
+    state = asyncio.run(repo.load(session_id))
+
+    if not state:
+        console.print(f"[red]Session not found:[/red] {session_id}")
+        console.print()
+        console.print("[dim]Use 'strands sessions list' to see available sessions[/dim]")
+        sys.exit(EX_USAGE)
+
+    # Display as panel with formatted sections
+    details = f"""[cyan]Session ID:[/cyan] {state.metadata.session_id}
+[cyan]Workflow:[/cyan] {state.metadata.workflow_name}
+[cyan]Pattern:[/cyan] {state.metadata.pattern_type}
+[cyan]Status:[/cyan] {state.metadata.status.value}
+[cyan]Created:[/cyan] {state.metadata.created_at}
+[cyan]Updated:[/cyan] {state.metadata.updated_at}
+[cyan]Spec Hash:[/cyan] {state.metadata.spec_hash[:16]}...
+
+[cyan]Variables:[/cyan]
+{json.dumps(state.variables, indent=2)}
+
+[cyan]Runtime Configuration:[/cyan]
+{json.dumps(state.runtime_config, indent=2)}
+
+[cyan]Token Usage:[/cyan]
+  Total Input:  {state.token_usage.total_input_tokens:,}
+  Total Output: {state.token_usage.total_output_tokens:,}
+  Total:        {state.token_usage.total_input_tokens + state.token_usage.total_output_tokens:,}
+  By Agent:     {json.dumps(state.token_usage.by_agent, indent=16)}
+
+[cyan]Pattern State:[/cyan]
+{json.dumps(state.pattern_state, indent=2)}
+
+[cyan]Artifacts Written:[/cyan]
+{json.dumps(state.artifacts_written, indent=2) if state.artifacts_written else "  (none)"}
+"""
+
+    if state.metadata.error:
+        details += f"\n[red]Error:[/red]\n{state.metadata.error}"
+
+    console.print()
+    console.print(Panel(details, title=f"Session {session_id[:12]}...", border_style="cyan"))
+    console.print()
+
+    # Show next actions based on status
+    if state.metadata.status in (SessionStatus.RUNNING, SessionStatus.PAUSED):
+        console.print("[dim]→ Resume with:[/dim] strands run --resume " + session_id)
+    elif state.metadata.status == SessionStatus.COMPLETED:
+        console.print("[dim]→ Session completed successfully[/dim]")
+        console.print("[dim]→ Delete with:[/dim] strands sessions delete " + session_id)
+    elif state.metadata.status == SessionStatus.FAILED:
+        console.print(f"[red]→ Session failed:[/red] {state.metadata.error}")
+        console.print("[dim]→ Delete with:[/dim] strands sessions delete " + session_id)
+
+    sys.exit(EX_OK)
+
+
+@sessions_app.command("delete")
+def sessions_delete(
+    session_id: Annotated[str, typer.Argument(help="Session ID to delete")],
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Skip confirmation prompt"),
+    ] = False,
+) -> None:
+    """Delete a saved session.
+
+    Removes the session directory and all associated files including:
+    - Session metadata (session.json)
+    - Pattern state (pattern_state.json)
+    - Spec snapshot (spec_snapshot.yaml)
+    - Agent conversation history (agents/ directory)
+
+    This operation cannot be undone. Use with caution.
+
+    Examples:
+        strands sessions delete abc123...
+        strands sessions delete abc123... --force
+    """
+    from strands_cli.session.file_repository import FileSessionRepository
+
+    repo = FileSessionRepository()
+
+    # Check if session exists
+    exists = asyncio.run(repo.exists(session_id))
+    if not exists:
+        console.print(f"[red]Session not found:[/red] {session_id}")
+        console.print()
+        console.print("[dim]Use 'strands sessions list' to see available sessions[/dim]")
+        sys.exit(EX_USAGE)
+
+    # Confirm unless --force
+    if not force:
+        console.print(f"[yellow]Delete session {session_id[:12]}...?[/yellow]")
+        console.print("[dim]This will remove all session data including agent conversation history.[/dim]")
+        console.print()
+        confirm = typer.confirm("Continue?")
+        if not confirm:
+            console.print("[dim]Cancelled[/dim]")
+            sys.exit(EX_OK)
+
+    # Delete session
+    asyncio.run(repo.delete(session_id))
+    console.print(f"[green]✓[/green] Session deleted: {session_id[:12]}...")
 
     sys.exit(EX_OK)
 

@@ -40,6 +40,9 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.session import SessionState, SessionStatus
+from strands_cli.session.file_repository import FileSessionRepository
+from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
@@ -94,8 +97,13 @@ def _build_step_context(
     return context
 
 
-async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
-    """Execute a multi-step chain workflow.
+async def run_chain(  # noqa: C901
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:
+    """Execute a multi-step chain workflow with optional session persistence.
 
     Executes steps sequentially with context passing. Each step receives
     all prior step responses via {{ steps[n].response }} template variables.
@@ -105,16 +113,27 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
         - Single event loop: No per-step asyncio.run() overhead
         - HTTP client cleanup: Proper resource management via AgentCache.close()
 
+    Phase 2 Session Support:
+        - Resume from checkpoint: Skip completed steps on resume
+        - Incremental checkpointing: Save state after each step
+        - Agent session restoration: Restore conversation history via Strands SDK
+
     Args:
         spec: Workflow spec with chain pattern
         variables: Optional CLI --var overrides
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult with final step response and execution metadata
 
     Raises:
         ChainExecutionError: If chain execution fails at any step
+        ValueError: If session_state and session_repo not both provided or both None
     """
+    # Validate session parameters (both or neither)
+    if (session_state is None) != (session_repo is None):
+        raise ValueError("session_state and session_repo must both be provided or both be None")
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     # Phase 10: Create root span for chain execution with attributes
@@ -138,11 +157,39 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
         # Get retry config
         max_attempts, wait_min, wait_max = get_retry_config(spec)
 
+        # Determine starting point and restore state for resume
+        if session_state:
+            # Resume mode: start from next incomplete step
+            start_step = session_state.pattern_state.get("current_step", 0)
+            step_history = session_state.pattern_state.get("step_history", [])
+            cumulative_tokens = (
+                session_state.token_usage.total_input_tokens
+                + session_state.token_usage.total_output_tokens
+            )
+            started_at = session_state.metadata.created_at
+            logger.info(
+                "chain_resume",
+                session_id=session_state.metadata.session_id,
+                start_step=start_step,
+                completed_steps=len(step_history),
+            )
+            span.add_event(
+                "chain_resume",
+                {
+                    "session_id": session_state.metadata.session_id,
+                    "start_step": start_step,
+                    "completed_steps": len(step_history),
+                },
+            )
+        else:
+            # Fresh start
+            start_step = 0
+            step_history = []
+            cumulative_tokens = 0
+            started_at = datetime.now(UTC).isoformat()
+
         # Track execution state
-        step_history: list[dict[str, Any]] = []
-        cumulative_tokens = 0
         max_tokens = None
-        started_at = datetime.now(UTC).isoformat()
         if spec.runtime.budgets:
             max_tokens = spec.runtime.budgets.get("max_tokens")
 
@@ -187,10 +234,13 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
             logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
 
         # Phase 4: Create AgentCache for agent reuse across steps
+        # Phase 2: Pass session_id for agent session restoration
+        agent_session_id = session_state.metadata.session_id if session_state else None
         cache = AgentCache()
         try:
-            # Execute each step sequentially
-            for step_index, step in enumerate(spec.pattern.config.steps):
+            # Execute steps starting from start_step (skip completed steps on resume)
+            for step_index in range(start_step, len(spec.pattern.config.steps)):
+                step = spec.pattern.config.steps[step_index]
                 logger.info(
                     "chain_step_start",
                     step=step_index,
@@ -251,6 +301,27 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                         )
                     hooks_for_agent.extend(shared_hooks)
 
+                # Phase 2: Create session manager for agent conversation restoration on resume
+                agent_session_manager = None
+                if agent_session_id and session_repo and session_state:
+                    from strands.session.file_session_manager import FileSessionManager
+
+                    # Get agents directory for this session
+                    agents_dir = session_repo.get_agents_dir(session_state.metadata.session_id)
+
+                    # Create session manager for this specific agent
+                    # Format: {session_id}_{agent_id} to isolate per-agent conversations
+                    formatted_agent_session_id = f"{agent_session_id}_{step_agent_id}"
+                    agent_session_manager = FileSessionManager(
+                        session_id=formatted_agent_session_id,
+                        storage_dir=str(agents_dir),
+                    )
+                    logger.debug(
+                        "agent_session_restore",
+                        agent_id=step_agent_id,
+                        session_id=formatted_agent_session_id,
+                    )
+
                 agent = await cache.get_or_build_agent(
                     spec,
                     step_agent_id,
@@ -260,6 +331,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                     hooks=hooks_for_agent,
                     injected_notes=injected_notes,
                     worker_index=None,
+                    session_manager=agent_session_manager,
                 )
 
                 # Phase 4: Direct await instead of asyncio.run() per step
@@ -300,6 +372,33 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                     },
                 )
 
+                # Phase 2: Checkpoint after each step if session persistence enabled
+                if session_state and session_repo:
+                    # Update session state with progress
+                    session_state.pattern_state["current_step"] = step_index + 1
+                    session_state.pattern_state["step_history"] = step_history
+                    session_state.metadata.updated_at = now_iso8601()
+                    session_state.metadata.status = SessionStatus.RUNNING
+                    session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                    session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+
+                    # Persist checkpoint
+                    try:
+                        spec_content = ""  # Spec snapshot already saved at session creation
+                        await session_repo.save(session_state, spec_content)
+                        logger.debug(
+                            "chain_checkpoint_saved",
+                            session_id=session_state.metadata.session_id,
+                            step=step_index,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "chain_checkpoint_failed",
+                            session_id=session_state.metadata.session_id,
+                            step=step_index,
+                            error=str(e),
+                        )
+
         except Exception as e:
             # Re-wrap low-level errors in ChainExecutionError for consistent error handling
             if isinstance(e, ChainExecutionError):
@@ -334,6 +433,24 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                 "cumulative_tokens": cumulative_tokens,
             },
         )
+
+        # Phase 2: Mark session as completed if session persistence enabled
+        if session_state and session_repo:
+            session_state.metadata.status = SessionStatus.COMPLETED
+            session_state.metadata.updated_at = now_iso8601()
+            try:
+                spec_content = ""  # Spec snapshot already saved
+                await session_repo.save(session_state, spec_content)
+                logger.info(
+                    "chain_session_completed",
+                    session_id=session_state.metadata.session_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "chain_session_completion_failed",
+                    session_id=session_state.metadata.session_id,
+                    error=str(e),
+                )
 
         return RunResult(
             success=True,

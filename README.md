@@ -183,6 +183,92 @@ Artifacts written:
 
 ---
 
+## Durable Execution (Session Resume)
+
+Strands CLI supports **session persistence** for crash recovery and long-running workflows. When enabled (default), workflows automatically checkpoint their state, allowing you to resume from the last completed step.
+
+### Basic Usage
+
+```bash
+# Run with session saving (enabled by default)
+uv run strands run workflow.yaml
+
+# Resume from session after crash or pause
+uv run strands run --resume <session-id>
+
+# Disable session saving
+uv run strands run workflow.yaml --no-save-session
+```
+
+### Session Management
+
+```bash
+# List all sessions
+uv run strands sessions list
+
+# Filter by status
+uv run strands sessions list --status running
+uv run strands sessions list --status completed
+
+# Show detailed session information
+uv run strands sessions show <session-id>
+
+# Delete old sessions
+uv run strands sessions delete <session-id>
+uv run strands sessions delete <session-id> --force  # Skip confirmation
+```
+
+### How It Works
+
+- **Automatic Checkpoints**: After each step/task/branch completion, session state is saved to `~/.strands/sessions/`
+- **Agent Conversation Restoration**: Full conversation history restored on resume via Strands SDK session management
+- **Cost Optimization**: Completed steps are skipped; only remaining work is executed
+- **Spec Validation**: CLI warns if workflow spec has changed since session creation (but allows execution)
+- **Token Tracking**: Cumulative token usage preserved across resume sessions
+
+### Supported Patterns
+
+- ✅ **Chain**: Resume from any step (Phase 2 - **COMPLETED**)
+- 🔜 **Workflow**: Multi-task DAG resume (Phase 3)
+- 🔜 **Parallel**: Branch completion tracking (Phase 3)
+- 🔜 **Routing**: Router decision preservation (Phase 3)
+- 🔜 **Evaluator-Optimizer**: Iteration state restoration (Phase 3)
+- 🔜 **Orchestrator-Workers**: Round state tracking (Phase 3)
+- 🔜 **Graph**: Node history and cycle detection (Phase 3)
+
+### Example: Resume After Crash
+
+```bash
+# Start a 3-step chain workflow
+uv run strands run examples/chain-3-step-resume-demo.yaml --var topic="AI agents"
+
+# Note the session ID in output: "Session ID: a1b2c3d4..."
+
+# Simulate crash (Ctrl+C) after step 2
+
+# Resume from checkpoint (skips steps 0-1, executes only remaining steps)
+uv run strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+### Session Storage Structure
+
+```
+~/.strands/sessions/
+└── session_<uuid>/
+    ├── session.json              # Metadata, variables, token usage
+    ├── pattern_state.json        # Execution state (step history, current position)
+    ├── spec_snapshot.yaml        # Original workflow spec
+    └── agents/                   # Strands SDK agent conversation sessions
+        ├── <agent_id>/
+        │   ├── agent.json
+        │   └── messages/
+        │       └── message_*.json
+```
+
+**See [DURABLE.md](DURABLE.md) for complete architecture details and Phase 3+ roadmap.**
+
+---
+
 ## Core Concepts
 
 ### Workflow Patterns

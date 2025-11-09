@@ -1,0 +1,50 @@
+version: 0
+name: "chain-resume-demo"
+description: "3-step chain for testing resume functionality with manual testing"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 50000
+
+agents:
+  researcher:
+    prompt: "You are a research assistant. Research the topic provided by the user in detail."
+    tools: []
+
+  analyst:
+    prompt: "You are an analytical expert. Analyze the research findings and identify key insights."
+    tools: []
+
+  writer:
+    prompt: "You are a technical writer. Write a comprehensive summary report based on research and analysis."
+    tools: []
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research the topic: {{ topic }}"
+
+      - agent: analyst
+        input: |
+          Analyze these research findings:
+
+          {{ steps[0].response }}
+
+      - agent: writer
+        input: |
+          Write a summary report based on:
+
+          **Research Findings:**
+          {{ steps[0].response }}
+
+          **Analysis:**
+          {{ steps[1].response }}
+
+outputs:
+  artifacts:
+    - path: "./resume-demo-report.md"
+      from: "{{ last_response }}"

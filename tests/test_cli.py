@@ -641,3 +641,55 @@ class TestCLIErrorHandling:
 
         # Should still succeed normally
         assert result.exit_code == EX_OK
+
+
+class TestSessionsCommand:
+    """Tests for the sessions command group."""
+
+    def test_sessions_list_shows_table_or_no_sessions(self) -> None:
+        """Test sessions list shows table if sessions exist or message if none."""
+        result = runner.invoke(app, ["sessions", "list"])
+
+        assert result.exit_code == EX_OK
+        # Either shows sessions table or "No sessions found" message
+        assert (
+            "Workflow Sessions" in result.stdout or "No sessions found" in result.stdout
+        )
+
+    def test_sessions_list_with_invalid_status_filter(self) -> None:
+        """Test sessions list with invalid status filter."""
+        from strands_cli.exit_codes import EX_USAGE
+
+        result = runner.invoke(app, ["sessions", "list", "--status", "invalid"])
+
+        assert result.exit_code == EX_USAGE
+        assert "Invalid status" in result.stdout
+        assert "running, paused, completed, failed" in result.stdout
+
+    def test_sessions_show_nonexistent(self) -> None:
+        """Test sessions show with non-existent session."""
+        from strands_cli.exit_codes import EX_USAGE
+
+        result = runner.invoke(app, ["sessions", "show", "nonexistent-session-id"])
+
+        assert result.exit_code == EX_USAGE
+        assert "Session not found" in result.stdout
+
+    def test_sessions_delete_nonexistent(self) -> None:
+        """Test sessions delete with non-existent session."""
+        from strands_cli.exit_codes import EX_USAGE
+
+        result = runner.invoke(app, ["sessions", "delete", "nonexistent-session-id", "--force"])
+
+        assert result.exit_code == EX_USAGE
+        assert "Session not found" in result.stdout
+
+    def test_sessions_help(self) -> None:
+        """Test sessions command shows help."""
+        result = runner.invoke(app, ["sessions", "--help"])
+
+        assert result.exit_code == EX_OK
+        assert "Manage workflow sessions" in result.stdout
+        assert "list" in result.stdout
+        assert "show" in result.stdout
+        assert "delete" in result.stdout
