@@ -2,7 +2,7 @@
 
 **Created:** 2025-11-09
 **Owner:** Thomas Rohde
-**Target Version:** v0.11.0
+**Target Version:** v0.2.0
 **Status:** 📋 Planning
 **Complexity:** Very High
 **Duration:** 4 weeks (across 4 phases, 1 week each)

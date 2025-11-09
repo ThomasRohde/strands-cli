@@ -542,7 +542,7 @@ runtime:
 
 ## Pattern Evolution
 
-### Current Support (v0.10.0)
+### Current Support
 
 All 7 patterns are fully implemented and tested:
 - ✅ Chain

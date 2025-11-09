@@ -165,7 +165,7 @@ tools:
       # Optional: Headers
       headers:
         Accept: application/json
-        User-Agent: Strands-CLI/0.11.0
+        User-Agent: Strands-CLI/0.2.0
       
       # Optional: Authentication
       auth:

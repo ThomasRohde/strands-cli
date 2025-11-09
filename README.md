@@ -550,7 +550,7 @@ Show the CLI version.
 
 ```bash
 uv run strands version
-# Output: strands-cli version 0.11.0
+# Output: strands-cli version 0.2.0
 ```
 
 ---
@@ -1104,7 +1104,7 @@ uv run strands doctor
 
 ## Roadmap
 
-### Current Version (v0.11.0)
+### Current Version (v0.2.0)
 
 ✅ All 7 workflow patterns (chain, workflow, routing, parallel, evaluator-optimizer, orchestrator-workers, graph)  
 ✅ Full OpenTelemetry tracing with OTLP export  

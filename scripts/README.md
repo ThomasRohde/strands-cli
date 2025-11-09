@@ -4,6 +4,27 @@ PowerShell automation scripts for Strands CLI development and documentation.
 
 ## Quick Reference
 
+### Version Management (`bump-version.ps1`)
+
+```powershell
+# Bump version across all files
+.\scripts\bump-version.ps1 -Version 0.2.0
+
+# With git operations
+.\scripts\bump-version.ps1 -Version 0.2.0 -Commit          # Create commit
+.\scripts\bump-version.ps1 -Version 0.2.0 -Commit -Tag     # Create commit + tag
+.\scripts\bump-version.ps1 -Version 0.2.0 -Commit -Tag -Push  # Full release
+```
+
+**Files Updated**:
+- `pyproject.toml` - Project version
+- `src/strands_cli/__init__.py` - Package version
+- `tests/test_version.py` - Version test
+- `README.md` - Version badge and examples
+- `manual/reference/cli.md` - CLI documentation
+- `manual/howto/tools.md` - User-Agent header
+- `DURABLE.md` - Target version
+
 ### Development Tasks (`dev.ps1`)
 
 ```powershell
@@ -88,9 +109,9 @@ When you push a git tag matching `v*` pattern, GitHub Actions will:
 3. Set version alias to "latest"
 
 ```bash
-# Example: Release v0.11.0
-git tag v0.11.0
-git push origin v0.11.0
+# Example: Release v0.2.0
+git tag v0.2.0
+git push origin v0.2.0
 # Documentation automatically deployed to https://thomasrohde.github.io/strands-cli/
 ```
 
