@@ -392,7 +392,7 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     # Phase 10: Create root span for workflow execution with attributes
-    with tracer.start_span("execute.workflow") as span:
+    with tracer.start_as_current_span("execute.workflow") as span:
         # Set span attributes (queryable metadata)
         span.set_attribute("spec.name", spec.name)
         span.set_attribute("spec.version", spec.version or 0)

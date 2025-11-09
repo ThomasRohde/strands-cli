@@ -118,7 +118,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)
     # Phase 10: Create root span for chain execution with attributes
-    with tracer.start_span("execute.chain") as span:
+    with tracer.start_as_current_span("execute.chain") as span:
         # Set span attributes (queryable metadata)
         span.set_attribute("spec.name", spec.name)
         span.set_attribute("spec.version", spec.version or 0)

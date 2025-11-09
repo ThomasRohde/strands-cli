@@ -83,7 +83,7 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
     logger = structlog.get_logger(__name__)
     started_at = datetime.now(UTC)
 
-    with tracer.start_span("run_single_agent"):
+    with tracer.start_as_current_span("run_single_agent"):
         # Extract pattern info and determine which agent to use
         # Use the agent referenced in the step/task, not just the first agent in the spec
         if spec.pattern.type == PatternType.CHAIN:
@@ -143,7 +143,7 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
             logger.debug(
                 "agent_execution_started", agent_id=agent_id, task_input_length=len(task_input)
             )
-            with tracer.start_span("agent_invoke"):
+            with tracer.start_as_current_span("agent_invoke"):
                 response = await invoke_agent_with_retry(
                     agent, task_input, max_attempts, wait_min, wait_max
                 )

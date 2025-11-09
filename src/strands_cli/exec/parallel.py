@@ -425,7 +425,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = trace.get_tracer(__name__)
-    with tracer.start_span("execute.parallel") as span:
+    with tracer.start_as_current_span("execute.parallel") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)
         span.set_attribute("spec.version", spec.version)

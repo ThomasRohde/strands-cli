@@ -266,6 +266,10 @@ class NoOpTracer:
         """Return no-op span."""
         return NoOpSpan()
 
+    def start_as_current_span(self, name: str, **kwargs: Any) -> NoOpSpan:
+        """Return no-op span (context manager)."""
+        return NoOpSpan()
+
 
 class NoOpSpan:
     """No-op span context manager."""

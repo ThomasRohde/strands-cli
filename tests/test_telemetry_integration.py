@@ -233,3 +233,114 @@ async def test_force_flush_exports_all_spans(mocker, tmp_path: Path) -> None:
     from strands_cli.telemetry import shutdown_telemetry
 
     shutdown_telemetry()
+
+
+@pytest.mark.asyncio
+async def test_context_propagation_to_logs(mocker, tmp_path: Path) -> None:
+    """Test that trace context propagates to structured logs.
+
+    Regression test for Phase 10 fix: start_as_current_span ensures that
+    trace_id and span_id are injected into log entries via add_otel_context processor.
+    """
+    import structlog
+
+    from strands_cli.exec.chain import run_chain
+    from strands_cli.types import Spec
+
+    # Create a minimal spec with telemetry config
+    spec_dict = {
+        "name": "test-context-propagation",
+        "version": 1,
+        "runtime": {
+            "provider": "ollama",
+            "host": "http://localhost:11434",
+            "model_id": "gpt-oss",
+        },
+        "agents": {
+            "test_agent": {
+                "prompt": "You are a test agent.",
+            }
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    {
+                        "agent": "test_agent",
+                        "input": "Test input",
+                    }
+                ]
+            },
+        },
+        "telemetry": {
+            "otel": {
+                "service_name": "test-context",
+                "sample_ratio": 1.0,
+            }
+        },
+    }
+
+    spec = Spec(**spec_dict)
+
+    # Capture log output to verify trace_id injection
+    log_entries = []
+
+    def capture_processor(logger, method_name, event_dict):
+        log_entries.append(event_dict.copy())
+        return event_dict
+
+    # Reconfigure structlog with capture processor
+    from strands_cli.telemetry import add_otel_context
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            add_otel_context,  # Inject trace_id and span_id
+            capture_processor,  # Capture for assertion
+            structlog.processors.JSONRenderer(),
+        ],
+        logger_factory=structlog.PrintLoggerFactory(),
+    )
+
+    # Configure telemetry BEFORE running executor
+    configure_telemetry(spec.telemetry.model_dump())
+
+    # Mock the agent execution
+    mock_agent = Mock()
+    mock_agent.invoke_async = mocker.AsyncMock(return_value="test response")
+
+    mocker.patch(
+        "strands_cli.exec.chain.AgentCache.get_or_build_agent",
+        return_value=mock_agent,
+    )
+
+    # Run chain executor
+    result = await run_chain(spec)
+
+    assert result.success is True
+
+    # Verify that log entries have trace_id and span_id
+    # Filter log entries from the chain executor
+    chain_logs = [log for log in log_entries if "chain_execution" in log.get("event", "")]
+
+    assert len(chain_logs) > 0, "Should have chain execution logs"
+
+    # Check that at least one log entry has trace context
+    logs_with_trace = [log for log in chain_logs if "trace_id" in log and "span_id" in log]
+
+    assert len(logs_with_trace) > 0, (
+        "At least one chain log should have trace_id and span_id injected. "
+        "This verifies that start_as_current_span properly propagates context to logs."
+    )
+
+    # Verify trace_id format (32 hex chars)
+    for log in logs_with_trace:
+        trace_id = log["trace_id"]
+        assert len(trace_id) == 32, f"trace_id should be 32 hex chars, got {trace_id}"
+        assert all(c in "0123456789abcdef" for c in trace_id), f"trace_id should be hex, got {trace_id}"
+
+    # Cleanup
+    from strands_cli.telemetry import shutdown_telemetry
+
+    shutdown_telemetry()

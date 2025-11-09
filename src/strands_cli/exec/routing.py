@@ -332,7 +332,7 @@ async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> Ru
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = trace.get_tracer(__name__)
-    with tracer.start_span("execute.routing") as span:
+    with tracer.start_as_current_span("execute.routing") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)
         span.set_attribute("spec.version", spec.version)
