@@ -552,7 +552,7 @@ def my_tool(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
 
 Tool is auto-discovered and available as `my_tool` in workflows.
 
-See [Tool Development Guide](../../docs/TOOL_DEVELOPMENT.md) for complete documentation.
+See [Tool Development Guide](develop-tools.md) for complete documentation.
 
 ## Troubleshooting
 
@@ -601,7 +601,7 @@ env:
 
 ## See Also
 
-- [Tool Development Guide](../../docs/TOOL_DEVELOPMENT.md)
+- [Tool Development Guide](develop-tools.md)
 - [Security Model](../explanation/security-model.md)
 - [Secrets Management](secrets.md)
-- [Schema Reference: Tools](../reference/schema.md#tools)
+- [Spec Reference: Tools](../reference/spec.md#tools)

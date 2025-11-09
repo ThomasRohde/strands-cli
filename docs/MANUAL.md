@@ -174,19 +174,19 @@ Build a production-ready documentation site using **MkDocs + Material for MkDocs
 
 **Goal**: Help users migrate existing content and integrate with existing docs
 
-- [ ] **Migrate Existing Documentation**
+- [x] **Migrate Existing Documentation**
   - Move `docs/strands-workflow-manual.md` content into Diátaxis structure
   - Break down `TOOL_DEVELOPMENT.md` into howto/explanation split
   - Integrate `troubleshooting.md` into reference
   - Integrate `security.md` into explanation + reference
   - Create index/navigation to existing content
-- [ ] **Examples Catalog**
+- [x] **Examples Catalog**
   - Auto-generate example index from `examples/` folder
   - Add annotations and explanations
   - Link examples to relevant how-to guides
   - File: `manual/reference/examples.md`
 
-**Deliverables**: All existing docs integrated into new structure, examples catalog
+**Deliverables**: All existing docs integrated into new structure, examples catalog ✅
 
 ---
 

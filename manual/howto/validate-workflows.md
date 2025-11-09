@@ -257,7 +257,7 @@ If validation errors are unclear:
 1. Check the [Schema Reference](../reference/schema.md) for field documentation
 2. Review [examples](../../examples/) for pattern-specific templates
 3. Run with `--debug --verbose` for detailed error information
-4. Consult the [troubleshooting guide](../../docs/troubleshooting.md)
+4. Consult the [troubleshooting guide](../reference/troubleshooting.md)
 
 ## Exit Codes
 

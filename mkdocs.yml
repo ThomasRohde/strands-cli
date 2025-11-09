@@ -48,6 +48,7 @@ nav:
       - Context Management: howto/context-management.md
       - Telemetry: howto/telemetry.md
       - Tools: howto/tools.md
+      - Develop Tools: howto/develop-tools.md
       - Secrets: howto/secrets.md
       - Budgets: howto/budgets.md
       - Patterns:
@@ -66,10 +67,14 @@ nav:
       - Security Model: explanation/security-model.md
   - Reference:
       - CLI: reference/cli.md
+      - Spec Quick Reference: reference/spec.md
+      - Workflow Manual: reference/workflow-manual.md
       - Schema: reference/schema.md
       - Exit Codes: reference/exit-codes.md
       - Environment: reference/environment.md
       - Examples: reference/examples.md
+      - Troubleshooting: reference/troubleshooting.md
+      - Security: reference/security.md
       - API:
           - Overview: reference/api/index.md
           - Runtime: reference/api/runtime.md

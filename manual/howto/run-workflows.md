@@ -480,7 +480,7 @@ Check for:
 If issues persist:
 
 1. Run with `--debug --verbose` for detailed logs
-2. Check the [troubleshooting guide](../../docs/troubleshooting.md)
+2. Check the [troubleshooting guide](../reference/troubleshooting.md)
 3. Review [exit codes reference](../reference/exit-codes.md)
 4. Check GitHub issues for similar problems
 
