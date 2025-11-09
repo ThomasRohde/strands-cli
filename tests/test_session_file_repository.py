@@ -421,7 +421,7 @@ async def test_session_id_validation_rejects_path_traversal(tmp_path: Path):
         # Test that _session_dir raises SessionCorruptedError
         with pytest.raises(SessionCorruptedError) as exc_info:
             repo._session_dir(malicious_id)
-        
+
         assert "Invalid session identifier" in str(exc_info.value)
         assert "only [A-Za-z0-9_-] allowed" in str(exc_info.value)
 
@@ -442,7 +442,7 @@ async def test_session_id_validation_rejects_path_traversal(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_save_preserves_spec_snapshot(tmp_path: Path):
     """Test that repeated saves don't overwrite spec_snapshot.yaml when empty content is passed.
-    
+
     This is critical for checkpoint functionality - the spec snapshot is written once
     during session creation, then all subsequent checkpoint saves pass empty string
     to skip spec update and preserve the original snapshot.

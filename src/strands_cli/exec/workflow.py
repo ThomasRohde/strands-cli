@@ -484,8 +484,8 @@ async def run_workflow(  # noqa: C901
             )
         else:
             # Fresh start
-            task_results: dict[str, dict[str, Any]] = {}
-            completed_tasks: set[str] = set()
+            task_results = {}
+            completed_tasks = set()
             current_layer = 0
             cumulative_tokens = 0
             started_at = datetime.now(UTC).isoformat()

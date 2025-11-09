@@ -359,12 +359,12 @@ async def run_routing(  # noqa: C901
     with tracer.start_as_current_span("execute.routing") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)
-        span.set_attribute("spec.version", spec.version)
+        if spec.version:
+            span.set_attribute("spec.version", spec.version)
         span.set_attribute("pattern.type", "routing")
         span.set_attribute("runtime.provider", spec.runtime.provider)
-        span.set_attribute("runtime.model_id", spec.runtime.model_id)
-        if spec.runtime.region:
-            span.set_attribute("runtime.region", spec.runtime.region)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id or "")
+        span.set_attribute("runtime.region", spec.runtime.region or "")
         if session_state:
             span.set_attribute("session.id", session_state.metadata.session_id)
             span.set_attribute("session.resume", True)

@@ -121,8 +121,8 @@ structlog.configure(
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        filter_by_level_processor,  # Filter by log level
-        add_otel_context,  # Inject trace_id and span_id
+        filter_by_level_processor,  # type: ignore[list-item]
+        add_otel_context,  # type: ignore[list-item]
         renderer,
     ],
     logger_factory=structlog.PrintLoggerFactory(),
@@ -480,7 +480,7 @@ def version() -> None:
 
 
 @app.command()
-def run(
+def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestration
     spec_file: Annotated[
         str | None,
         typer.Argument(help="Path to workflow YAML/JSON file (required unless --resume)"),
@@ -749,7 +749,7 @@ def run(
                 console.print(f"[dim]Session ID: {session_id}[/dim]")
         else:
             session_state = None
-            repo = None
+            repo = None  # type: ignore[assignment]
 
         # Execute workflow (with session support if enabled)
         result = _dispatch_executor(spec, variables, verbose, session_state, repo)

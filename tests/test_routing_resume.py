@@ -158,7 +158,7 @@ async def test_routing_resume_after_router_decision(
     mock_chain.return_value = mock_result
 
     # Resume
-    result = await run_routing(spec, {"query": "general question"}, state, repo)
+    await run_routing(spec, {"query": "general question"}, state, repo)
 
     # Verify router NOT re-executed
     assert mock_router.call_count == 0

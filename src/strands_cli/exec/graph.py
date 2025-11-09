@@ -368,7 +368,7 @@ def _check_iteration_limit(
         )
 
 
-async def run_graph(
+async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machine execution
     spec: Spec,
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
@@ -417,9 +417,8 @@ async def run_graph(
             span.set_attribute("spec.version", spec.version)
         span.set_attribute("pattern.type", spec.pattern.type.value)
         span.set_attribute("runtime.provider", spec.runtime.provider)
-        span.set_attribute("runtime.model_id", spec.runtime.model_id)
-        if spec.runtime.region:
-            span.set_attribute("runtime.region", spec.runtime.region)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id or "")
+        span.set_attribute("runtime.region", spec.runtime.region or "")
 
         span.set_attribute("graph.node_count", len(spec.pattern.config.nodes))
         span.set_attribute("graph.edge_count", len(spec.pattern.config.edges))
@@ -486,7 +485,7 @@ async def run_graph(
                 total_steps=total_steps,
             )
         else:
-            execution_path: list[str] = []
+            execution_path = []
             logger.info("graph_entry_node", node=current_node_id)
 
         # Create AgentCache
@@ -534,10 +533,9 @@ async def run_graph(
                 last_executed_node = current_node_id
 
                 # Track execution path
-                if not (session_state and session_repo):
+                if not (session_state and session_repo) and ("execution_path" not in locals() or not isinstance(execution_path, list)):
                     # Fresh execution - initialize execution_path if not done
-                    if "execution_path" not in locals() or not isinstance(execution_path, list):
-                        execution_path = []
+                    execution_path = []
 
                 execution_path.append(current_node_id)
 

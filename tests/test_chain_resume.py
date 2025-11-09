@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -25,7 +25,6 @@ from strands_cli.loader.yaml_loader import load_spec
 from strands_cli.session import SessionMetadata, SessionState, SessionStatus, TokenUsage
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.session.utils import compute_spec_hash, generate_session_id, now_iso8601
-from strands_cli.types import Spec
 
 
 @pytest.fixture
@@ -418,6 +417,77 @@ async def test_chain_token_usage_accumulates_on_resume(
     assert loaded is not None
     cumulative = loaded.token_usage.total_input_tokens + loaded.token_usage.total_output_tokens
     assert cumulative > 2200  # Should accumulate step 2 tokens
+
+
+@pytest.mark.asyncio
+async def test_chain_token_accounting_with_odd_values(
+    tmp_path: Path, chain_3_step_spec: Path, mocker: Any
+) -> None:
+    """Test that odd token counts are handled correctly without losing remainders."""
+    spec = load_spec(str(chain_3_step_spec))
+    repo = FileSessionRepository(storage_dir=tmp_path / "sessions")
+    session_id = generate_session_id()
+
+    # Initialize fresh session
+    session_state = SessionState(
+        metadata=SessionMetadata(
+            session_id=session_id,
+            workflow_name=spec.name,
+            spec_hash="test-hash-123",
+            pattern_type="chain",
+            status=SessionStatus.RUNNING,
+            created_at=now_iso8601(),
+            updated_at=now_iso8601(),
+        ),
+        variables={"topic": "AI agents"},
+        runtime_config={"provider": "ollama", "model_id": "gpt-oss"},
+        pattern_state={"current_step": 0, "step_history": []},
+        token_usage=TokenUsage(),
+    )
+
+    spec_content = chain_3_step_spec.read_text()
+    await repo.save(session_state, spec_content)
+
+    # Mock agent execution
+    mock_agent = MagicMock()
+    mock_agent.invoke_async = AsyncMock(side_effect=["Step 0", "Step 1", "Step 2"])
+
+    mocker.patch(
+        "strands_cli.exec.utils.AgentCache.get_or_build_agent",
+        return_value=mock_agent,
+    )
+
+    # Mock estimate_tokens to return odd values (101, 103, 105)
+    estimate_calls = [0]
+
+    def mock_estimate(*args: Any, **kwargs: Any) -> int:
+        estimate_calls[0] += 1
+        return [101, 103, 105][estimate_calls[0] - 1]
+
+    mocker.patch("strands_cli.exec.chain.estimate_tokens", side_effect=mock_estimate)
+
+    # Execute chain
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
+
+    # Verify execution
+    assert result.success
+
+    # Verify token accounting preserves all tokens (no loss from floor division)
+    loaded = await repo.load(session_id)
+    assert loaded is not None
+    total = loaded.token_usage.total_input_tokens + loaded.token_usage.total_output_tokens
+    # Expected: 101 + 103 + 105 = 309 tokens total
+    assert total == 309, f"Expected 309 tokens, got {total}"
+
+    # Verify split is reasonable (remainder goes to output)
+    # Step 0: 101 -> input=50, output=51
+    # Step 1: 103 -> input=51, output=52
+    # Step 2: 105 -> input=52, output=53
+    # Total: input=153, output=156
+    assert loaded.token_usage.total_input_tokens == 153
+    assert loaded.token_usage.total_output_tokens == 156
 
 
 @pytest.mark.asyncio

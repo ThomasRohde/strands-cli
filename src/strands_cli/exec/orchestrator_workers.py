@@ -461,7 +461,7 @@ async def _execute_workers_batch(
     return list(worker_results), cumulative_tokens
 
 
-async def run_orchestrator_workers(
+async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for multi-phase orchestration
     spec: Spec,
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
@@ -504,7 +504,6 @@ async def run_orchestrator_workers(
                 session_state.token_usage.total_input_tokens
                 + session_state.token_usage.total_output_tokens
             )
-            started_at = session_state.metadata.created_at
             logger.info(
                 "orchestrator_resume",
                 session_id=session_state.metadata.session_id,
@@ -528,7 +527,6 @@ async def run_orchestrator_workers(
             reduce_executed = False
             writeup_executed = False
             cumulative_tokens = 0
-            started_at = datetime.now(UTC).isoformat()
 
         start_time = datetime.now(UTC)
         config = spec.pattern.config
@@ -539,9 +537,8 @@ async def run_orchestrator_workers(
             span.set_attribute("spec.version", spec.version)
         span.set_attribute("pattern.type", spec.pattern.type.value)
         span.set_attribute("runtime.provider", spec.runtime.provider)
-        span.set_attribute("runtime.model_id", spec.runtime.model_id)
-        if spec.runtime.region:
-            span.set_attribute("runtime.region", spec.runtime.region)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id or "")
+        span.set_attribute("runtime.region", spec.runtime.region or "")
 
         if config.orchestrator:
             span.set_attribute("orchestrator_workers.orchestrator_agent", config.orchestrator.agent)

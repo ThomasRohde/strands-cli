@@ -221,7 +221,8 @@ async def run_chain(  # noqa: C901
 
         # Phase 6.2: Initialize notes manager and hook for structured notes
         notes_manager = None
-        step_counter = [0]  # Mutable container for hook to track step count
+        # Phase 2: Seed step counter from existing history when resuming
+        step_counter = [len(step_history)]  # Mutable container for hook to track step count
         if spec.context_policy and spec.context_policy.notes:
             notes_manager = NotesManager(spec.context_policy.notes.file)
 
@@ -380,8 +381,11 @@ async def run_chain(  # noqa: C901
                     session_state.pattern_state["step_history"] = step_history
                     session_state.metadata.updated_at = now_iso8601()
                     session_state.metadata.status = SessionStatus.RUNNING
-                    session_state.token_usage.total_input_tokens = cumulative_tokens // 2
-                    session_state.token_usage.total_output_tokens = cumulative_tokens // 2
+                    # Update token usage incrementally (preserve actual split, not floor-divided estimate)
+                    input_tokens = estimated_tokens // 2
+                    output_tokens = estimated_tokens - input_tokens  # Put remainder on output
+                    session_state.token_usage.total_input_tokens += input_tokens
+                    session_state.token_usage.total_output_tokens += output_tokens
 
                     # Persist checkpoint
                     try:

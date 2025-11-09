@@ -4,14 +4,13 @@ Phase 3.3: Test coverage for iteration state restoration, draft preservation,
 and checkpoint-based resume for the evaluator-optimizer pattern.
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock
+
+import pytest
 
 from strands_cli.exec.evaluator_optimizer import run_evaluator_optimizer
 from strands_cli.session import SessionState, SessionStatus
 from strands_cli.session.file_repository import FileSessionRepository
-from strands_cli.types import PatternType
 
 
 @pytest.fixture
@@ -25,7 +24,7 @@ def partial_evaluator_session(tmp_path: Path) -> tuple[SessionState, FileSession
     """Create evaluator-optimizer session with 2 iterations complete."""
     session_id = "test-eval-partial"
     repo = FileSessionRepository()
-    
+
     # Create session state with partial completion
     state = SessionState(
         metadata={
@@ -65,7 +64,7 @@ def partial_evaluator_session(tmp_path: Path) -> tuple[SessionState, FileSession
             "total_output_tokens": 800,
         },
     )
-    
+
     return state, repo
 
 
@@ -73,9 +72,9 @@ def partial_evaluator_session(tmp_path: Path) -> tuple[SessionState, FileSession
 async def test_session_params_validation(evaluator_optimizer_spec):
     """Test that session_state and session_repo must both be provided or both None."""
     from unittest.mock import MagicMock
-    
+
     mock_state = MagicMock()
-    
+
     # Only state provided
     with pytest.raises(ValueError, match="must both be provided or both be None"):
         await run_evaluator_optimizer(
@@ -83,7 +82,7 @@ async def test_session_params_validation(evaluator_optimizer_spec):
             session_state=mock_state,
             session_repo=None,
         )
-    
+
     # Only repo provided
     with pytest.raises(ValueError, match="must both be provided or both be None"):
         await run_evaluator_optimizer(

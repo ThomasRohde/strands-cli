@@ -4,6 +4,7 @@ This module provides file locking mechanisms to prevent concurrent writes
 to the same session, ensuring data integrity in multi-process environments.
 """
 
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 
 @contextmanager
-def session_lock(session_dir: Path, timeout: float = 10.0):
+def session_lock(session_dir: Path, timeout: float = 10.0) -> Generator[None, None, None]:
     """Acquire exclusive lock on session directory.
 
     Prevents concurrent writes to the same session by acquiring an exclusive

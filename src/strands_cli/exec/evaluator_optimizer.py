@@ -283,7 +283,7 @@ def _validate_evaluator_optimizer_config(spec: Spec) -> None:
         )
 
 
-async def run_evaluator_optimizer(
+async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for iterative refinement logic
     spec: Spec,
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
@@ -334,9 +334,8 @@ async def run_evaluator_optimizer(
             span.set_attribute("spec.version", spec.version)
         span.set_attribute("pattern.type", spec.pattern.type.value)
         span.set_attribute("runtime.provider", spec.runtime.provider)
-        span.set_attribute("runtime.model_id", spec.runtime.model_id)
-        if spec.runtime.region:
-            span.set_attribute("runtime.region", spec.runtime.region)
+        span.set_attribute("runtime.model_id", spec.runtime.model_id or "")
+        span.set_attribute("runtime.region", spec.runtime.region or "")
 
         config = spec.pattern.config
         assert config.producer is not None
@@ -624,7 +623,7 @@ async def run_evaluator_optimizer(
                 )
 
                 # Add evaluation_complete event
-                event_attrs = {"score": evaluation.score}
+                event_attrs: dict[str, float | str] = {"score": evaluation.score}
                 if evaluation.issues:
                     event_attrs["feedback"] = "; ".join(evaluation.issues[:3])  # First 3 issues
                 span.add_event("evaluation_complete", event_attrs)
@@ -639,7 +638,7 @@ async def run_evaluator_optimizer(
                             session_state,
                             session_repo,
                             pattern_state_updates={
-                                "current_iteration": iteration,
+                                "current_iteration": iteration,  # iteration is already int from range()
                                 "current_draft": current_draft,
                                 "iteration_history": iteration_history,
                                 "final_score": final_score,
@@ -693,7 +692,7 @@ async def run_evaluator_optimizer(
                         session_state,
                         session_repo,
                         pattern_state_updates={
-                            "current_iteration": iteration + 1,
+                            "current_iteration": int(iteration + 1),
                             "current_draft": current_draft,
                             "iteration_history": iteration_history,
                             "final_score": final_score,

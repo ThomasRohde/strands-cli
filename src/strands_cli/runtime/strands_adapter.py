@@ -271,7 +271,7 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[tuple[st
                 # TODO Phase 9.1: Add timeout enforcement via asyncio.wait_for
                 # Current limitation: MCP SDK uses sync client creation, hung servers will block
                 # Configured timeout: {mcp_timeout}s (via MCP_STARTUP_TIMEOUT_S env var)
-                mcp_client = MCPClient(lambda params=server_params: stdio_client(params))
+                mcp_client = MCPClient(lambda params=server_params: stdio_client(params))  # type: ignore[misc]
 
                 logger.info(
                     "mcp_client_created",
@@ -288,13 +288,17 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[tuple[st
                 headers = mcp_config.headers or None
 
                 # Create transport callable for streamable HTTP
+                from collections.abc import Callable
+
                 def create_http_transport(
                     endpoint: str = url, custom_headers: dict[str, str] | None = headers
-                ) -> Any:
-                    return streamablehttp_client(endpoint, headers=custom_headers)
+                ) -> Callable[..., Any]:
+                    from typing import cast
+                    result: Any = streamablehttp_client(endpoint, headers=custom_headers)
+                    return cast(Callable[..., Any], result)
 
                 # Create MCPClient with HTTPS transport
-                mcp_client = MCPClient(create_http_transport)
+                mcp_client = MCPClient(create_http_transport)  # type: ignore[arg-type]
 
                 logger.info(
                     "mcp_client_created",
