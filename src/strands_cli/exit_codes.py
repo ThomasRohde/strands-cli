@@ -41,6 +41,26 @@ EX_RUNTIME = 10
 EX_IO = 12
 """Artifact write or I/O error (can't create directory, write file, etc.)."""
 
+EX_SESSION = 17
+"""Session-related error (not found, corrupted, already completed).
+
+Returned when session persistence operations fail:
+- Session ID not found during resume attempt
+- Session data corrupted or invalid JSON
+- Attempting to resume an already-completed session
+- Session spec hash mismatch (spec changed since session creation)
+
+Distinct from EX_IO: Session errors indicate logical failures in the session
+lifecycle, not general filesystem I/O problems. Use EX_IO for file permission
+errors or disk space issues; use EX_SESSION for session-specific validation.
+
+To resolve:
+- Verify session ID exists via 'strands sessions list'
+- Check session directory for corruption
+- Use 'strands sessions show <id>' to inspect session state
+- Delete corrupted sessions via 'strands sessions delete <id>'
+"""
+
 EX_UNSUPPORTED = 18
 """Feature present in spec but not supported in current implementation.
 

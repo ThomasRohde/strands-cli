@@ -11,6 +11,7 @@ Example:
 
 from pathlib import Path
 
+from platformdirs import user_config_dir, user_data_dir
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -76,3 +77,25 @@ class StrandsConfig(BaseSettings):
         default_factory=list,
         description="Additional blocked URL patterns for HTTP executors (regex)",
     )
+
+    @property
+    def config_dir(self) -> Path:
+        r"""Get platform-specific config directory.
+
+        Returns:
+            Path to config directory:
+            - Linux/macOS: ~/.config/strands
+            - Windows: %APPDATA%\strands
+        """
+        return Path(user_config_dir("strands", appauthor=False))
+
+    @property
+    def data_dir(self) -> Path:
+        r"""Get platform-specific data directory for session storage.
+
+        Returns:
+            Path to data directory:
+            - Linux/macOS: ~/.local/share/strands
+            - Windows: %LOCALAPPDATA%\strands
+        """
+        return Path(user_data_dir("strands", appauthor=False))

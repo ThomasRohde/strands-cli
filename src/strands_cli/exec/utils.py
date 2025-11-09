@@ -310,6 +310,7 @@ class AgentCache:
         hooks: list[Any] | None = None,
         injected_notes: str | None = None,
         worker_index: int | None = None,
+        session_manager: Any | None = None,  # Phase 2: Strands SDK session manager
     ) -> Agent:
         """Get cached agent or build new one.
 
@@ -320,6 +321,10 @@ class AgentCache:
         Note: injected_notes is passed through to build_agent but NOT included in cache key,
         as notes change per step. Agents are cached by identity and tools only.
 
+        Phase 2 Addition:
+        session_manager parameter enables agent conversation restoration from saved sessions.
+        When provided, Strands SDK FileSessionManager restores message history for resume.
+
         Args:
             spec: Full workflow spec for agent construction
             agent_id: Agent identifier from spec.agents
@@ -329,6 +334,7 @@ class AgentCache:
             hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
             injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
             worker_index: Optional worker index for orchestrator-workers pattern isolation
+            session_manager: Optional Strands SDK session manager for resume (Phase 2)
 
         Returns:
             Cached or newly-built Agent instance
@@ -368,6 +374,7 @@ class AgentCache:
         )
 
         # Pass self to build_agent so it can track MCP clients
+        # Phase 2: Pass session_manager for agent conversation restoration
         agent = build_agent(
             spec,
             agent_id,
@@ -377,6 +384,7 @@ class AgentCache:
             hooks=hooks,
             injected_notes=injected_notes,
             agent_cache=self,  # Pass cache for MCP client tracking
+            session_manager=session_manager,  # Phase 2: session restoration
         )
 
         # Cache the agent

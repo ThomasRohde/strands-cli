@@ -344,6 +344,7 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
     hooks: list[Any] | None = None,
     injected_notes: str | None = None,
     agent_cache: Any | None = None,
+    session_manager: Any | None = None,  # Phase 2: Strands SDK session manager
 ) -> Agent:
     """Build a Strands Agent from a spec.
 
@@ -355,6 +356,10 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
     5. Assemble Strands Agent with all components
     6. Attach conversation manager and hooks (for context management)
 
+    Phase 2 Addition:
+    session_manager parameter enables agent conversation restoration from saved sessions.
+    When provided, Strands SDK FileSessionManager restores message history for resume.
+
     Args:
         spec: Full workflow spec (used for runtime, tools, skills)
         agent_id: ID of the agent to build from spec.agents
@@ -365,6 +370,7 @@ def build_agent(  # noqa: C901 - Complexity acceptable for agent construction or
         hooks: Optional list of hooks (e.g., ProactiveCompactionHook, NotesAppenderHook)
         injected_notes: Optional Markdown notes from previous steps (Phase 6.2)
         agent_cache: Optional AgentCache instance for tracking MCP clients (Phase 9)
+        session_manager: Optional Strands SDK session manager for resume (Phase 2)
 
     Returns:
         Configured Strands Agent ready for invoke_async()
