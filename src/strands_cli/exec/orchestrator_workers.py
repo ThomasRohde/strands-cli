@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from opentelemetry import trace
+from opentelemetry.trace import get_current_span
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -48,6 +48,7 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
@@ -302,7 +303,7 @@ async def _execute_worker(
     )
 
     # Add worker_assigned event
-    span = trace.get_current_span()
+    span = get_current_span()
     if span.is_recording():
         task_description = task.get("task", str(task))
         span.add_event(
@@ -472,7 +473,7 @@ async def run_orchestrator_workers(
         OrchestratorExecutionError: If orchestrator or worker execution fails
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
-    tracer = trace.get_tracer(__name__)
+    tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.orchestrator_workers") as span:
         start_time = datetime.now(UTC)
         config = spec.pattern.config

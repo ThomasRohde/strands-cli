@@ -15,7 +15,7 @@ import os
 from typing import Any
 
 import structlog
-from opentelemetry import trace
+from opentelemetry.trace import get_current_span
 from strands.agent import Agent
 
 # Phase 9: Import MCPClient for instance checking and cleanup
@@ -121,7 +121,7 @@ def _log_retry_attempt(retry_state: RetryCallState) -> None:
         )
 
         # Add OTEL span event
-        span = trace.get_current_span()
+        span = get_current_span()
         if span.is_recording():
             span.add_event(
                 "retry_attempt",

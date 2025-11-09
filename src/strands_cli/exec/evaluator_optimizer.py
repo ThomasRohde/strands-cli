@@ -39,7 +39,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from opentelemetry import trace
 from pydantic import ValidationError
 
 from strands_cli.exec.hooks import ProactiveCompactionHook
@@ -51,6 +50,7 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.telemetry import get_tracer
 from strands_cli.types import EvaluatorDecision, PatternType, RunResult, Spec
 
 
@@ -296,7 +296,7 @@ async def run_evaluator_optimizer(spec: Spec, variables: dict[str, str] | None =
         EvaluatorOptimizerExecutionError: On configuration errors, max iterations, or unrecoverable failures
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
-    tracer = trace.get_tracer(__name__)
+    tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.evaluator_optimizer") as span:
         logger.info("evaluator_optimizer_execution_start", spec_name=spec.name)
 

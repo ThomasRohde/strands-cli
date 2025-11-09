@@ -59,37 +59,63 @@ class RedactionEngine:
 
         self.redaction_count = 0
 
-    def redact_value(self, value: Any) -> Any:
+    def _is_sensitive_key(self, key: str) -> bool:
+        """Check if attribute key suggests sensitive data.
+
+        Args:
+            key: Attribute key name.
+
+        Returns:
+            True if key name suggests sensitive data (API keys, tokens, secrets, etc.).
+        """
+        key_lower = key.lower()
+        sensitive_terms = ["key", "token", "secret", "password", "credential"]
+        return any(term in key_lower for term in sensitive_terms)
+
+    def redact_value(self, value: Any, is_sensitive_context: bool = True) -> Any:
         """Redact PII from a value of any type.
 
         Args:
             value: Value to redact (str, dict, list, or primitive).
+            is_sensitive_context: If True (default), apply all patterns including API key.
+                                  If False, skip API key pattern (for non-sensitive attributes).
 
         Returns:
             Redacted value with same structure.
         """
         if isinstance(value, str):
-            return self._redact_string(value)
+            return self._redact_string(value, is_sensitive_context)
         elif isinstance(value, dict):
-            return self._redact_dict(value)
+            return self._redact_dict(value, is_sensitive_context)
         elif isinstance(value, list):
-            return [self.redact_value(item) for item in value]
+            return [self.redact_value(item, is_sensitive_context) for item in value]
         else:
             # Primitives (int, float, bool, None) pass through
             return value
 
-    def _redact_string(self, text: str) -> str:
-        """Apply all PII patterns to a string.
+    def _redact_string(self, text: str, is_sensitive_context: bool = True) -> str:
+        """Apply PII patterns to a string with context awareness.
 
         Args:
             text: String to redact.
+            is_sensitive_context: If True (default), apply all patterns including API key.
+                                  If False, skip API key pattern for non-sensitive attributes.
 
         Returns:
             Redacted string with PII replaced.
         """
         original = text
-        for pattern in self.patterns:
-            text = pattern.sub(self.REDACTED_PLACEHOLDER, text)
+
+        # Apply patterns based on context
+        if is_sensitive_context:
+            # Sensitive context: apply ALL patterns including API key
+            for pattern in self.patterns:
+                text = pattern.sub(self.REDACTED_PLACEHOLDER, text)
+        else:
+            # Non-sensitive context: apply all patterns EXCEPT API key
+            for pattern in self.patterns:
+                if pattern is not self.API_KEY_PATTERN:
+                    text = pattern.sub(self.REDACTED_PLACEHOLDER, text)
 
         # Track if redaction occurred
         if text != original:
@@ -97,16 +123,23 @@ class RedactionEngine:
 
         return text
 
-    def _redact_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+    def _redact_dict(self, data: dict[str, Any], is_sensitive_context: bool = True) -> dict[str, Any]:
         """Recursively redact all values in a dictionary.
 
         Args:
             data: Dictionary to redact.
+            is_sensitive_context: If True (default), apply all patterns including API key.
+                                  If False, skip API key pattern for non-sensitive attributes.
 
         Returns:
             New dictionary with redacted values.
         """
-        return {key: self.redact_value(value) for key, value in data.items()}
+        result = {}
+        for key, value in data.items():
+            # Check if this specific nested key is sensitive
+            nested_is_sensitive = is_sensitive_context or self._is_sensitive_key(key)
+            result[key] = self.redact_value(value, nested_is_sensitive)
+        return result
 
     def redact_span_attributes(
         self,
@@ -128,6 +161,9 @@ class RedactionEngine:
         initial_count = self.redaction_count
 
         for key, value in attributes.items():
+            # Check if key suggests sensitive data
+            is_sensitive_context = self._is_sensitive_key(key)
+
             # Check if this attribute should be redacted based on config
             should_redact = False
 
@@ -139,7 +175,7 @@ class RedactionEngine:
                 should_redact = True
 
             if should_redact:
-                redacted_attrs[key] = self.redact_value(value)
+                redacted_attrs[key] = self.redact_value(value, is_sensitive_context)
             else:
                 redacted_attrs[key] = value
 

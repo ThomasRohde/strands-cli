@@ -284,6 +284,110 @@ class TestRedactJsonString:
         assert data["data"] == "normal"
 
 
+class TestContextAwareRedaction:
+    """Tests for context-aware API key redaction (Phase 2.1)."""
+
+    def test_redaction_preserves_trace_ids(self) -> None:
+        """Verify trace_id/span_id not redacted despite 32+ chars."""
+        engine = RedactionEngine()
+
+        attrs = {
+            "trace_id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # 32 chars
+            "span_id": "1234567890abcdef",  # 16 chars
+            "agent.id": "research_specialist_agent_v2",  # 30+ chars
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(attrs)
+
+        # Should NOT redact (no sensitive key context)
+        assert redacted["trace_id"] == attrs["trace_id"]
+        assert redacted["span_id"] == attrs["span_id"]
+        assert redacted["agent.id"] == attrs["agent.id"]
+        assert not was_redacted
+
+    def test_redaction_catches_api_keys_with_context(self) -> None:
+        """Verify API keys redacted when key name suggests sensitive data."""
+        engine = RedactionEngine()
+
+        attrs = {
+            "openai_api_key": "sk-proj-1234567890abcdefghij",  # Sensitive key name
+            "api_token": "ghp_abcdefghijklmnopqrstuvwxyz",  # GitHub token
+            "workflow_id": "1234567890abcdefghij",  # NOT sensitive (no key context)
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(attrs)
+
+        assert "***REDACTED***" in redacted["openai_api_key"]
+        assert "***REDACTED***" in redacted["api_token"]
+        assert redacted["workflow_id"] == attrs["workflow_id"]  # Preserved
+        assert was_redacted
+
+    def test_redaction_sensitive_key_patterns(self) -> None:
+        """Test various sensitive key name patterns."""
+        engine = RedactionEngine()
+
+        # All these should trigger API key redaction
+        sensitive_keys = [
+            "api_key",
+            "apiKey",
+            "API_KEY",
+            "bearer_token",
+            "oauth_token",
+            "secret_key",
+            "db_password",
+            "credential_value",
+        ]
+
+        for key_name in sensitive_keys:
+            attrs = {key_name: "a" * 25}  # 25 chars to trigger API key pattern
+            redacted, was_redacted = engine.redact_span_attributes(attrs)
+
+            assert redacted[key_name] == "***REDACTED***", f"Failed for key: {key_name}"
+            assert was_redacted
+
+    def test_redaction_non_sensitive_long_strings(self) -> None:
+        """Test that long strings in non-sensitive keys are preserved."""
+        engine = RedactionEngine()
+
+        # Non-sensitive keys with 20+ char values
+        attrs = {
+            "workflow.name": "advanced_research_workflow_2025",  # 30 chars
+            "agent.description": "specialized_code_analyzer",  # 25 chars
+            "task.id": "abcdefghijklmnopqrst",  # 20 chars exactly
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(attrs)
+
+        # All should be preserved (no sensitive key context)
+        assert redacted["workflow.name"] == attrs["workflow.name"]
+        assert redacted["agent.description"] == attrs["agent.description"]
+        assert redacted["task.id"] == attrs["task.id"]
+        assert not was_redacted
+
+    def test_redaction_mixed_sensitive_and_non_sensitive(self) -> None:
+        """Test mixed attributes with both sensitive and non-sensitive keys."""
+        engine = RedactionEngine()
+
+        attrs = {
+            "trace_id": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",  # Long, non-sensitive
+            "openai_api_key": "sk-1234567890abcdefghij",  # Long, sensitive
+            "agent.id": "research_agent_with_long_name",  # Long, non-sensitive
+            "github_token": "ghp_abcdefghijklmnopqrstuvwxyz",  # Long, sensitive
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(attrs)
+
+        # Non-sensitive preserved
+        assert redacted["trace_id"] == attrs["trace_id"]
+        assert redacted["agent.id"] == attrs["agent.id"]
+
+        # Sensitive redacted
+        assert "***REDACTED***" in redacted["openai_api_key"]
+        assert "***REDACTED***" in redacted["github_token"]
+
+        assert was_redacted
+
+
 class TestRedactionEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
@@ -356,7 +460,110 @@ class TestRedactionEdgeCases:
         result = engine.redact_value(short)
         assert result == short
 
-        # 20 chars - should be redacted
+        # 20 chars - should be redacted (when in sensitive context)
         long = "a" * 20
         result = engine.redact_value(long)
         assert result == "***REDACTED***"
+
+
+class TestNestedRedaction:
+    """Tests for nested attribute redaction (Phase 2.3)."""
+
+    def test_redaction_nested_tool_inputs(self) -> None:
+        """Verify nested tool.input structures are redacted."""
+        engine = RedactionEngine()
+
+        attrs = {
+            "tool.input.api_config": {
+                "api_key": "sk-1234567890abcdefghij",
+                "user_email": "test@example.com",
+            },
+            "tool.input.user_data": {
+                "name": "John Doe",
+                "phone": "555-123-4567",
+            },
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(
+            attrs, redact_tool_inputs=True
+        )
+
+        # Check nested redaction occurred
+        assert was_redacted
+
+        # API key should be redacted (sensitive key name)
+        api_config = redacted["tool.input.api_config"]
+        assert "***REDACTED***" in str(api_config["api_key"])
+
+        # Email should be redacted
+        assert "***REDACTED***" in str(api_config["user_email"])
+
+        # Phone should be redacted
+        user_data = redacted["tool.input.user_data"]
+        assert "***REDACTED***" in str(user_data["phone"])
+
+        # Name should be preserved
+        assert user_data["name"] == "John Doe"
+
+    def test_redaction_nested_tool_outputs(self) -> None:
+        """Verify nested tool.output structures are redacted."""
+        engine = RedactionEngine()
+
+        attrs = {
+            "tool.output.results": {
+                "count": 42,
+                "emails_found": ["admin@example.com", "user@test.org"],
+                "api_response": {
+                    "token": "sk-abcdefghijklmnopqrst",
+                    "status": "success",
+                },
+            }
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(
+            attrs, redact_tool_outputs=True
+        )
+
+        assert was_redacted
+
+        results = redacted["tool.output.results"]
+
+        # Emails should be redacted
+        assert "***REDACTED***" in str(results["emails_found"])
+
+        # API token should be redacted (sensitive key name + long value)
+        api_response = results["api_response"]
+        assert "***REDACTED***" in str(api_response["token"])
+
+        # Count and status should be preserved
+        assert results["count"] == 42
+        assert api_response["status"] == "success"
+
+    def test_redaction_deeply_nested_structures(self) -> None:
+        """Test redaction of deeply nested (3+ levels) structures."""
+        engine = RedactionEngine()
+
+        # Use tool.input prefix to ensure redaction is applied
+        attrs = {
+            "tool.input.config": {
+                "level2": {
+                    "level3": {
+                        "email": "deep@example.com",
+                        "credit_card": "4532-1488-0343-6467",
+                        "normal": "data",
+                    }
+                }
+            }
+        }
+
+        redacted, was_redacted = engine.redact_span_attributes(
+            attrs, redact_tool_inputs=True
+        )
+
+        assert was_redacted
+
+        level3 = redacted["tool.input.config"]["level2"]["level3"]
+        assert "***REDACTED***" in level3["email"]
+        assert "***REDACTED***" in level3["credit_card"]
+        assert level3["normal"] == "data"
+

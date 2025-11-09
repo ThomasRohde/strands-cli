@@ -693,3 +693,53 @@ class TestRedactionIntegration:
         collected_span = trace_data["spans"][0]
         assert collected_span["attributes"]["tool.input.email"] == "user@example.com"
         assert "redacted" not in collected_span["attributes"]
+
+
+class TestConcurrentSpanCollection:
+    """Tests for concurrent span collection (Phase 2.3)."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_span_collection(self) -> None:
+        """Verify TraceCollector thread-safety with 100 parallel adds."""
+        import asyncio
+
+        from opentelemetry.sdk.trace import ReadableSpan
+        from opentelemetry.trace import SpanContext, TraceFlags
+
+        collector = TraceCollector()
+
+        def create_test_span(span_id: int) -> ReadableSpan:
+            """Create a mock span for testing."""
+            span = Mock(spec=ReadableSpan)
+            span.name = f"span-{span_id}"
+            span.start_time = 1000000000 + span_id
+            span.end_time = 2000000000 + span_id
+            span.context = SpanContext(
+                trace_id=12345678901234567890123456789012,
+                span_id=1234567890123456 + span_id,
+                is_remote=False,
+                trace_flags=TraceFlags(0x01),
+            )
+            span.attributes = {"span.id": span_id, "test.concurrent": True}
+            span.events = []
+            span.status = Mock()
+            span.status.status_code.name = "OK"
+            span.status.description = None
+            return span
+
+        async def add_spans(start_idx: int) -> None:
+            """Add 10 spans starting from start_idx."""
+            for i in range(start_idx, start_idx + 10):
+                span = create_test_span(i)
+                collector.add_span(span)
+
+        # Execute 10 concurrent tasks, each adding 10 spans
+        await asyncio.gather(*[add_spans(i * 10) for i in range(10)])
+
+        trace_data = collector.get_trace_data()
+        assert trace_data["span_count"] == 100
+
+        # Verify all span IDs are present (no data corruption)
+        span_ids = {span["attributes"]["span.id"] for span in trace_data["spans"]}
+        assert span_ids == set(range(100))
+

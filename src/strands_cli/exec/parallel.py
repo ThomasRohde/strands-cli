@@ -35,7 +35,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from opentelemetry import trace
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -46,6 +45,7 @@ from strands_cli.exec.utils import (
 )
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
+from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
 
@@ -424,7 +424,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
         ParallelExecutionError: If validation, execution, or reduce fails
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
-    tracer = trace.get_tracer(__name__)
+    tracer = get_tracer(__name__)
     with tracer.start_as_current_span("execute.parallel") as span:
         # Add span attributes
         span.set_attribute("spec.name", spec.name)

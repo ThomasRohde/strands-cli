@@ -461,6 +461,7 @@ Environment variables (prefix: `STRANDS_`):
 - `STRANDS_BEDROCK_MODEL_ID`: Default Bedrock model
 - `STRANDS_VERBOSE`: Enable verbose logging
 - `STRANDS_CONFIG_DIR`: Config directory (uses `platformdirs` by default)
+- `STRANDS_MAX_TRACE_SPANS`: Maximum spans in trace collector (default: `1000`). Increase for long workflows to prevent span eviction.
 
 ### Context Management Presets
 
