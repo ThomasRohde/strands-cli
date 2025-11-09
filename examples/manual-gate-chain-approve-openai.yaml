@@ -1,0 +1,41 @@
+version: 0
+name: "manual-gate-chain-approve-demo"
+description: "Demonstrates manual approval gate with approve fallback (auto-approve on timeout)"
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_steps: 10
+    max_tokens: 50000
+
+agents:
+  file_analyzer:
+    prompt: |
+      You are a file analysis assistant.
+      Analyze file content and provide insights.
+    tools:
+      - python
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: file_analyzer
+        input: "Analyze the file content at {{ file_path }}"
+        manual_gate:
+          enabled: true
+          prompt: "Approve Python code execution for file analysis?"
+          approval_tools:
+            - python
+          timeout_s: 60
+          fallback: "approve"  # Auto-approve on timeout (allows execution)
+
+inputs:
+  required:
+    file_path: string
+
+outputs:
+  artifacts:
+    - path: "./file-analysis.md"
+      from: "{{ last_response }}"

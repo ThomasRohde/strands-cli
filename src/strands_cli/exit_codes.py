@@ -74,6 +74,38 @@ To resolve:
 - Split complex workflows into multiple smaller workflows
 """
 
+EX_INTERRUPT = 20
+"""Workflow paused for manual approval.
+
+The workflow encountered a manual gate that requires human approval and paused
+execution. This exit code is returned in non-interactive mode when:
+- A step/task has manual_gate.enabled=true
+- No --interactive flag was provided to run command
+
+To resume execution, use the resume command with the session ID:
+    strands resume <session-id> --interactive
+
+Or re-run with --interactive flag for inline approval prompts.
+"""
+
+EX_APPROVAL_TIMEOUT = 21
+"""Approval timeout with abort fallback.
+
+The workflow was waiting for human approval but exceeded the configured timeout
+with fallback action set to "abort". This exit code is returned when:
+- manual_gate.timeout_s is exceeded
+- manual_gate.fallback is set to "abort"
+
+Other fallback actions:
+- "deny": Cancel tool execution and continue (exit code EX_OK)
+- "approve": Allow tool execution on timeout (exit code EX_OK)
+
+To resolve:
+- Increase manual_gate.timeout_s for longer approval windows
+- Use fallback="deny" or fallback="approve" to avoid workflow abort
+- Run with --interactive flag for immediate approval prompts
+"""
+
 # System errors
 EX_UNKNOWN = 70
 """Unexpected exception not handled by specific error codes.

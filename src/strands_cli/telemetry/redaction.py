@@ -123,7 +123,9 @@ class RedactionEngine:
 
         return text
 
-    def _redact_dict(self, data: dict[str, Any], is_sensitive_context: bool = True) -> dict[str, Any]:
+    def _redact_dict(
+        self, data: dict[str, Any], is_sensitive_context: bool = True
+    ) -> dict[str, Any]:
         """Recursively redact all values in a dictionary.
 
         Args:

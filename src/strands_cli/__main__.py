@@ -178,15 +178,20 @@ def _handle_unsupported_spec(
     sys.exit(EX_UNSUPPORTED)
 
 
-def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResult:
+def _route_to_executor(
+    spec: Spec, variables: dict[str, str] | None, interactive: bool = False
+) -> RunResult:
     """Route to appropriate executor based on pattern type.
 
     Phase 3: Single-agent executor is now async; wraps with asyncio.run()
     to maintain single event loop per workflow execution.
 
+    Phase 12.1: Added interactive parameter for manual approval gates.
+
     Args:
         spec: Validated workflow spec
         variables: Variable overrides from --var flags
+        interactive: Enable interactive approval prompts (Phase 12.1)
 
     Returns:
         RunResult from the appropriate executor
@@ -198,24 +203,24 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
         if spec.pattern.config.steps and len(spec.pattern.config.steps) == 1:
             # Single-step chain - use async single-agent executor
             # Phase 3: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_single_agent(spec, variables))
+            return asyncio.run(run_single_agent(spec, variables, interactive=interactive))
         else:
             # Multi-step chain - use async chain executor
             # Phase 4: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_chain(spec, variables))
+            return asyncio.run(run_chain(spec, variables, interactive=interactive))
     elif spec.pattern.type == PatternType.WORKFLOW:
         if spec.pattern.config.tasks and len(spec.pattern.config.tasks) == 1:
             # Single-task workflow - use async single-agent executor
             # Phase 3: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_single_agent(spec, variables))
+            return asyncio.run(run_single_agent(spec, variables, interactive=interactive))
         else:
             # Multi-task workflow - use async workflow executor
             # Phase 5: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_workflow(spec, variables))
+            return asyncio.run(run_workflow(spec, variables, interactive=interactive))
     elif spec.pattern.type == PatternType.ROUTING:
         # Routing pattern - use async routing executor
         # Phase 6: Wrap with asyncio.run() for single event loop
-        return asyncio.run(run_routing(spec, variables))
+        return asyncio.run(run_routing(spec, variables, interactive=interactive))
     elif spec.pattern.type == PatternType.PARALLEL:
         # Parallel pattern - use async parallel executor
         # Phase 6: Wrap with asyncio.run() for single event loop
@@ -246,13 +251,17 @@ def _dispatch_executor(
     spec: Spec,
     variables: dict[str, str] | None,
     verbose: bool,
+    interactive: bool = False,
 ) -> RunResult:
     """Route to appropriate executor based on pattern type.
+
+    Phase 12.1: Added interactive parameter for manual approval gates.
 
     Args:
         spec: Validated workflow spec
         variables: Variable overrides from --var flags
         verbose: Enable verbose output
+        interactive: Enable interactive approval prompts (Phase 12.1)
 
     Returns:
         RunResult from the appropriate executor
@@ -265,9 +274,11 @@ def _dispatch_executor(
         console.print(f"[dim]Provider: {spec.runtime.provider}[/dim]")
         console.print(f"[dim]Model: {spec.runtime.model_id or 'default'}[/dim]")
         console.print(f"[dim]Pattern: {spec.pattern.type}[/dim]")
+        if interactive:
+            console.print("[dim]Interactive mode: enabled (manual approval gates)[/dim]")
 
     try:
-        return _route_to_executor(spec, variables)
+        return _route_to_executor(spec, variables, interactive)
     except ExecutionError as e:
         console.print(f"\n[red]Execution failed:[/red] {e}")
         if verbose:
@@ -284,6 +295,20 @@ def _dispatch_executor(
             console.print_exception()
         sys.exit(EX_RUNTIME)
     except Exception as e:
+        # Phase 12.1: Handle interrupt errors (workflow paused for approval)
+        from strands_cli.exec.utils import ApprovalTimeoutError, InterruptError
+        from strands_cli.exit_codes import EX_INTERRUPT
+
+        if isinstance(e, InterruptError):
+            console.print("\n[yellow]⏸ Workflow paused for approval[/yellow]")
+            console.print(f"[dim]{e}[/dim]")
+            console.print(f"\n[dim]Resume with: strands run {spec.name} --interactive[/dim]")
+            sys.exit(EX_INTERRUPT)
+
+        if isinstance(e, ApprovalTimeoutError):
+            console.print(f"\n[red]Approval timeout with abort fallback:[/red] {e}")
+            sys.exit(e.exit_code)
+
         # Phase 6.4: Handle budget exceeded error
         from strands_cli.runtime.budget_enforcer import BudgetExceededError
 
@@ -440,6 +465,14 @@ def run(
         bool,
         typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
     ] = False,
+    interactive: Annotated[
+        bool,
+        typer.Option(
+            "--interactive",
+            "-i",
+            help="Enable interactive mode for manual approval gates (Phase 12.1)",
+        ),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
 ) -> None:
     """Run a single-agent workflow from a YAML or JSON file.
@@ -452,6 +485,11 @@ def run(
         5. Execute workflow with retry logic for transient errors
         6. Write output artifacts using template rendering
 
+    Phase 12.1: Added --interactive flag for human-in-the-loop approval gates.
+    When enabled, the CLI will prompt for approval before executing designated
+    tools. Without this flag, workflows with manual gates will pause and exit
+    with EX_INTERRUPT.
+
     Args:
         spec_file: Path to workflow specification file (.yaml, .yml, or .json)
         var: CLI variable overrides in key=value format, merged into inputs.values
@@ -459,6 +497,8 @@ def run(
         force: Overwrite existing artifact files without error
         bypass_tool_consent: Skip interactive tool confirmations (e.g., file_write prompts)
         trace: Auto-generate trace artifact with OTEL spans (writes <spec-name>-trace.json)
+        debug: Enable detailed logging and error traces
+        interactive: Enable interactive approval prompts for manual gates (Phase 12.1)
         verbose: Enable detailed logging and error traces
 
     Exit Codes:
@@ -467,6 +507,8 @@ def run(
         EX_RUNTIME (10): Provider/model/tool runtime error
         EX_IO (12): Artifact write failure
         EX_UNSUPPORTED (18): Unsupported features detected (report written)
+        EX_INTERRUPT (20): Workflow paused for approval (non-interactive mode)
+        EX_APPROVAL_TIMEOUT (21): Approval timeout with abort fallback
         EX_UNKNOWN (70): Unexpected exception
     """
     import os
@@ -503,7 +545,7 @@ def run(
             configure_telemetry(spec.telemetry.model_dump() if spec.telemetry else None)
 
         # Execute workflow
-        result = _dispatch_executor(spec, variables, verbose)
+        result = _dispatch_executor(spec, variables, verbose, interactive)
 
         if not result.success:
             console.print(f"\n[red]Workflow failed:[/red] {result.error}")

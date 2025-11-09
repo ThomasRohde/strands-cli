@@ -226,6 +226,7 @@ async def _execute_graph_node(
     node_results: dict[str, dict[str, Any]],
     variables: dict[str, str] | None,
     iteration_count: int,
+    interactive: bool = False,
 ) -> tuple[str, int]:
     """Execute a single graph node and return response and token count.
 
@@ -236,6 +237,7 @@ async def _execute_graph_node(
         node_results: Dictionary of prior node execution results
         variables: User-provided variables from --var flags
         iteration_count: Number of times this node has executed
+        interactive: Enable interactive approval prompts (default: False)
 
     Returns:
         Tuple of (response_text, estimated_token_count)
@@ -278,12 +280,42 @@ async def _execute_graph_node(
     if not agent_config:
         raise GraphExecutionError(f"Node '{node_id}' references non-existent agent '{node.agent}'")
 
+    # Phase 12.1: Inject manual approval hook if manual_gate is configured for this node
+    node_hooks: list[Any] | None = None
+    if node.manual_gate and node.manual_gate.enabled:
+        from strands_cli.runtime.hooks import ApprovalHook
+
+        # Determine which tools require approval
+        approval_tools = node.manual_gate.approval_tools
+        if not approval_tools:
+            # If no specific tools listed, use all agent tools
+            approval_tools = agent_config.tools or []
+
+        node_hooks = [
+            ApprovalHook(
+                app_name="strands-cli",
+                approval_tools=approval_tools,
+                timeout_s=node.manual_gate.timeout_s,
+                fallback=node.manual_gate.fallback,
+                prompt=node.manual_gate.prompt,
+            )
+        ]
+
+        logger.info(
+            "manual_gate_enabled",
+            node=node_id,
+            approval_tools=approval_tools,
+            timeout_s=node.manual_gate.timeout_s,
+            fallback=node.manual_gate.fallback,
+        )
+
     # Build or reuse agent
     agent = await cache.get_or_build_agent(
         spec=spec,
         agent_id=node.agent,
         agent_config=agent_config,
         tool_overrides=None,  # Graph nodes don't support tool overrides
+        hooks=node_hooks,
     )
 
     # Execute agent with retry
@@ -295,6 +327,7 @@ async def _execute_graph_node(
             max_attempts=max_attempts,
             wait_min=wait_min,
             wait_max=wait_max,
+            interactive=interactive,
         )
     except Exception as e:
         logger.error(
@@ -359,7 +392,9 @@ def _check_iteration_limit(
         )
 
 
-async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_graph(
+    spec: Spec, variables: dict[str, str] | None = None, interactive: bool = False
+) -> RunResult:
     """Execute a graph pattern workflow.
 
     Executes nodes via edge traversal with condition evaluation and cycle protection.
@@ -463,6 +498,7 @@ async def run_graph(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                     node_results=node_results,
                     variables=variables,
                     iteration_count=iteration_counts[current_node_id],
+                    interactive=interactive,
                 )
 
                 # Track budget

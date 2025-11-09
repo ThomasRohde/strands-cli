@@ -646,6 +646,39 @@
         }
       }
     },
+    "manualGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether manual approval is required."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Custom prompt displayed to user for approval."
+        },
+        "approval_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of tool names requiring approval. If empty or null, all tools require approval."
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Timeout in seconds for approval request."
+        },
+        "fallback": {
+          "type": "string",
+          "enum": ["deny", "approve", "abort"],
+          "default": "deny",
+          "description": "Action to take on timeout or in non-interactive mode: 'deny' cancels tool execution, 'approve' allows execution, 'abort' stops workflow."
+        }
+      }
+    },
     "agentSpec": {
       "type": "object",
       "additionalProperties": false,
@@ -713,6 +746,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "manual_gate": {
+          "$ref": "#/$defs/manualGate",
+          "description": "Manual approval gate configuration for this step."
         }
       }
     },
@@ -1003,6 +1040,10 @@
               },
               "input": {
                 "type": "string"
+              },
+              "manual_gate": {
+                "$ref": "#/$defs/manualGate",
+                "description": "Manual approval gate configuration for this node."
               }
             }
           }
@@ -1100,6 +1141,10 @@
               },
               "input": {
                 "type": "string"
+              },
+              "manual_gate": {
+                "$ref": "#/$defs/manualGate",
+                "description": "Manual approval gate configuration for this task."
               }
             }
           }

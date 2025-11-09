@@ -309,7 +309,9 @@ def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
     return route_spec
 
 
-async def run_routing(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
+async def run_routing(
+    spec: Spec, variables: dict[str, str] | None = None, interactive: bool = False
+) -> RunResult:
     """Execute a routing pattern workflow.
 
     Phase 6 Performance Optimization:

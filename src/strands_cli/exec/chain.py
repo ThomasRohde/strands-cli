@@ -94,7 +94,9 @@ def _build_step_context(
     return context
 
 
-async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:  # noqa: C901
+async def run_chain(
+    spec: Spec, variables: dict[str, str] | None = None, interactive: bool = False
+) -> RunResult:
     """Execute a multi-step chain workflow.
 
     Executes steps sequentially with context passing. Each step receives
@@ -251,6 +253,37 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
                         )
                     hooks_for_agent.extend(shared_hooks)
 
+                # Phase 12.1: Inject manual approval hook if manual_gate is configured
+                if step.manual_gate and step.manual_gate.enabled:
+                    from strands_cli.runtime.hooks import ApprovalHook
+
+                    if hooks_for_agent is None:
+                        hooks_for_agent = []
+
+                    # Determine which tools require approval
+                    approval_tools = step.manual_gate.approval_tools
+                    if not approval_tools:
+                        # If no specific tools listed, use all step tools
+                        approval_tools = tools_for_step or (step_agent_config.tools or [])
+
+                    hooks_for_agent.append(
+                        ApprovalHook(
+                            app_name="strands-cli",
+                            approval_tools=approval_tools,
+                            timeout_s=step.manual_gate.timeout_s,
+                            fallback=step.manual_gate.fallback,
+                            prompt=step.manual_gate.prompt,
+                        )
+                    )
+
+                    logger.info(
+                        "manual_gate_enabled",
+                        step=step_index,
+                        approval_tools=approval_tools,
+                        timeout_s=step.manual_gate.timeout_s,
+                        fallback=step.manual_gate.fallback,
+                    )
+
                 agent = await cache.get_or_build_agent(
                     spec,
                     step_agent_id,
@@ -264,7 +297,7 @@ async def run_chain(spec: Spec, variables: dict[str, str] | None = None) -> RunR
 
                 # Phase 4: Direct await instead of asyncio.run() per step
                 step_response = await invoke_agent_with_retry(
-                    agent, step_input, max_attempts, wait_min, wait_max
+                    agent, step_input, max_attempts, wait_min, wait_max, interactive
                 )
 
                 # Extract response text

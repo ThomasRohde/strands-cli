@@ -45,7 +45,9 @@ class ExecutionError(Exception):
     pass
 
 
-async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_single_agent(
+    spec: Spec, variables: dict[str, str] | None = None, interactive: bool = False
+) -> RunResult:
     """Execute a single-agent workflow asynchronously.
 
     Complete execution workflow:
@@ -145,7 +147,7 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
             )
             with tracer.start_as_current_span("agent_invoke"):
                 response = await invoke_agent_with_retry(
-                    agent, task_input, max_attempts, wait_min, wait_max
+                    agent, task_input, max_attempts, wait_min, wait_max, interactive
                 )
         except Exception as e:
             completed_at = datetime.now(UTC)

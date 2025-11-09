@@ -1,0 +1,89 @@
+version: 0
+name: "manual-gate-graph-demo"
+description: "Demonstrates manual approval gates in graph pattern with decision tree"
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_steps: 50
+    max_tokens: 100000
+
+agents:
+  input_analyzer:
+    prompt: |
+      Analyze user input and determine if it requires external data access.
+      Return your analysis as JSON: {"requires_external_data": true/false, "reason": "..."}
+  
+  external_fetcher:
+    prompt: |
+      Fetch data from external sources using HTTP requests.
+    tools:
+      - http_executors
+  
+  local_processor:
+    prompt: |
+      Process data using only local resources.
+  
+  result_formatter:
+    prompt: |
+      Format and present the final results.
+
+tools:
+  http_executors:
+    - id: "external-api"
+      base_url: "https://api.external-service.com"
+      description: "External data service"
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 5
+    nodes:
+      start:
+        agent: input_analyzer
+        input: "Analyze this request: {{ user_query }}"
+      
+      external:
+        agent: external_fetcher
+        input: "Fetch external data for: {{ nodes.start.response }}"
+        manual_gate:
+          enabled: true
+          prompt: "Approve external API access?"
+          approval_tools:
+            - http_executors
+          timeout_s: 120
+          fallback: "deny"  # Fall back to local processing if denied
+      
+      local:
+        agent: local_processor
+        input: "Process locally: {{ nodes.start.response }}"
+      
+      finish:
+        agent: result_formatter
+        input: "Format results: {{ nodes.external.response or nodes.local.response }}"
+    
+    edges:
+      - from: start
+        choose:
+          - when: "requires_external_data"
+            to: external
+          - when: "else"
+            to: local
+      
+      - from: external
+        to:
+          - finish
+      
+      - from: local
+        to:
+          - finish
+
+inputs:
+  required:
+    user_query: string
+
+outputs:
+  artifacts:
+    - path: "./graph-result.md"
+      from: "{{ last_response }}"

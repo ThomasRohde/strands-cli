@@ -345,53 +345,46 @@ Implemented full OpenTelemetry tracing with OTLP/Console exporters, trace artifa
 - Crash recovery with state restoration
 - Idempotent step execution
 
-#### 11.2 Rate Limiting & Throttling
-- Provider-specific rate limits (Bedrock, OpenAI)
-- Exponential backoff with jitter
+#### 11.2 Rate Limiting & Circuit Breaker
+- Provider-specific rate limits (Bedrock, OpenAI, Azure)
 - Circuit breaker pattern for failing services
 - Request queue with priority
+- Enhanced backoff with jitter (extends existing exponential backoff)
 
 #### 11.3 Cost Management
-- Token usage tracking per workflow
-- Cost estimation before execution
-- Budget alerts and hard limits
-- Cost attribution by agent/step
+- Cost estimation before execution (extends existing token tracking)
+- Cost-per-token calculation for all providers
+- Cost attribution by agent/step/pattern
+- Budget alerts with cost projections
 
-#### 11.4 Performance Optimization
-- Agent caching (reuse agents across steps)
-- Tool result caching
-- Parallel template rendering
-- Lazy loading of large artifacts
-
-#### 11.5 Monitoring & Alerting
+#### 11.4 Monitoring & Alerting
 - Prometheus metrics exporter
-- Health check endpoint
+- Health check endpoint (extend existing health command)
 - Error rate and latency tracking
 - Custom alert rules
 
 ### Acceptance Criteria
 
 - [ ] Workflow resumes from checkpoint after crash
-- [ ] Rate limit backoff prevents provider throttling
-- [ ] Cost tracking accurate within 5%
-- [ ] Budget alert fires before limit exceeded
+- [ ] Circuit breaker prevents cascade failures
+- [ ] Cost tracking accurate within 5% across all providers
+- [ ] Cost estimation runs before workflow execution
 - [ ] Metrics export to Prometheus
-- [ ] Health check returns status
+- [ ] Health check endpoint returns structured status
 - [ ] Coverage ≥85%
-- [ ] New tests: `test_durability.py`, `test_performance.py`
+- [ ] New tests: `test_durability.py`, `test_circuit_breaker.py`, `test_cost_estimation.py`
 
 ### Implementation Checklist
 
-- [ ] **Use context7** to get tenacity documentation for advanced retry patterns
-- [ ] **Use ref.tools** to research circuit breaker patterns and rate limiting algorithms
 - [ ] **Use context7** to get Prometheus Python client documentation
+- [ ] **Use ref.tools** to research circuit breaker patterns and PyBreaker library
 - [ ] Create `runtime/state.py` for checkpoint management
 - [ ] Implement resume command and state restoration
-- [ ] Add rate limiter and circuit breaker
-- [ ] Create cost calculator for all providers
+- [ ] Add circuit breaker wrapper for provider calls
+- [ ] Create cost calculator extending existing `TokenCounter`
+- [ ] Add pre-execution cost estimation with dry-run mode
 - [ ] Add Prometheus metrics exporter
-- [ ] Implement caching layers
-- [ ] Add health check endpoint
+- [ ] Extend health check to return JSON status with metrics
 - [ ] Performance benchmarking suite
 - [ ] Load testing with large workflows
 
@@ -409,17 +402,16 @@ Implemented full OpenTelemetry tracing with OTLP/Console exporters, trace artifa
 
 #### 12.1 Human-in-the-Loop
 - Implement `manual_gate` step type
-- Integration with Slack for approvals
-- Integration with Jira for task assignment
+- Terminal approval with harness to other integrations
 - Configurable timeout for human response
 - Fallback automation on timeout
 
 #### 12.2 Multi-Provider Support
-- Add OpenAI provider
-- Add Azure OpenAI provider
+- Add Azure OpenAI provider (enum exists, need implementation)
 - Add Anthropic API provider (direct, not via Bedrock)
 - Provider fallback on failures
 - Cost optimization across providers
+- Multi-provider cost comparison and recommendation
 
 #### 12.3 Workflow Catalog
 - Built-in workflow templates
@@ -442,7 +434,7 @@ Implemented full OpenTelemetry tracing with OTLP/Console exporters, trace artifa
 ### Acceptance Criteria
 
 - [ ] Slack approval gate pauses workflow until approval
-- [ ] OpenAI and Azure OpenAI providers work correctly
+- [ ] Azure OpenAI and Anthropic API providers work correctly
 - [ ] Provider fallback switches on error
 - [ ] Workflow catalog loads and executes templates
 - [ ] Langfuse trace export includes all LLM calls
@@ -453,12 +445,13 @@ Implemented full OpenTelemetry tracing with OTLP/Console exporters, trace artifa
 ### Implementation Checklist
 
 - [ ] **Use context7** to get Slack SDK and Jira Python SDK documentation
-- [ ] **Use context7** to get OpenAI Python SDK and Azure OpenAI documentation
+- [ ] **Use context7** to get Azure OpenAI documentation and Anthropic API docs
 - [ ] **Use ref.tools** to search Langfuse integration patterns
 - [ ] Create `integrations/slack.py` for approval gates
 - [ ] Create `integrations/jira.py` for task assignment
-- [ ] Add OpenAI and Azure provider adapters
-- [ ] Implement provider fallback logic
+- [ ] Add Azure OpenAI provider adapter (enum exists in types.py)
+- [ ] Add Anthropic API provider adapter (direct, not Bedrock)
+- [ ] Implement provider fallback logic with circuit breaker integration
 - [ ] Build workflow catalog system
 - [ ] Add Langfuse exporter
 - [ ] Create interactive CLI mode

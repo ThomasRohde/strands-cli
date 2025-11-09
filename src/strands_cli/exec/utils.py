@@ -35,6 +35,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from strands_cli.exit_codes import EX_APPROVAL_TIMEOUT
 from strands_cli.runtime.strands_adapter import build_agent
 from strands_cli.tools.http_executor_factory import close_http_executor_tool
 from strands_cli.types import Agent as AgentConfig
@@ -166,24 +167,31 @@ async def invoke_agent_with_retry(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    interactive: bool = False,
 ) -> Any:
-    """Invoke an agent asynchronously with retry logic.
+    """Invoke an agent asynchronously with retry logic and interrupt handling.
 
-    Wraps agent invocation with stdout capture and retry handling.
-    Used across all executors for consistent agent execution.
+    Wraps agent invocation with stdout capture, retry handling, and optional
+    interactive interrupt loop for human-in-the-loop approval gates.
+
+    Phase 12.1: Added interrupt handling support for manual approval gates.
+    When agent execution stops due to interrupt (stop_reason == "interrupt"),
+    the function enters an interrupt loop to collect user approvals.
 
     Args:
         agent: Strands Agent instance
-        input_text: Input prompt for the agent
+        input_text: Input prompt for the agent (or list of interrupt responses)
         max_attempts: Maximum retry attempts
         wait_min: Minimum backoff wait (seconds)
         wait_max: Maximum backoff wait (seconds)
+        interactive: Enable interactive approval prompts (default: False)
 
     Returns:
         Agent response (string or AgentResult)
 
     Raises:
         TRANSIENT_ERRORS: After all retry attempts exhausted
+        InterruptError: If workflow paused for approval in non-interactive mode
         Exception: For non-transient errors (fail immediately)
     """
     from strands_cli.utils import capture_and_display_stdout
@@ -206,18 +214,39 @@ async def invoke_agent_with_retry(
                     model_info = model.model
 
             # Truncate input for logging
-            input_preview = input_text[:200] if len(input_text) > 200 else input_text
+            if isinstance(input_text, str):
+                input_preview = input_text[:200] if len(input_text) > 200 else input_text
+            else:
+                input_preview = str(input_text)[:200]
 
             logger.debug(
                 "llm_request_start",
                 agent_name=agent_name,
                 model=model_info,
-                input_length=len(input_text),
+                input_length=len(str(input_text)),
                 input_preview=input_preview,
             )
 
         with capture_and_display_stdout():
             result = await agent.invoke_async(input_text)
+
+        # Phase 12.1: Handle interrupts for manual approval gates
+        if hasattr(result, "stop_reason") and result.stop_reason == "interrupt":
+            if not interactive:
+                # Non-interactive mode: save checkpoint and exit
+                # This will be implemented in Phase 3 (state persistence)
+
+                logger.warning(
+                    "workflow_interrupted",
+                    agent_name=getattr(agent, "name", "<unknown>"),
+                    interrupt_count=len(getattr(result, "interrupts", [])),
+                )
+                raise InterruptError(
+                    "Workflow paused for approval. Run with --interactive flag for inline prompts."
+                )
+
+            # Interactive mode: enter interrupt loop
+            result = await _handle_interrupts(agent, result)
 
         if debug:
             # Extract response info
@@ -233,6 +262,130 @@ async def invoke_agent_with_retry(
         return result
 
     return await _execute()
+
+
+async def _handle_interrupts(agent: Any, result: Any) -> Any:
+    """Handle interrupt loop for manual approval gates.
+
+    Phase 12.1: Interactive approval loop that prompts user for each interrupt,
+    collects responses, and resumes agent execution.
+
+    Args:
+        agent: Strands Agent instance
+        result: Agent result with stop_reason == "interrupt"
+
+    Returns:
+        Final agent result after all interrupts resolved
+
+    Raises:
+        ApprovalTimeoutError: If user denies approval with abort fallback
+    """
+    from rich.console import Console
+    from rich.prompt import Confirm
+
+    console = Console()
+
+    # Interrupt loop: continue until no more interrupts
+    while hasattr(result, "stop_reason") and result.stop_reason == "interrupt":
+        interrupts = getattr(result, "interrupts", [])
+
+        if not interrupts:
+            logger.warning("interrupt_without_data", result=str(result)[:200])
+            break
+
+        responses = []
+        for interrupt in interrupts:
+            # Extract interrupt metadata
+            interrupt_id = getattr(interrupt, "id", None)
+            interrupt_reason = getattr(interrupt, "reason", "unknown")
+            interrupt_value = getattr(interrupt, "value", {})
+
+            # Get approval prompt and fallback from interrupt data
+            approval_prompt = interrupt_value.get("prompt", f"Approve {interrupt_reason}?")
+            tool_name = interrupt_value.get("tool", "unknown")
+            tool_input = interrupt_value.get("input", {})
+            fallback = interrupt_value.get("fallback", "deny")
+
+            logger.info(
+                "approval_requested",
+                interrupt_id=interrupt_id,
+                tool=tool_name,
+                fallback=fallback,
+            )
+
+            # Display approval request to user
+            console.print("\n[bold yellow]Approval Required:[/bold yellow]")
+            console.print(f"  Tool: [cyan]{tool_name}[/cyan]")
+            if tool_input:
+                console.print(f"  Input: {tool_input}")
+
+            # Prompt user for approval
+            user_approved = Confirm.ask(f"[yellow]{approval_prompt}[/yellow]", default=False)
+
+            # Apply fallback logic if denied
+            if not user_approved:
+                logger.info(
+                    "approval_denied",
+                    interrupt_id=interrupt_id,
+                    tool=tool_name,
+                    fallback=fallback,
+                )
+
+                if fallback == "abort":
+                    console.print(
+                        "\n[red]Approval denied with abort fallback - workflow stopped[/red]"
+                    )
+                    raise ApprovalTimeoutError(
+                        f"User denied approval for {tool_name} with abort fallback"
+                    )
+                elif fallback == "deny":
+                    console.print(f"[yellow]Tool {tool_name} execution cancelled[/yellow]")
+                    # SDK will handle tool cancellation via event.cancel_tool
+                elif fallback == "approve":
+                    console.print(f"[yellow]Tool {tool_name} auto-approved (fallback)[/yellow]")
+                    user_approved = True  # Override denial with approval
+
+            # Build interrupt response
+            response_value = "y" if user_approved else "n"
+            responses.append(
+                {
+                    "interruptResponse": {
+                        "interruptId": interrupt_id,
+                        "response": response_value,
+                    }
+                }
+            )
+
+            logger.debug(
+                "approval_response_collected",
+                interrupt_id=interrupt_id,
+                approved=user_approved,
+            )
+
+        # Resume agent with interrupt responses
+        logger.info("resuming_agent_with_responses", response_count=len(responses))
+        result = await agent.invoke_async(responses)
+
+    return result
+
+
+class InterruptError(Exception):
+    """Raised when workflow pauses for approval in non-interactive mode."""
+
+    pass
+
+
+class ApprovalTimeoutError(Exception):
+    """Raised when approval timeout occurs with abort fallback."""
+
+    def __init__(self, message: str):
+        """Initialize with message and exit code.
+
+        Args:
+            message: Error message
+        """
+        super().__init__(message)
+        self.exit_code = EX_APPROVAL_TIMEOUT
 
 
 def estimate_tokens(input_text: str, output_text: str) -> int:

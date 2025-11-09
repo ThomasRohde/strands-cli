@@ -16,7 +16,7 @@ Key Models:
 
 import re
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -300,6 +300,26 @@ class Tools(BaseModel):
         return result
 
 
+class ManualGate(BaseModel):
+    """Manual approval gate configuration.
+
+    Controls human-in-the-loop approval for step/task/node execution.
+
+    Attributes:
+        enabled: Whether manual approval is required (default: True)
+        prompt: Custom prompt displayed to user for approval
+        approval_tools: List of tool names requiring approval (None = all tools)
+        timeout_s: Timeout in seconds for approval request
+        fallback: Action on timeout/denial: 'deny' (cancel tool), 'approve' (allow), 'abort' (stop workflow)
+    """
+
+    enabled: bool = True
+    prompt: str | None = None
+    approval_tools: list[str] | None = None
+    timeout_s: int | None = None
+    fallback: Literal["deny", "approve", "abort"] = "deny"
+
+
 class Agent(BaseModel):
     """Agent configuration."""
 
@@ -316,12 +336,14 @@ class ChainStep(BaseModel):
         input: Prompt supplement or instruction (template allowed)
         vars: Per-step variable overrides for template rendering
         tool_overrides: Override agent's default tools for this step
+        manual_gate: Manual approval gate configuration for this step
     """
 
     agent: str  # Agent ID
     input: str | None = None  # Prompt template (optional)
     vars: dict[str, str | int | bool] | None = None  # Per-step variables
     tool_overrides: list[str] | None = None  # Tool ID overrides
+    manual_gate: ManualGate | None = None  # Manual approval configuration
 
 
 class WorkflowTask(BaseModel):
@@ -333,6 +355,7 @@ class WorkflowTask(BaseModel):
         deps: List of task IDs this task depends on
         description: Human-readable task description
         input: Prompt supplement or instruction (template allowed)
+        manual_gate: Manual approval gate configuration for this task
     """
 
     id: str  # Unique task identifier (required)
@@ -340,6 +363,7 @@ class WorkflowTask(BaseModel):
     deps: list[str] | None = None  # Task dependencies
     description: str | None = None  # Human-readable description
     input: str | None = None  # Prompt template (optional)
+    manual_gate: ManualGate | None = None  # Manual approval configuration
 
 
 class Route(BaseModel):
@@ -482,10 +506,12 @@ class GraphNode(BaseModel):
     Attributes:
         agent: Agent ID to execute at this node
         input: Optional input template (defaults to auto-generated)
+        manual_gate: Manual approval gate configuration for this node
     """
 
     agent: str  # Agent ID (required)
     input: str | None = None  # Optional input template
+    manual_gate: ManualGate | None = None  # Manual approval configuration
 
 
 class OrchestratorLimits(BaseModel):

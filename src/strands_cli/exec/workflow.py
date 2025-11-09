@@ -164,6 +164,7 @@ async def _execute_task(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
+    interactive: bool = False,
 ) -> tuple[str, int]:
     """Execute a single task asynchronously.
 
@@ -174,6 +175,7 @@ async def _execute_task(
         max_attempts: Max retry attempts
         wait_min: Min retry wait (seconds)
         wait_max: Max retry wait (seconds)
+        interactive: Enable interactive approval prompts (Phase 12.1)
 
     Returns:
         Tuple of (response_text, estimated_tokens)
@@ -211,13 +213,42 @@ async def _execute_task(
                 spec.context_policy.notes.include_last
             )
 
+        # Phase 12.1: Inject manual approval hook if manual_gate is configured for this task
+        task_hooks = hooks.copy() if hooks else []
+        if task.manual_gate and task.manual_gate.enabled:
+            from strands_cli.runtime.hooks import ApprovalHook
+
+            # Determine which tools require approval
+            approval_tools = task.manual_gate.approval_tools
+            if not approval_tools:
+                # If no specific tools listed, use all task tools
+                approval_tools = tools_for_task or (task_agent_config.tools or [])
+
+            task_hooks.append(
+                ApprovalHook(
+                    app_name="strands-cli",
+                    approval_tools=approval_tools,
+                    timeout_s=task.manual_gate.timeout_s,
+                    fallback=task.manual_gate.fallback,
+                    prompt=task.manual_gate.prompt,
+                )
+            )
+
+            logger.info(
+                "manual_gate_enabled",
+                task=task.id,
+                approval_tools=approval_tools,
+                timeout_s=task.manual_gate.timeout_s,
+                fallback=task.manual_gate.fallback,
+            )
+
         agent = await cache.get_or_build_agent(
             spec,
             task_agent_id,
             task_agent_config,
             tool_overrides=tools_for_task,
             conversation_manager=context_manager,
-            hooks=hooks,
+            hooks=task_hooks,
             injected_notes=injected_notes,
             worker_index=None,
         )
@@ -227,7 +258,7 @@ async def _execute_task(
     # Execute with retry logic
     try:
         task_response = await invoke_agent_with_retry(
-            agent, task_input, max_attempts, wait_min, wait_max
+            agent, task_input, max_attempts, wait_min, wait_max, interactive
         )
     except Exception as e:
         error_msg = f"Task '{task.id}' failed: {e}"
@@ -291,6 +322,7 @@ async def _execute_workflow_layer(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
+    interactive: bool = False,
 ) -> list[tuple[str, int]]:
     """Execute all tasks in a workflow layer (potentially in parallel).
 
@@ -343,6 +375,7 @@ async def _execute_workflow_layer(
                         context_manager,
                         hooks,
                         notes_manager,
+                        interactive,
                     )
             else:
                 return await _execute_task(
@@ -356,6 +389,7 @@ async def _execute_workflow_layer(
                     context_manager,
                     hooks,
                     notes_manager,
+                    interactive,
                 )  # Execute all tasks in layer (parallel where possible)
 
         results = await asyncio.gather(
@@ -368,7 +402,9 @@ async def _execute_workflow_layer(
     return await _execute_layer(tasks_to_execute)
 
 
-async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_workflow(
+    spec: Spec, variables: dict[str, str] | None = None, interactive: bool = False
+) -> RunResult:
     """Execute a multi-task workflow with DAG dependencies.
 
     Executes tasks in topological order with parallel execution within each layer.
@@ -500,6 +536,7 @@ async def run_workflow(spec: Spec, variables: dict[str, str] | None = None) -> R
                         context_manager,
                         hooks,
                         notes_manager,
+                        interactive,
                     )
                 except Exception as e:
                     raise WorkflowExecutionError(

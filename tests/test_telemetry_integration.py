@@ -88,7 +88,9 @@ async def test_chain_executor_emits_spans_with_telemetry(
     force_flush_telemetry(timeout_millis=5000)
 
     trace_data = collector.get_trace_data()
-    assert trace_data["span_count"] > 0, "Chain executor should emit spans when telemetry configured"
+    assert trace_data["span_count"] > 0, (
+        "Chain executor should emit spans when telemetry configured"
+    )
 
     # Verify we have the execute.chain span
     span_names = [span["name"] for span in trace_data["spans"]]
@@ -173,9 +175,9 @@ async def test_workflow_executor_emits_spans_with_telemetry(
     force_flush_telemetry(timeout_millis=5000)
 
     trace_data = collector.get_trace_data()
-    assert (
-        trace_data["span_count"] > 0
-    ), "Workflow executor should emit spans when telemetry configured"
+    assert trace_data["span_count"] > 0, (
+        "Workflow executor should emit spans when telemetry configured"
+    )
 
     # Verify we have the execute.workflow span
     span_names = [span["name"] for span in trace_data["spans"]]
@@ -291,6 +293,7 @@ async def test_context_propagation_to_logs(mocker, tmp_path: Path) -> None:
 
     # Reconfigure structlog with capture processor
     from strands_cli.telemetry import add_otel_context
+
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -338,7 +341,9 @@ async def test_context_propagation_to_logs(mocker, tmp_path: Path) -> None:
     for log in logs_with_trace:
         trace_id = log["trace_id"]
         assert len(trace_id) == 32, f"trace_id should be 32 hex chars, got {trace_id}"
-        assert all(c in "0123456789abcdef" for c in trace_id), f"trace_id should be hex, got {trace_id}"
+        assert all(c in "0123456789abcdef" for c in trace_id), (
+            f"trace_id should be hex, got {trace_id}"
+        )
 
     # Cleanup
     from strands_cli.telemetry import shutdown_telemetry

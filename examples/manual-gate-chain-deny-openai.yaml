@@ -1,0 +1,59 @@
+version: 0
+name: "manual-gate-chain-deny-demo"
+description: "Demonstrates manual approval gate with deny fallback in chain pattern"
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_steps: 10
+    max_tokens: 50000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant that can search the web for information.
+      Use the http_executors tool to make HTTP requests when needed.
+      Provide concise summaries of your findings.
+    tools:
+      - http_executors
+
+  summarizer:
+    prompt: |
+      You are a summarization specialist.
+      Summarize the provided information clearly and concisely.
+
+# HTTP executor for web searches
+tools:
+  http_executors:
+    - id: "search-api"
+      base_url: "https://api.example.com"
+      headers:
+        Accept: "application/json"
+      description: "Search API for web research"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Search for information about {{ topic }}"
+        manual_gate:
+          enabled: true
+          prompt: "Approve HTTP request to external search API?"
+          approval_tools:
+            - http_executors
+          timeout_s: 300
+          fallback: "deny"  # Cancel tool execution on timeout or denial
+      
+      - agent: summarizer
+        input: "Summarize the research findings: {{ steps[0].response }}"
+
+inputs:
+  required:
+    topic: string
+
+outputs:
+  artifacts:
+    - path: "./research-summary.md"
+      from: "{{ last_response }}"

@@ -1,0 +1,78 @@
+version: 0
+name: "manual-gate-workflow-abort-demo"
+description: "Demonstrates manual approval gate with abort fallback in workflow pattern"
+
+runtime:
+  provider: openai
+  model_id: "gpt-5-nano"
+  budgets:
+    max_steps: 20
+    max_tokens: 100000
+
+agents:
+  data_fetcher:
+    prompt: |
+      Fetch data from external APIs.
+      Use http_executors for API calls.
+    tools:
+      - http_executors
+  
+  data_processor:
+    prompt: |
+      Process and transform data.
+      Apply filters and transformations.
+  
+  report_generator:
+    prompt: |
+      Generate comprehensive reports from processed data.
+
+# HTTP executor for API calls
+tools:
+  http_executors:
+    - id: "data-api"
+      base_url: "https://api.data-service.com"
+      headers:
+        Authorization: "Bearer {{BEARER_TOKEN}}"
+      description: "External data API"
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: fetch
+        agent: data_fetcher
+        input: "Fetch data from {{ data_source }}"
+        manual_gate:
+          enabled: true
+          prompt: "CRITICAL: Approve access to external data API?"
+          approval_tools:
+            - http_executors
+          timeout_s: 180
+          fallback: "abort"  # Stop entire workflow if denied or timeout
+      
+      - id: process
+        agent: data_processor
+        input: "Process data: {{ tasks.fetch.response }}"
+        deps:
+          - fetch
+      
+      - id: report
+        agent: report_generator
+        input: "Generate report from: {{ tasks.process.response }}"
+        deps:
+          - process
+
+inputs:
+  required:
+    data_source: string
+
+env:
+  secrets:
+    - name: BEARER_TOKEN
+      source: env
+      key: BEARER_TOKEN
+
+outputs:
+  artifacts:
+    - path: "./data-report.md"
+      from: "{{ tasks.report.response }}"
