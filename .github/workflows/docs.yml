@@ -9,7 +9,7 @@ on:
       version:
         description: 'Version to deploy (e.g., v0.11)'
         required: true
-        default: 'latest'
+        default: 'v0.11'
       alias:
         description: 'Version alias (e.g., latest, stable)'
         required: false
@@ -86,6 +86,13 @@ jobs:
           ALIAS="${{ steps.version.outputs.alias }}"
           
           echo "Deploying documentation version: $VERSION (alias: $ALIAS)"
+          
+          # Prevent deploying with identical version and alias
+          if [[ "$VERSION" == "$ALIAS" ]]; then
+            echo "ERROR: Version and alias cannot be the same ($VERSION)"
+            echo "Please use different values, e.g., version=v0.11 alias=latest"
+            exit 1
+          fi
           
           # Deploy versioned docs
           uv run mike deploy --push --update-aliases "$VERSION" "$ALIAS"
