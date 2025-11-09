@@ -532,7 +532,10 @@ async def run_evaluator_optimizer(
                 )
 
             # Evaluation loop
-            for iteration in range(start_iteration, max_iters + 1):
+            # Loop through evaluation-revision cycles up to max_iters
+            # Iteration numbering: 1=initial_production, 2...(max_iters+1)=evaluate+revise
+            # We do max_iters evaluation cycles starting from start_iteration
+            for iteration in range(start_iteration, start_iteration + max_iters):
                 logger.info("iteration_start", iteration=iteration, phase="evaluation")
                 span.add_event("iteration_start", {"iteration_number": iteration})
 
@@ -648,13 +651,16 @@ async def run_evaluator_optimizer(
 
                     break
 
-                # Check if max iterations exhausted
-                if iteration >= max_iters:
-                    raise EvaluatorOptimizerExecutionError(
-                        f"Max iterations ({max_iters}) exhausted without reaching min_score ({min_score}). "
-                        f"Final score: {evaluation.score}. "
-                        f"Iteration history: {iteration_history}"
+                # Check if we've exhausted max_iters (this is the last evaluation)
+                # If so, we should NOT revise - just exit the loop and raise error
+                if iteration >= start_iteration + max_iters - 1:
+                    logger.info(
+                        "max_iters_exhausted",
+                        iteration=iteration,
+                        max_iters=max_iters,
+                        final_score=final_score,
                     )
+                    break
 
                 # Prepare for revision
                 logger.info("iteration_start", iteration=iteration + 1, phase="revision")
@@ -707,6 +713,14 @@ async def run_evaluator_optimizer(
                 converged = evaluation.score >= min_score
                 span.add_event(
                     "iteration_complete", {"iteration_number": iteration, "converged": converged}
+                )
+
+            # Check if loop completed without acceptance (max iterations exhausted)
+            if final_score < min_score:
+                raise EvaluatorOptimizerExecutionError(
+                    f"Max iterations ({max_iters}) exhausted without reaching min_score ({min_score}). "
+                    f"Final score: {final_score}. "
+                    f"Iteration history: {iteration_history}"
                 )
 
             # Build result
