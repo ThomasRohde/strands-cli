@@ -6,7 +6,16 @@ param(
     [string]$Command = "help",
     
     [Parameter()]
-    [switch]$Strict
+    [switch]$Strict,
+    
+    [Parameter()]
+    [string]$Version,
+    
+    [Parameter()]
+    [string]$Alias = "latest",
+    
+    [Parameter()]
+    [switch]$Push
 )
 
 $ErrorActionPreference = "Stop"
@@ -298,51 +307,26 @@ switch ($Command.ToLower()) {
         Invoke-Validate
     }
     "deploy" {
-        # Parse additional parameters from remaining args
-        $version = $null
-        $alias = "latest"
-        $push = $false
-        
-        for ($i = 0; $i -lt $args.Count; $i++) {
-            if ($args[$i] -eq "-Version" -and $i+1 -lt $args.Count) {
-                $version = $args[$i+1]
-                $i++
-            } elseif ($args[$i] -eq "-Alias" -and $i+1 -lt $args.Count) {
-                $alias = $args[$i+1]
-                $i++
-            } elseif ($args[$i] -eq "-Push") {
-                $push = $true
-            }
-        }
-        
-        if (-not $version) {
+        if (-not $Version) {
             Write-Host "Error: -Version parameter required for deploy command" -ForegroundColor Red
             Write-Host "Example: .\scripts\docs.ps1 deploy -Version v0.11 -Alias latest" -ForegroundColor Yellow
             exit 1
         }
         
-        if ($push) {
-            Invoke-Deploy -Version $version -Alias $alias -Push
+        if ($Push) {
+            Invoke-Deploy -Version $Version -Alias $Alias -Push
         } else {
-            Invoke-Deploy -Version $version -Alias $alias
+            Invoke-Deploy -Version $Version -Alias $Alias
         }
     }
     "set-default" {
-        $version = $null
-        for ($i = 0; $i -lt $args.Count; $i++) {
-            if ($args[$i] -eq "-Version" -and $i+1 -lt $args.Count) {
-                $version = $args[$i+1]
-                $i++
-            }
-        }
-        
-        if (-not $version) {
+        if (-not $Version) {
             Write-Host "Error: -Version parameter required for set-default command" -ForegroundColor Red
             Write-Host "Example: .\scripts\docs.ps1 set-default -Version latest" -ForegroundColor Yellow
             exit 1
         }
         
-        Invoke-SetDefault -Version $version
+        Invoke-SetDefault -Version $Version
     }
     "list-versions" {
         Invoke-ListVersions
