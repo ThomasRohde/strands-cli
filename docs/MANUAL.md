@@ -87,16 +87,16 @@ Build a production-ready documentation site using **MkDocs + Material for MkDocs
 
 **Goal**: Task-oriented guides for common operations
 
-- [ ] **Workflow Validation**
+- [x] **Workflow Validation**
   - Schema validation workflow
   - Common validation errors
   - File: `manual/howto/validate-workflows.md`
-- [ ] **Running Workflows**
+- [x] **Running Workflows**
   - Basic execution
   - Variable overrides
   - Output customization
   - File: `manual/howto/run-workflows.md`
-- [ ] **Working with Patterns**
+- [x] **Working with Patterns**
   - Chain pattern guide
   - Workflow (DAG) pattern guide
   - Routing pattern guide
@@ -105,33 +105,33 @@ Build a production-ready documentation site using **MkDocs + Material for MkDocs
   - Graph pattern (conditionals, loops)
   - Orchestrator-Workers pattern
   - File: `manual/howto/patterns/` (one file per pattern)
-- [ ] **Context Management**
+- [x] **Context Management**
   - Using presets (minimal/balanced/long_run/interactive)
   - Custom context policies
   - Notes and JIT tools
   - File: `manual/howto/context-management.md`
-- [ ] **Telemetry and Observability**
+- [x] **Telemetry and Observability**
   - OpenTelemetry setup
   - Trace exports (OTLP, Console, Artifacts)
   - PII redaction
   - Debug mode
   - File: `manual/howto/telemetry.md`
-- [ ] **Working with Tools**
+- [x] **Working with Tools**
   - HTTP executors
   - Python tools (allowlist)
   - File operations (with consent)
   - File: `manual/howto/tools.md`
-- [ ] **Secrets and Environment Variables**
+- [x] **Secrets and Environment Variables**
   - Using `source: env`
   - Best practices
   - File: `manual/howto/secrets.md`
-- [ ] **Budget Management**
+- [x] **Budget Management**
   - Token budgets
   - Time limits
   - Cumulative tracking
   - File: `manual/howto/budgets.md`
 
-**Deliverables**: 8+ how-to guides covering common tasks
+**Deliverables**: 8+ how-to guides covering common tasks ✅
 
 ---
 
