@@ -75,7 +75,9 @@ from strands_cli.session import (
     SessionAlreadyCompletedError,
     SessionError,
     SessionNotFoundError,
+    SessionState,
 )
+from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import add_otel_context, configure_telemetry, shutdown_telemetry
 from strands_cli.types import PatternType, RunResult, Spec
 
@@ -225,7 +227,12 @@ def _handle_unsupported_spec(
     sys.exit(EX_UNSUPPORTED)
 
 
-def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResult:
+def _route_to_executor(
+    spec: Spec,
+    variables: dict[str, str] | None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:
     """Route to appropriate executor based on pattern type.
 
     Phase 3: Single-agent executor is now async; wraps with asyncio.run()
@@ -234,6 +241,8 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
     Args:
         spec: Validated workflow spec
         variables: Variable overrides from --var flags
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult from the appropriate executor
@@ -245,44 +254,44 @@ def _route_to_executor(spec: Spec, variables: dict[str, str] | None) -> RunResul
         if spec.pattern.config.steps and len(spec.pattern.config.steps) == 1:
             # Single-step chain - use async single-agent executor
             # Phase 3: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_single_agent(spec, variables))
+            return asyncio.run(run_single_agent(spec, variables, session_state, session_repo))
         else:
             # Multi-step chain - use async chain executor
             # Phase 4: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_chain(spec, variables))
+            return asyncio.run(run_chain(spec, variables, session_state, session_repo))
     elif spec.pattern.type == PatternType.WORKFLOW:
         if spec.pattern.config.tasks and len(spec.pattern.config.tasks) == 1:
             # Single-task workflow - use async single-agent executor
             # Phase 3: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_single_agent(spec, variables))
+            return asyncio.run(run_single_agent(spec, variables, session_state, session_repo))
         else:
             # Multi-task workflow - use async workflow executor
             # Phase 5: Wrap with asyncio.run() for single event loop
-            return asyncio.run(run_workflow(spec, variables))
+            return asyncio.run(run_workflow(spec, variables, session_state, session_repo))
     elif spec.pattern.type == PatternType.ROUTING:
         # Routing pattern - use async routing executor
         # Phase 6: Wrap with asyncio.run() for single event loop
-        return asyncio.run(run_routing(spec, variables))
+        return asyncio.run(run_routing(spec, variables, session_state, session_repo))
     elif spec.pattern.type == PatternType.PARALLEL:
         # Parallel pattern - use async parallel executor
         # Phase 6: Wrap with asyncio.run() for single event loop
-        return asyncio.run(run_parallel(spec, variables))
+        return asyncio.run(run_parallel(spec, variables, session_state, session_repo))
     elif spec.pattern.type == PatternType.EVALUATOR_OPTIMIZER:
         # Evaluator-optimizer pattern - use async evaluator-optimizer executor
         # Phase 4: Wrap with asyncio.run() for single event loop
-        return asyncio.run(run_evaluator_optimizer(spec, variables))
+        return asyncio.run(run_evaluator_optimizer(spec, variables, session_state, session_repo))
     elif spec.pattern.type == PatternType.ORCHESTRATOR_WORKERS:
         # Orchestrator-workers pattern - use async orchestrator-workers executor
         # Phase 7: Wrap with asyncio.run() for single event loop
         from strands_cli.exec.orchestrator_workers import run_orchestrator_workers
 
-        return asyncio.run(run_orchestrator_workers(spec, variables))
+        return asyncio.run(run_orchestrator_workers(spec, variables, session_state, session_repo))
     elif spec.pattern.type == PatternType.GRAPH:
         # Graph pattern - use async graph executor
         # Phase 8: Wrap with asyncio.run() for single event loop
         from strands_cli.exec.graph import run_graph
 
-        return asyncio.run(run_graph(spec, variables))
+        return asyncio.run(run_graph(spec, variables, session_state, session_repo))
     else:
         # Other patterns - not yet supported
         console.print(f"\n[red]Error:[/red] Pattern '{spec.pattern.type}' not supported yet")
@@ -293,6 +302,8 @@ def _dispatch_executor(
     spec: Spec,
     variables: dict[str, str] | None,
     verbose: bool,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
 ) -> RunResult:
     """Route to appropriate executor based on pattern type.
 
@@ -300,6 +311,8 @@ def _dispatch_executor(
         spec: Validated workflow spec
         variables: Variable overrides from --var flags
         verbose: Enable verbose output
+        session_state: Existing session state for resume (None = fresh start)
+        session_repo: Repository for checkpointing (None = no checkpoints)
 
     Returns:
         RunResult from the appropriate executor
@@ -314,7 +327,7 @@ def _dispatch_executor(
         console.print(f"[dim]Pattern: {spec.pattern.type}[/dim]")
 
     try:
-        return _route_to_executor(spec, variables)
+        return _route_to_executor(spec, variables, session_state, session_repo)
     except ExecutionError as e:
         console.print(f"\n[red]Execution failed:[/red] {e}")
         if verbose:
@@ -465,7 +478,10 @@ def version() -> None:
 
 @app.command()
 def run(
-    spec_file: Annotated[str | None, typer.Argument(help="Path to workflow YAML/JSON file (required unless --resume)")] = None,
+    spec_file: Annotated[
+        str | None,
+        typer.Argument(help="Path to workflow YAML/JSON file (required unless --resume)"),
+    ] = None,
     var: Annotated[
         list[str] | None, typer.Option("--var", help="Variable override (key=value)")
     ] = None,
@@ -488,14 +504,21 @@ def run(
         typer.Option("--debug", help="Enable debug logging (variable resolution, templates, etc.)"),
     ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
-    resume: Annotated[str | None, typer.Option("--resume", "-r", help="Resume from session ID")] = None,
+    resume: Annotated[
+        str | None, typer.Option("--resume", "-r", help="Resume from session ID")
+    ] = None,
     save_session: Annotated[
         bool,
-        typer.Option("--save-session/--no-save-session", help="Save session for resume (default: true)"),
+        typer.Option(
+            "--save-session/--no-save-session", help="Save session for resume (default: true)"
+        ),
     ] = True,
     auto_resume: Annotated[
         bool,
-        typer.Option("--auto-resume", help="Auto-resume from most recent failed/paused session if spec matches"),
+        typer.Option(
+            "--auto-resume",
+            help="Auto-resume from most recent failed/paused session if spec matches",
+        ),
     ] = False,
 ) -> None:
     """Run a workflow from a YAML/JSON file or resume from saved session.
@@ -577,18 +600,19 @@ def run(
 
             repo = FileSessionRepository()
             spec_path = Path(spec_file)
-            
+
             if spec_path.exists():
                 spec_hash = compute_spec_hash(spec_path)
                 sessions = asyncio.run(repo.list_sessions())
-                
+
                 # Find matching failed/paused sessions
                 matching = [
-                    s for s in sessions
+                    s
+                    for s in sessions
                     if s.spec_hash == spec_hash
                     and s.status in (SessionStatus.FAILED, SessionStatus.PAUSED)
                 ]
-                
+
                 if matching:
                     # Resume most recent matching session
                     latest = max(matching, key=lambda s: s.updated_at)
@@ -598,7 +622,9 @@ def run(
                     )
                     resume = latest.session_id
                 elif verbose:
-                    console.print("[dim]No matching failed/paused sessions found, starting fresh[/dim]")
+                    console.print(
+                        "[dim]No matching failed/paused sessions found, starting fresh[/dim]"
+                    )
 
         # Branch: Resume mode vs Normal mode
         if resume:
@@ -723,7 +749,7 @@ def run(
             repo = None
 
         # Execute workflow (with session support if enabled)
-        result = _dispatch_executor(spec, variables, verbose)
+        result = _dispatch_executor(spec, variables, verbose, session_state, repo)
 
         if not result.success:
             console.print(f"\n[red]Workflow failed:[/red] {result.error}")
@@ -1300,7 +1326,9 @@ def sessions_delete(
     # Confirm unless --force
     if not force:
         console.print(f"[yellow]Delete session {session_id[:12]}...?[/yellow]")
-        console.print("[dim]This will remove all session data including agent conversation history.[/dim]")
+        console.print(
+            "[dim]This will remove all session data including agent conversation history.[/dim]"
+        )
         console.print()
         confirm = typer.confirm("Continue?")
         if not confirm:

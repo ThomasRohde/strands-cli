@@ -46,6 +46,7 @@ from strands_cli.exec.utils import (
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
+from strands_cli.session.checkpoint_utils import fail_session
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
@@ -762,7 +763,9 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                             )
                 else:
                     # Reduce already executed on previous run - restore from checkpoint
-                    assert session_state is not None  # For type checker (already validated reduce_executed implies session_state)
+                    assert (
+                        session_state is not None
+                    )  # For type checker (already validated reduce_executed implies session_state)
                     final_response = session_state.pattern_state.get("final_response", "")
                     final_agent_id = spec.pattern.config.reduce.agent
                     logger.info(
@@ -825,6 +828,15 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                 duration_seconds=duration,
                 execution_context={"branches": branches_dict},
             )
+        except Exception as e:
+            # Mark session as failed before re-raising
+            if session_state and session_repo:
+                await fail_session(session_state, session_repo, e)
+
+            # Re-raise parallel execution errors
+            if isinstance(e, ParallelExecutionError):
+                raise
+            raise ParallelExecutionError(f"Parallel execution failed: {e}") from e
         finally:
             # Clean up cached resources
             await cache.close()

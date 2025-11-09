@@ -53,6 +53,7 @@ from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
+    fail_session,
     finalize_session,
     get_cumulative_tokens,
     validate_session_params,
@@ -287,7 +288,7 @@ async def run_evaluator_optimizer(
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
-) -> RunResult:  # noqa: C901
+) -> RunResult:
     """Execute evaluator-optimizer pattern workflow with optional session persistence.
 
     Phase 4 Implementation:
@@ -766,6 +767,17 @@ async def run_evaluator_optimizer(
                 execution_context=execution_context,
             )
 
+        except Exception as e:
+            # Mark session as failed before re-raising
+            if session_state and session_repo:
+                await fail_session(session_state, session_repo, e)
+
+            # Re-raise evaluator-optimizer execution errors
+            if isinstance(e, EvaluatorOptimizerExecutionError):
+                raise
+            raise EvaluatorOptimizerExecutionError(
+                f"Evaluator-optimizer execution failed: {e}"
+            ) from e
         finally:
             # Cleanup HTTP clients
             await cache.close()

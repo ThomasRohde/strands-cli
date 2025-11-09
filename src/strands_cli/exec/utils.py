@@ -317,7 +317,7 @@ class AgentCache:
     ) -> Agent:
         """Get cached agent or build new one.
 
-        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type, 
+        Checks cache for existing agent with matching (agent_id, tools, conversation_manager_type,
         worker_index, session_id). If found, returns cached instance (cache hit). Otherwise, builds
         new agent and caches it (cache miss).
 

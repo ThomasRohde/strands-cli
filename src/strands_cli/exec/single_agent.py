@@ -29,6 +29,8 @@ import structlog
 
 from strands_cli.exec.utils import AgentCache, get_retry_config, invoke_agent_with_retry
 from strands_cli.loader import render_template
+from strands_cli.session import SessionState
+from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.types import PatternType, RunResult, Spec
 
@@ -45,7 +47,12 @@ class ExecutionError(Exception):
     pass
 
 
-async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) -> RunResult:
+async def run_single_agent(
+    spec: Spec,
+    variables: dict[str, str] | None = None,
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+) -> RunResult:
     """Execute a single-agent workflow asynchronously.
 
     Complete execution workflow:
@@ -66,6 +73,8 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
     Args:
         spec: Validated workflow spec (must pass capability check first)
         variables: Optional variables from CLI (already merged into spec.inputs)
+        session_state: Existing session state for resume (None = fresh start) - unused for single-agent
+        session_repo: Repository for checkpointing (None = no checkpoints) - unused for single-agent
 
     Returns:
         RunResult with:
@@ -77,6 +86,11 @@ async def run_single_agent(spec: Spec, variables: dict[str, str] | None = None) 
     Raises:
         ExecutionError: If pattern is unsupported, template rendering fails,
                        or agent construction fails (not for agent runtime errors)
+
+    Note:
+        Single-agent workflows do not support session persistence/resume yet.
+        The session_state and session_repo parameters are accepted for API
+        compatibility with multi-step executors but are currently ignored.
     """
     # Phase 10: Get tracer after configure_telemetry() has been called
     tracer = get_tracer(__name__)

@@ -52,6 +52,7 @@ from strands_cli.loader import render_template
 from strands_cli.session import SessionState, SessionStatus
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
+    fail_session,
     finalize_session,
     get_cumulative_tokens,
     validate_session_params,
@@ -653,5 +654,14 @@ async def run_graph(
                 },
             )
 
+        except Exception as e:
+            # Mark session as failed before re-raising
+            if session_state and session_repo:
+                await fail_session(session_state, session_repo, e)
+
+            # Re-raise graph execution errors
+            if isinstance(e, GraphExecutionError):
+                raise
+            raise GraphExecutionError(f"Graph execution failed: {e}") from e
         finally:
             await cache.close()

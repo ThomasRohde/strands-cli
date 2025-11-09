@@ -9,6 +9,7 @@ Tests cover:
 - Token usage accumulation across resume
 - Checkpoint creation after each step
 - Session status transitions
+- End-to-end checkpoint verification
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from strands_cli.exec.chain import run_chain
 from strands_cli.loader.yaml_loader import load_spec
 from strands_cli.session import SessionMetadata, SessionState, SessionStatus, TokenUsage
 from strands_cli.session.file_repository import FileSessionRepository
-from strands_cli.session.utils import generate_session_id, now_iso8601
+from strands_cli.session.utils import compute_spec_hash, generate_session_id, now_iso8601
 from strands_cli.types import Spec
 
 
@@ -91,7 +92,9 @@ async def test_chain_fresh_execution_creates_session(
 
     # Mock agent invocations
     mock_agent = MagicMock()
-    mock_agent.invoke_async = AsyncMock(side_effect=["Step 0 result", "Step 1 result", "Step 2 result"])
+    mock_agent.invoke_async = AsyncMock(
+        side_effect=["Step 0 result", "Step 1 result", "Step 2 result"]
+    )
 
     mocker.patch(
         "strands_cli.exec.utils.AgentCache.get_or_build_agent",
@@ -124,7 +127,9 @@ async def test_chain_fresh_execution_creates_session(
     await repo.save(session_state, spec_content)
 
     # Execute chain (fresh start - will execute all 3 steps)
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution success
     assert result.success
@@ -143,7 +148,9 @@ async def test_chain_fresh_execution_creates_session(
 
 
 @pytest.mark.asyncio
-async def test_chain_resume_after_step_1(tmp_path: Path, chain_3_step_spec: Path, mocker: Any) -> None:
+async def test_chain_resume_after_step_1(
+    tmp_path: Path, chain_3_step_spec: Path, mocker: Any
+) -> None:
     """Test resuming chain after step 1 completes."""
     spec = load_spec(str(chain_3_step_spec))
     repo = FileSessionRepository(storage_dir=tmp_path / "sessions")
@@ -165,8 +172,18 @@ async def test_chain_resume_after_step_1(tmp_path: Path, chain_3_step_spec: Path
         pattern_state={
             "current_step": 2,  # Next step to execute is index 2
             "step_history": [
-                {"index": 0, "agent": "researcher", "response": "Step 0 result", "tokens_estimated": 1000},
-                {"index": 1, "agent": "analyst", "response": "Step 1 result", "tokens_estimated": 1200},
+                {
+                    "index": 0,
+                    "agent": "researcher",
+                    "response": "Step 0 result",
+                    "tokens_estimated": 1000,
+                },
+                {
+                    "index": 1,
+                    "agent": "analyst",
+                    "response": "Step 1 result",
+                    "tokens_estimated": 1200,
+                },
             ],
         },
         token_usage=TokenUsage(total_input_tokens=1100, total_output_tokens=1100),
@@ -185,7 +202,9 @@ async def test_chain_resume_after_step_1(tmp_path: Path, chain_3_step_spec: Path
     )
 
     # Resume from step 2
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify step 2 executed, steps 0-1 skipped
     assert result.success
@@ -200,7 +219,9 @@ async def test_chain_resume_after_step_1(tmp_path: Path, chain_3_step_spec: Path
 
 
 @pytest.mark.asyncio
-async def test_chain_resume_on_last_step(tmp_path: Path, chain_3_step_spec: Path, mocker: Any) -> None:
+async def test_chain_resume_on_last_step(
+    tmp_path: Path, chain_3_step_spec: Path, mocker: Any
+) -> None:
     """Test resuming chain on the last step."""
     spec = load_spec(str(chain_3_step_spec))
     repo = FileSessionRepository(storage_dir=tmp_path / "sessions")
@@ -242,7 +263,9 @@ async def test_chain_resume_on_last_step(tmp_path: Path, chain_3_step_spec: Path
     )
 
     # Resume
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution
     assert result.success
@@ -280,9 +303,7 @@ async def test_chain_resume_agent_session_restoration(
         runtime_config={"provider": "ollama", "model_id": "gpt-oss"},
         pattern_state={
             "current_step": 1,
-            "step_history": [
-                {"index": 0, "agent": "researcher", "response": "Research data"}
-            ],
+            "step_history": [{"index": 0, "agent": "researcher", "response": "Research data"}],
         },
         token_usage=TokenUsage(total_input_tokens=500, total_output_tokens=500),
     )
@@ -294,7 +315,9 @@ async def test_chain_resume_agent_session_restoration(
     mock_agent = MagicMock()
     mock_agent.invoke_async = AsyncMock(side_effect=["Analysis complete", "Summary complete"])
 
-    mock_file_session_manager = mocker.patch("strands.session.file_session_manager.FileSessionManager")
+    mock_file_session_manager = mocker.patch(
+        "strands.session.file_session_manager.FileSessionManager"
+    )
 
     mocker.patch(
         "strands_cli.exec.utils.AgentCache.get_or_build_agent",
@@ -302,7 +325,9 @@ async def test_chain_resume_agent_session_restoration(
     )
 
     # Execute steps 1 and 2 (resume mode)
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution success
     assert result.success
@@ -380,7 +405,9 @@ async def test_chain_token_usage_accumulates_on_resume(
     mocker.patch("strands_cli.exec.utils.estimate_tokens", return_value=400)
 
     # Resume from step 2
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution
     assert result.success
@@ -442,7 +469,9 @@ async def test_chain_checkpoint_after_each_step(
     mocker.patch.object(repo, "save", side_effect=mock_save)
 
     # Execute chain
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution
     assert result.success
@@ -453,9 +482,11 @@ async def test_chain_checkpoint_after_each_step(
 
 
 @pytest.mark.asyncio
-async def test_chain_resume_completed_session_validation(tmp_path: Path, chain_3_step_spec: Path) -> None:
+async def test_chain_resume_completed_session_validation(
+    tmp_path: Path, chain_3_step_spec: Path
+) -> None:
     """Test that resume logic handles completed sessions appropriately.
-    
+
     Note: This tests the validation that should happen before calling run_chain.
     The actual validation is in the CLI resume command, not in run_chain itself.
     """
@@ -543,7 +574,9 @@ async def test_chain_session_status_transitions(
     )
 
     # Execute chain to completion
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution completed
     assert result.success
@@ -644,7 +677,9 @@ async def test_chain_resume_with_step_history_context(
     )
 
     # Resume from step 1
-    result = await run_chain(spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo)
+    result = await run_chain(
+        spec, variables={"topic": "AI agents"}, session_state=session_state, session_repo=repo
+    )
 
     # Verify execution
     assert result.success
@@ -656,3 +691,142 @@ async def test_chain_resume_with_step_history_context(
     assert "Research about AI agents" in step_1_input
     assert "Analyze these findings" in step_1_input
 
+
+@pytest.mark.asyncio
+async def test_chain_checkpoints_written_and_resume_succeeds(
+    tmp_path: Path, chain_3_step_spec: Path, mocker: Any
+) -> None:
+    """End-to-end test: Verify checkpoints are written during execution and resume works.
+
+    This test verifies the two critical blockers are fixed:
+    1. Session state is passed to executors so checkpoints are written
+    2. Spec snapshot is preserved across checkpoint saves
+    """
+    # Load spec
+    spec = load_spec(str(chain_3_step_spec), {"topic": "AI agents"})
+    spec_content = chain_3_step_spec.read_text(encoding="utf-8")
+
+    # Create session repository
+    repo = FileSessionRepository(storage_dir=tmp_path)
+    session_id = generate_session_id()
+
+    # Initialize session state
+    session_state = SessionState(
+        metadata=SessionMetadata(
+            session_id=session_id,
+            workflow_name=spec.name,
+            spec_hash=compute_spec_hash(chain_3_step_spec),
+            pattern_type="chain",
+            status=SessionStatus.RUNNING,
+            created_at=now_iso8601(),
+            updated_at=now_iso8601(),
+        ),
+        variables={"topic": "AI agents"},
+        runtime_config=spec.runtime.model_dump(),
+        pattern_state={},  # Will be initialized by executor
+        token_usage=TokenUsage(),
+    )
+
+    # Save initial session with spec snapshot
+    await repo.save(session_state, spec_content)
+
+    # Verify spec snapshot created
+    spec_snapshot_path = repo._session_dir(session_id) / "spec_snapshot.yaml"
+    assert spec_snapshot_path.exists()
+    original_spec_content = spec_snapshot_path.read_text(encoding="utf-8")
+    assert original_spec_content == spec_content
+
+    # Mock agent invocations - only run step 0 and 1
+    invoke_count = [0]
+
+    async def mock_invoke(*args, **kwargs):
+        invoke_count[0] += 1
+        if invoke_count[0] == 1:
+            return "Step 0 result: Research about AI agents"
+        elif invoke_count[0] == 2:
+            return "Step 1 result: Analysis of research"
+        else:
+            # Should not reach step 2 in first execution
+            raise RuntimeError("Should only execute 2 steps")
+
+    mock_agent = MagicMock()
+    mock_agent.invoke_async = AsyncMock(side_effect=mock_invoke)
+
+    mocker.patch(
+        "strands_cli.exec.utils.AgentCache.get_or_build_agent",
+        return_value=mock_agent,
+    )
+
+    # Mock AgentCache.close to avoid cleanup errors
+    mocker.patch("strands_cli.exec.utils.AgentCache.close", new_callable=AsyncMock)
+
+    # Simulate execution interrupted after step 1 by limiting steps
+    # Create a modified spec with only 2 steps
+    limited_spec = load_spec(str(chain_3_step_spec), {"topic": "AI agents"})
+    limited_spec.pattern.config.steps = limited_spec.pattern.config.steps[:2]
+
+    # Execute first 2 steps with session persistence
+    result1 = await run_chain(limited_spec, {"topic": "AI agents"}, session_state, repo)
+
+    # Verify execution succeeded
+    assert result1.success
+    assert invoke_count[0] == 2  # Only 2 steps executed
+
+    # Verify checkpoints were written
+    # Load session state after execution
+    checkpoint_state = await repo.load(session_id)
+    assert checkpoint_state is not None
+    assert checkpoint_state.pattern_state["current_step"] == 2  # After step 1 (0-indexed)
+    assert len(checkpoint_state.pattern_state["step_history"]) == 2
+
+    # CRITICAL: Verify spec snapshot is UNCHANGED after checkpoints
+    spec_snapshot_after = spec_snapshot_path.read_text(encoding="utf-8")
+    assert spec_snapshot_after == original_spec_content, (
+        "Spec snapshot was overwritten during checkpoint!"
+    )
+
+    # Now resume from checkpoint to complete step 2
+    invoke_count[0] = 0  # Reset counter
+
+    async def mock_invoke_resume(*args, **kwargs):
+        invoke_count[0] += 1
+        # Should only execute step 2 (final step)
+        return "Step 2 result: Final summary report"
+
+    mock_agent.invoke_async = AsyncMock(side_effect=mock_invoke_resume)
+
+    # Load full spec for resume (all 3 steps)
+    full_spec = load_spec(str(chain_3_step_spec), {"topic": "AI agents"})
+
+    # Resume execution
+    result2 = await run_chain(full_spec, {"topic": "AI agents"}, checkpoint_state, repo)
+
+    # Verify resume succeeded
+    assert result2.success
+    assert invoke_count[0] == 1  # Only step 2 executed (steps 0-1 skipped)
+
+    # Verify final session state
+    final_state = await repo.load(session_id)
+    assert final_state is not None
+    assert final_state.metadata.status == SessionStatus.COMPLETED
+    assert len(final_state.pattern_state["step_history"]) == 3  # All 3 steps
+
+    # Verify step history preserved from checkpoint
+    assert (
+        final_state.pattern_state["step_history"][0]["response"]
+        == "Step 0 result: Research about AI agents"
+    )
+    assert (
+        final_state.pattern_state["step_history"][1]["response"]
+        == "Step 1 result: Analysis of research"
+    )
+    assert (
+        final_state.pattern_state["step_history"][2]["response"]
+        == "Step 2 result: Final summary report"
+    )
+
+    # CRITICAL: Verify spec snapshot STILL unchanged after completion
+    spec_snapshot_final = spec_snapshot_path.read_text(encoding="utf-8")
+    assert spec_snapshot_final == original_spec_content, (
+        "Spec snapshot was overwritten during session completion!"
+    )

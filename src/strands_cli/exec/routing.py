@@ -38,6 +38,7 @@ from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
+    fail_session,
     finalize_session,
     validate_session_params,
 )
@@ -447,7 +448,8 @@ async def run_routing(  # noqa: C901
                     session_id=session_state.metadata.session_id,
                 )
                 span.add_event(
-                    "router_restored", {"chosen_route": chosen_route, "router_agent": router_agent_id}
+                    "router_restored",
+                    {"chosen_route": chosen_route, "router_agent": router_agent_id},
                 )
             else:
                 # Fresh execution: run router with retry logic
@@ -522,7 +524,9 @@ async def run_routing(  # noqa: C901
 
             try:
                 # Execute route with resume support (delegates to chain resume logic)
-                result = await run_chain(route_spec, route_variables, route_session_state, route_session_repo)
+                result = await run_chain(
+                    route_spec, route_variables, route_session_state, route_session_repo
+                )
             except Exception as e:
                 raise RoutingExecutionError(f"Route '{chosen_route}' execution failed: {e}") from e
 
@@ -552,6 +556,15 @@ async def run_routing(  # noqa: C901
             )
 
             return result
+        except Exception as e:
+            # Mark session as failed before re-raising
+            if session_state and session_repo:
+                await fail_session(session_state, session_repo, e)
+
+            # Re-raise routing execution errors
+            if isinstance(e, RoutingExecutionError):
+                raise
+            raise RoutingExecutionError(f"Routing execution failed: {e}") from e
         finally:
             # Clean up cached resources
             await cache.close()

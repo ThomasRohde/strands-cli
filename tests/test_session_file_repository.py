@@ -400,3 +400,89 @@ async def test_list_sessions_skips_corrupted(tmp_path: Path):
     # List should skip corrupted and return 2 valid sessions
     sessions = await repo.list_sessions()
     assert len(sessions) == 2
+
+
+@pytest.mark.asyncio
+async def test_save_preserves_spec_snapshot(tmp_path: Path):
+    """Test that repeated saves don't overwrite spec_snapshot.yaml when empty content is passed.
+    
+    This is critical for checkpoint functionality - the spec snapshot is written once
+    during session creation, then all subsequent checkpoint saves pass empty string
+    to skip spec update and preserve the original snapshot.
+    """
+    repo = FileSessionRepository(storage_dir=tmp_path)
+    session_id = generate_session_id()
+
+    # Original spec content
+    original_spec = "version: 0\nname: test-workflow\npattern:\n  type: chain\nsteps:\n  - agent: test"
+
+    # Create initial session state
+    state = SessionState(
+        metadata=SessionMetadata(
+            session_id=session_id,
+            workflow_name="test-workflow",
+            spec_hash="abc123",
+            pattern_type="chain",
+            status=SessionStatus.RUNNING,
+            created_at="2025-11-09T10:00:00Z",
+            updated_at="2025-11-09T10:00:00Z",
+        ),
+        variables={"topic": "AI"},
+        runtime_config={"provider": "ollama"},
+        pattern_state={"current_step": 0, "step_history": []},
+        token_usage=TokenUsage(total_input_tokens=0, total_output_tokens=0),
+    )
+
+    # Save with original spec content (session creation)
+    await repo.save(state, original_spec)
+
+    # Verify spec snapshot created
+    spec_file = repo._session_dir(session_id) / "spec_snapshot.yaml"
+    assert spec_file.exists()
+    assert spec_file.read_text(encoding="utf-8") == original_spec
+
+    # Update session state (simulate checkpoint after step 1)
+    state.pattern_state["current_step"] = 1
+    state.pattern_state["step_history"] = [
+        {"index": 0, "agent": "test", "response": "Step 1 output", "tokens": 1000}
+    ]
+    state.token_usage.total_input_tokens = 500
+    state.token_usage.total_output_tokens = 500
+    state.metadata.updated_at = "2025-11-09T10:05:00Z"
+
+    # Save with empty spec_content (checkpoint - should NOT update spec snapshot)
+    await repo.save(state, "")
+
+    # Verify spec snapshot is UNCHANGED
+    assert spec_file.exists()
+    assert spec_file.read_text(encoding="utf-8") == original_spec
+
+    # Verify other state was updated
+    loaded = await repo.load(session_id)
+    assert loaded is not None
+    assert loaded.pattern_state["current_step"] == 1
+    assert len(loaded.pattern_state["step_history"]) == 1
+    assert loaded.token_usage.total_input_tokens == 500
+
+    # Update again (simulate checkpoint after step 2)
+    state.pattern_state["current_step"] = 2
+    state.pattern_state["step_history"].append(
+        {"index": 1, "agent": "test", "response": "Step 2 output", "tokens": 1200}
+    )
+    state.token_usage.total_input_tokens = 1100
+    state.token_usage.total_output_tokens = 1100
+    state.metadata.updated_at = "2025-11-09T10:10:00Z"
+
+    # Save with empty spec_content again (another checkpoint)
+    await repo.save(state, "")
+
+    # Verify spec snapshot STILL unchanged after multiple checkpoints
+    assert spec_file.exists()
+    assert spec_file.read_text(encoding="utf-8") == original_spec
+
+    # Verify latest state was updated
+    loaded = await repo.load(session_id)
+    assert loaded is not None
+    assert loaded.pattern_state["current_step"] == 2
+    assert len(loaded.pattern_state["step_history"]) == 2
+    assert loaded.token_usage.total_input_tokens == 1100

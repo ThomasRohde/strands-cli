@@ -25,9 +25,7 @@ def validate_session_params(
         ValueError: If only one parameter is provided
     """
     if (session_state is None) != (session_repo is None):
-        raise ValueError(
-            "session_state and session_repo must both be provided or both be None"
-        )
+        raise ValueError("session_state and session_repo must both be provided or both be None")
 
 
 async def checkpoint_pattern_state(
@@ -58,9 +56,7 @@ async def checkpoint_pattern_state(
         # Simplified: split evenly between input/output
         # Real implementation tracks actual input/output tokens
         session_state.token_usage.total_input_tokens += token_increment // 2
-        session_state.token_usage.total_output_tokens += token_increment - (
-            token_increment // 2
-        )
+        session_state.token_usage.total_output_tokens += token_increment - (token_increment // 2)
 
     # Persist to disk
     await session_repo.save(session_state, "")
@@ -90,6 +86,37 @@ async def finalize_session(
     logger.info("session_completed", session_id=session_state.metadata.session_id)
 
 
+async def fail_session(
+    session_state: SessionState,
+    session_repo: FileSessionRepository,
+    error: Exception,
+) -> None:
+    """Mark session as failed and checkpoint.
+
+    Args:
+        session_state: Current session state
+        session_repo: Repository for persistence
+        error: The exception that caused the failure
+    """
+    session_state.metadata.status = SessionStatus.FAILED
+    session_state.metadata.updated_at = now_iso8601()
+
+    try:
+        await session_repo.save(session_state, "")
+        logger.error(
+            "session_failed",
+            session_id=session_state.metadata.session_id,
+            error=str(error),
+        )
+    except Exception as save_error:
+        logger.warning(
+            "session_failure_save_failed",
+            session_id=session_state.metadata.session_id,
+            save_error=str(save_error),
+            original_error=str(error),
+        )
+
+
 def get_cumulative_tokens(session_state: SessionState | None) -> int:
     """Get cumulative token usage from session state.
 
@@ -102,6 +129,5 @@ def get_cumulative_tokens(session_state: SessionState | None) -> int:
     if not session_state:
         return 0
     return (
-        session_state.token_usage.total_input_tokens
-        + session_state.token_usage.total_output_tokens
+        session_state.token_usage.total_input_tokens + session_state.token_usage.total_output_tokens
     )

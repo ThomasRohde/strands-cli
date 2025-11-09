@@ -44,6 +44,7 @@ from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
+    fail_session,
     finalize_session,
     get_cumulative_tokens,
     validate_session_params,
@@ -680,6 +681,15 @@ async def run_workflow(  # noqa: C901
                 artifacts_written=[],
                 execution_context={"tasks": task_results},
             )
+        except Exception as e:
+            # Mark session as failed before re-raising
+            if session_state and session_repo:
+                await fail_session(session_state, session_repo, e)
+
+            # Re-raise workflow execution errors
+            if isinstance(e, WorkflowExecutionError):
+                raise
+            raise WorkflowExecutionError(f"Workflow execution failed: {e}") from e
         finally:
             # Phase 5: Clean up cached agents and HTTP clients
             await cache.close()

@@ -104,13 +104,13 @@ class FileSessionRepository:
         concurrent corruption:
         1. session.json: Metadata, variables, runtime, usage, artifacts
         2. pattern_state.json: Pattern-specific execution state
-        3. spec_snapshot.yaml: Original workflow spec for comparison
+        3. spec_snapshot.yaml: Original workflow spec for comparison (only if spec_content is non-empty)
 
         Uses atomic writes (temp file + rename) and file locking for safety.
 
         Args:
             state: Session state to persist
-            spec_content: Original workflow spec YAML/JSON content
+            spec_content: Original workflow spec YAML/JSON content (empty string = skip spec update)
 
         Raises:
             SessionCorruptedError: If file write fails
@@ -120,6 +120,8 @@ class FileSessionRepository:
             >>> state = SessionState(...)
             >>> spec_content = Path("workflow.yaml").read_text()
             >>> await repo.save(state, spec_content)
+            >>> # For checkpoints (don't update spec):
+            >>> await repo.save(state, "")
         """
 
         def _save() -> None:
@@ -154,11 +156,13 @@ class FileSessionRepository:
                     )
                     pattern_tmp.replace(pattern_json)
 
-                    # Write spec_snapshot.yaml atomically (original spec for comparison)
-                    spec_file = session_dir / "spec_snapshot.yaml"
-                    spec_tmp = session_dir / "spec_snapshot.yaml.tmp"
-                    spec_tmp.write_text(spec_content, encoding="utf-8")
-                    spec_tmp.replace(spec_file)
+                    # Write spec_snapshot.yaml atomically ONLY if spec_content is non-empty
+                    # This allows checkpoints to skip spec updates (pass empty string)
+                    if spec_content:
+                        spec_file = session_dir / "spec_snapshot.yaml"
+                        spec_tmp = session_dir / "spec_snapshot.yaml.tmp"
+                        spec_tmp.write_text(spec_content, encoding="utf-8")
+                        spec_tmp.replace(spec_file)
 
                 except Exception as e:
                     raise SessionCorruptedError(
@@ -232,13 +236,9 @@ class FileSessionRepository:
                 return state
 
             except json.JSONDecodeError as e:
-                raise SessionCorruptedError(
-                    f"Invalid JSON in session {session_id}: {e}"
-                ) from e
+                raise SessionCorruptedError(f"Invalid JSON in session {session_id}: {e}") from e
             except Exception as e:
-                raise SessionCorruptedError(
-                    f"Failed to load session {session_id}: {e}"
-                ) from e
+                raise SessionCorruptedError(f"Failed to load session {session_id}: {e}") from e
 
         return await asyncio.to_thread(_load)
 
