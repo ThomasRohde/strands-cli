@@ -177,78 +177,89 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
     )
 
     # Check if resuming from branch HITL pause
-    if session_state and hitl_response:
+    # Two scenarios:
+    # 1. Fresh resume with new hitl_response from user (hitl_response parameter provided)
+    # 2. Crash recovery where response was already checkpointed (check session_state.hitl_state.user_response)
+    if session_state:
         hitl_state_dict = session_state.pattern_state.get("hitl_state")
         if (
             hitl_state_dict
             and hitl_state_dict.get("step_type") == "branch"
             and hitl_state_dict.get("branch_id") == branch.id
         ):
-            # Restore pre-HITL step history from session state
-            branch_states = session_state.pattern_state.get("branch_states", {})
-            if branch.id in branch_states:
-                step_history = branch_states[branch.id]["step_history"].copy()
-                cumulative_tokens = branch_states[branch.id]["cumulative_tokens"]
+            # Determine the effective HITL response:
+            # - Use new response from parameter if provided
+            # - Otherwise use persisted response from previous checkpoint
+            effective_hitl_response = hitl_response or hitl_state_dict.get("user_response")
+            
+            if effective_hitl_response:
+                # Restore pre-HITL step history from session state
+                branch_states = session_state.pattern_state.get("branch_states", {})
+                if branch.id in branch_states:
+                    step_history = branch_states[branch.id]["step_history"].copy()
+                    cumulative_tokens = branch_states[branch.id]["cumulative_tokens"]
 
-            # Inject HITL response into step history
-            hitl_step_record = {
-                "index": hitl_state_dict["step_index"],
-                "type": "hitl",
-                "prompt": hitl_state_dict["prompt"],
-                "response": hitl_response,
-                "tokens_estimated": 0,
-            }
-            step_history.append(hitl_step_record)
+                # Inject HITL response into step history
+                hitl_step_record = {
+                    "index": hitl_state_dict["step_index"],
+                    "type": "hitl",
+                    "prompt": hitl_state_dict["prompt"],
+                    "response": effective_hitl_response,
+                    "tokens_estimated": 0,
+                }
+                step_history.append(hitl_step_record)
 
-            # Continue from next step after HITL
-            start_step = hitl_state_dict["step_index"] + 1
+                # Continue from next step after HITL
+                start_step = hitl_state_dict["step_index"] + 1
 
-            # Persist updated branch + HITL state before continuing
-            # This prevents data loss if workflow crashes after resume but before next checkpoint
-            if session_repo and session_state:
-                # Update branch state with injected HITL response
-                branch_states = session_state.pattern_state.setdefault("branch_states", {})
-                branch_state = branch_states.setdefault(branch.id, {})
-                branch_state["step_history"] = step_history.copy()
-                branch_state["current_step"] = hitl_state_dict["step_index"] + 1
-                branch_state["cumulative_tokens"] = cumulative_tokens
+                # Persist updated branch + HITL state before continuing
+                # This prevents data loss if workflow crashes after resume but before next checkpoint
+                if session_repo and session_state:
+                    # Update branch state with injected HITL response
+                    branch_states = session_state.pattern_state.setdefault("branch_states", {})
+                    branch_state = branch_states.setdefault(branch.id, {})
+                    branch_state["step_history"] = step_history.copy()
+                    branch_state["current_step"] = hitl_state_dict["step_index"] + 1
+                    branch_state["cumulative_tokens"] = cumulative_tokens
 
-                # Clear HITL state (no longer active)
-                hitl_state = HITLState(**hitl_state_dict)
-                hitl_state.active = False
-                hitl_state.user_response = hitl_response
-                session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
-                session_state.metadata.updated_at = now_iso8601()
-
-                # Checkpoint session
-                await session_repo.save(session_state, "")
-
-                logger.info(
-                    "branch_hitl_resume_checkpointed",
-                    session_id=session_state.metadata.session_id,
-                    branch_id=branch.id,
-                    step=hitl_state_dict["step_index"],
-                    response_length=len(hitl_response),
-                )
-            else:
-                # No session repo - just update in-memory state
-                if session_state:
+                    # Clear HITL state (no longer active)
                     hitl_state = HITLState(**hitl_state_dict)
                     hitl_state.active = False
-                    hitl_state.user_response = hitl_response
+                    hitl_state.user_response = effective_hitl_response
                     session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
-                logger.warning(
-                    "branch_hitl_resume_without_checkpoint",
-                    branch_id=branch.id,
-                    message="HITL response not persisted - crash will lose progress",
-                )
+                    session_state.metadata.updated_at = now_iso8601()
 
-            logger.info(
-                "branch_hitl_response_received",
-                branch_id=branch.id,
-                step=hitl_state_dict["step_index"],
-                response_preview=hitl_response[:100] if len(hitl_response) > 100 else hitl_response,
-            )
+                    # Checkpoint session
+                    await session_repo.save(session_state, "")
+
+                    logger.info(
+                        "branch_hitl_resume_checkpointed",
+                        session_id=session_state.metadata.session_id,
+                        branch_id=branch.id,
+                        step=hitl_state_dict["step_index"],
+                        response_length=len(effective_hitl_response),
+                        from_checkpoint=hitl_response is None,
+                    )
+                else:
+                    # No session repo - just update in-memory state
+                    if session_state:
+                        hitl_state = HITLState(**hitl_state_dict)
+                        hitl_state.active = False
+                        hitl_state.user_response = effective_hitl_response
+                        session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                    logger.warning(
+                        "branch_hitl_resume_without_checkpoint",
+                        branch_id=branch.id,
+                        message="HITL response not persisted - crash will lose progress",
+                    )
+
+                logger.info(
+                    "branch_hitl_response_received",
+                    branch_id=branch.id,
+                    step=hitl_state_dict["step_index"],
+                    response_preview=effective_hitl_response[:100] if len(effective_hitl_response) > 100 else effective_hitl_response,
+                    from_checkpoint=hitl_response is None,
+                )
 
     # Execute steps from start_step onward
     for step_index in range(start_step, len(branch.steps)):

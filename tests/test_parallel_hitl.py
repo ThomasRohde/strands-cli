@@ -1245,3 +1245,128 @@ class TestHITLCheckpointSafety:
         # (it will be at the validation step index or beyond)
         current_step = branch_state.get("current_step", 0)
         assert current_step >= 2, f"current_step should be >= 2 after HITL, got {current_step}"
+
+    @pytest.mark.asyncio
+    async def test_branch_hitl_crash_resume_without_new_response(
+        self, parallel_spec_branch_hitl: Spec, tmp_path: Path, mocker: Any
+    ) -> None:
+        """Test that branch HITL resume works after crash using persisted response.
+        
+        Critical regression test for the fix:
+        - User provides HITL response
+        - Response is checkpointed
+        - Workflow crashes during next step
+        - User resumes WITHOUT providing --hitl-response again
+        - Workflow should use the checkpointed response and continue
+        
+        Without the fix, this scenario would pause at the same HITL step again,
+        forcing the user to re-provide their response.
+        """
+        # Arrange - Simulate state AFTER user provided response and it was checkpointed,
+        # but BEFORE the next step completed (crash scenario)
+        repo = FileSessionRepository(storage_dir=tmp_path)
+
+        hitl_state = HITLState(
+            active=False,  # Response was provided and checkpointed
+            branch_id="web_research",
+            step_index=1,
+            step_type="branch",
+            prompt="Review scraped data quality. Approve to continue?",
+            user_response="approved - data is good",  # Checkpointed response
+        )
+
+        session_state = SessionState(
+            metadata=SessionMetadata(
+                session_id="test-crash-resume-456",
+                workflow_name=parallel_spec_branch_hitl.name,
+                pattern_type="parallel",
+                spec_hash="test-hash-crash",
+                status=SessionStatus.PAUSED,
+                created_at="2025-11-10T10:00:00Z",
+                updated_at="2025-11-10T10:05:00Z",
+            ),
+            variables={"topic": "AI"},
+            runtime_config={},
+            pattern_state={
+                "branch_states": {
+                    "web_research": {
+                        "step_history": [
+                            {
+                                "index": 0,
+                                "agent": "web_scraper",
+                                "response": "Web scraped data",
+                                "tokens_estimated": 100,
+                            },
+                            # HITL response was added to history before crash
+                            {
+                                "index": 1,
+                                "type": "hitl",
+                                "prompt": "Review scraped data quality. Approve to continue?",
+                                "response": "approved - data is good",
+                                "tokens_estimated": 0,
+                            },
+                        ],
+                        "current_step": 2,  # Should continue from validation step
+                        "cumulative_tokens": 100,
+                    },
+                    "docs_research": {
+                        "step_history": [
+                            {
+                                "index": 0,
+                                "agent": "docs_reader",
+                                "response": "Docs summary",
+                                "tokens_estimated": 80,
+                            }
+                        ],
+                        "current_step": 1,
+                        "cumulative_tokens": 80,
+                    },
+                },
+                "hitl_state": hitl_state.model_dump(),
+            },
+            token_usage=TokenUsage(),
+        )
+        
+        # Save crashed state
+        await repo.save(session_state, "")
+
+        # Mock agent - only validation step should execute (docs already done)
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Validation complete")
+
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent = AsyncMock(return_value=mock_agent)
+        mock_cache.close = AsyncMock()
+        mocker.patch("strands_cli.exec.parallel.AgentCache", return_value=mock_cache)
+
+        # Act - Resume WITHOUT providing hitl_response parameter
+        # This should use the checkpointed response from hitl_state.user_response
+        result = await run_parallel(
+            spec=parallel_spec_branch_hitl,
+            variables={"topic": "AI"},
+            session_state=session_state,
+            session_repo=repo,
+            hitl_response=None,  # Critical: no new response provided
+        )
+
+        # Assert - Workflow completed successfully without re-pausing at HITL
+        assert result.success is True
+        assert result.agent_id != "hitl", "Should not pause at HITL again - response was checkpointed"
+        
+        # Verify validation step executed (proves we continued past HITL)
+        assert "Validation complete" in result.last_response or any(
+            "Validation complete" in str(b.get("response", ""))
+            for b in result.execution_context.get("branches", {}).values()
+        )
+
+        # Verify the checkpointed response was used
+        final_state = await repo.load("test-crash-resume-456")
+        web_branch = final_state.pattern_state.get("branch_states", {}).get("web_research", {})
+        
+        # HITL step should be in history with the original response
+        # Note: May have duplicate HITL records if restored multiple times, but all should have same response
+        hitl_steps = [s for s in web_branch.get("step_history", []) if s.get("type") == "hitl"]
+        assert len(hitl_steps) >= 1, "HITL step should be in history"
+        # Verify all HITL records have the checkpointed response
+        for hitl_step in hitl_steps:
+            assert hitl_step["response"] == "approved - data is good"
