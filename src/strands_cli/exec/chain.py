@@ -90,8 +90,16 @@ def _build_step_context(
         context.update(variables)
 
     # Add step history as steps[] array
-    # Each entry is {response: str, agent: str, index: int}
+    # Each entry is {response: str, index: int} plus either {agent: str} for agent steps
+    # or {type: 'hitl', prompt: str} for HITL steps
     context["steps"] = step_history
+
+    # Add hitl_response convenience variable (most recent HITL step response)
+    # Walk backwards through step_history to find the latest HITL step
+    for step_record in reversed(step_history):
+        if step_record.get("type") == "hitl":
+            context["hitl_response"] = step_record.get("response", "")
+            break
 
     # Add per-step variable overrides from step.vars
     if spec.pattern.config.steps is not None:
@@ -216,6 +224,8 @@ async def run_chain(  # noqa: C901
                         )
 
                     # Inject user response into step history (same pattern as agent steps)
+                    # Structure: {index, type='hitl', prompt, response} - matches agent step pattern
+                    # for template compatibility ({{ steps[n].response }} and {{ hitl_response }})
                     hitl_step_record = {
                         "index": hitl_state.step_index,
                         "type": "hitl",
@@ -229,6 +239,17 @@ async def run_chain(  # noqa: C901
                     hitl_state.active = False
                     hitl_state.user_response = hitl_response
                     session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                    # Checkpoint session after injecting HITL response (before continuing execution)
+                    # This prevents data loss if workflow crashes mid-step after resume
+                    if session_repo:
+                        session_state.pattern_state["step_history"] = step_history
+                        await session_repo.save(session_state, "")
+                        logger.info(
+                            "session.checkpoint_after_hitl",
+                            session_id=session_state.metadata.session_id,
+                            step=hitl_state.step_index,
+                        )
 
                     # Continue from next step after HITL
                     start_step = hitl_state.step_index + 1

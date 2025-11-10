@@ -642,6 +642,121 @@ def sample_spec_with_full_context_policy_dict() -> dict[str, Any]:
     }
 
 
+@pytest.fixture
+def chain_with_hitl_spec_dict() -> dict[str, Any]:
+    """Complete 3-step chain spec with HITL approval gate (dict format)."""
+    return {
+        "name": "chain-hitl-test",
+        "version": 1,
+        "description": "Test workflow with HITL approval step",
+        "runtime": {
+            "provider": "ollama",
+            "model_id": "llama2",
+        },
+        "agents": {
+            "researcher": {
+                "prompt": "You are a research assistant. Provide concise summaries.",
+            },
+            "analyst": {
+                "prompt": "You are an analyst. Review and analyze information.",
+            },
+        },
+        "pattern": {
+            "type": "chain",
+            "config": {
+                "steps": [
+                    # Step 0: Initial research
+                    {
+                        "agent": "researcher",
+                        "input": "Research {{ topic }}",
+                    },
+                    # Step 1: HITL approval gate
+                    {
+                        "type": "hitl",
+                        "prompt": "Review the research findings. Approve to proceed?",
+                        "context_display": "{{ steps[0].response }}",
+                        "default": "approved",
+                        "timeout_seconds": 3600,
+                    },
+                    # Step 2: Analysis with HITL response
+                    {
+                        "agent": "analyst",
+                        "input": "User decision: {{ hitl_response }}\nAnalyze: {{ steps[0].response }}",
+                    },
+                ]
+            },
+        },
+        "inputs": {
+            "values": {
+                "topic": "AI safety",
+            }
+        },
+    }
+
+
+@pytest.fixture
+def mock_hitl_step_history() -> list[dict[str, Any]]:
+    """Mock step history with HITL step for testing template context."""
+    return [
+        # Step 0: Agent step
+        {
+            "index": 0,
+            "agent": "researcher",
+            "response": "Research findings: AI safety is critical...",
+            "tokens_estimated": 150,
+        },
+        # Step 1: HITL step
+        {
+            "index": 1,
+            "type": "hitl",
+            "prompt": "Review the research. Approve?",
+            "response": "approved with minor revisions",
+            "tokens_estimated": 0,
+        },
+    ]
+
+
+@pytest.fixture
+def hitl_session_state(chain_with_hitl_spec_dict: dict[str, Any]) -> dict[str, Any]:
+    """Mock SessionState for HITL pause/resume testing."""
+    from strands_cli.types import HITLState
+
+    hitl_state = HITLState(
+        active=True,
+        step_index=1,
+        prompt="Review the research findings. Approve to proceed?",
+        context_display="Research findings: AI safety is critical...",
+        user_response=None,
+    )
+
+    return {
+        "metadata": {
+            "session_id": "test-hitl-session-123",
+            "workflow_name": "chain-hitl-test",
+            "pattern_type": "chain",
+            "status": "paused",
+            "created_at": "2025-11-10T10:00:00Z",
+            "updated_at": "2025-11-10T10:05:00Z",
+        },
+        "variables": {"topic": "AI safety"},
+        "pattern_state": {
+            "step_history": [
+                {
+                    "index": 0,
+                    "agent": "researcher",
+                    "response": "Research findings: AI safety is critical...",
+                    "tokens_estimated": 150,
+                }
+            ],
+            "hitl_state": hitl_state.model_dump(),
+        },
+        "token_usage": {
+            "total_input_tokens": 100,
+            "total_output_tokens": 150,
+        },
+    }
+
+
 # ============================================================================
 # Environment Variables
 # ============================================================================
