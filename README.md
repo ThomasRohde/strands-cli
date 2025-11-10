@@ -246,22 +246,25 @@ uv run strands run --resume abc-123-def --hitl-response "approved"
 
 **✅ Chain Pattern**: HITL steps between any sequential steps  
 **✅ Workflow Pattern (DAG)**: HITL tasks with dependencies  
-**✅ Parallel Pattern**: HITL in branches OR at reduce step
+**✅ Parallel Pattern**: HITL in branches OR at reduce step  
+**✅ Graph Pattern**: HITL nodes with conditional routing based on user responses
 
 Example workflows:
 - Chain: [`examples/chain-hitl-approval-demo.yaml`](examples/chain-hitl-approval-demo.yaml)
 - Workflow: [`examples/workflow-hitl-approval-demo.yaml`](examples/workflow-hitl-approval-demo.yaml)
 - Parallel (branch): [`examples/parallel-hitl-branch-demo.yaml`](examples/parallel-hitl-branch-demo.yaml)
 - Parallel (reduce): [`examples/parallel-hitl-reduce-demo.yaml`](examples/parallel-hitl-reduce-demo.yaml)
+- Graph: [`examples/graph-hitl-approval-demo-openai.yaml`](examples/graph-hitl-approval-demo-openai.yaml)
 
 ### Key Features
 
-- **Multi-Pattern Support**: Works with chain, workflow, and parallel patterns
+- **Multi-Pattern Support**: Works with chain, workflow, parallel, and graph patterns
 - **Automatic Pause**: Workflow saves state and exits with code 20 (EX_HITL_PAUSE)
 - **Context Display**: Show users what to review using template variables
-- **Template Access**: Access HITL responses via `{{ hitl_response }}` in subsequent steps
+- **Template Access**: Access HITL responses via `{{ hitl_response }}` (chain/workflow/parallel) or `{{ nodes.<id>.response }}` (graph)
 - **Session Integration**: Leverages durable session management for seamless resume
 - **Context Isolation**: Parallel branch HITL only sees its own branch context
+- **Conditional Routing**: Graph pattern HITL enables dynamic workflow paths based on user decisions
 
 **📖 See [docs/HITL.md](docs/HITL.md) for complete guide with all patterns and examples.**
 

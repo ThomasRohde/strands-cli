@@ -772,47 +772,78 @@ pattern:
 
 ### 2.3 Graph Pattern HITL
 
+**Status:** ✅ Implemented
+
 **Implementation Strategy:**
-- HITL as a node in the graph
-- Next edge determined by user response (conditional routing)
+- HITL as graph nodes (not edges) for pattern consistency
+- Conditional edge routing based on `{{ nodes.<hitl_node_id>.response }}`
+- Support for HITL in loops (iteration counting applies)
+- Session state stores `node_id` in `hitl_state`
+
+**Example:**
 
 ```yaml
 pattern:
   type: graph
   config:
     nodes:
-      - id: start
-        agent: planner
-        input: "Create plan"
-
-      - id: user_review
+      planner:
+        agent: planner_agent
+        input: "Create plan for {{ project }}"
+      
+      review:
         type: hitl
         prompt: "Review plan. Respond 'approve' or 'revise'"
-        context_display: "{{ nodes.start.response }}"
-
-      - id: execute
-        agent: executor
-        input: "Execute approved plan"
-
-      - id: revise
-        agent: planner
-        input: "Revise based on: {{ hitl_response }}"
-
+        context_display: "{{ nodes.planner.response }}"
+      
+      executor:
+        agent: executor_agent
+        input: "Execute: {{ nodes.planner.response }}"
+    
     edges:
-      - from: start
-        to: user_review
-
-      - from: user_review
-        to: execute
-        condition: "hitl_response == 'approve'"
-
-      - from: user_review
-        to: revise
-        condition: "hitl_response == 'revise'"
-
-      - from: revise
-        to: user_review
+      - from: planner
+        to: [review]
+      
+      - from: review
+        choose:
+          - when: "{{ nodes.review.response == 'approve' }}"
+            to: executor
+          - when: else
+            to: planner  # Loop back
 ```
+
+**State Structure:**
+
+```python
+{
+    "current_node": "review",  # HITL node ID
+    "node_results": {
+        "planner": {"response": "...", "status": "success"},
+        "review": {"response": None, "type": "hitl", "status": "waiting_for_user"}
+    },
+    "hitl_state": {
+        "active": true,
+        "node_id": "review",  # Graph-specific field
+        "prompt": "Review plan...",
+        "context_display": "Rendered context...",
+        "user_response": null
+    }
+}
+```
+
+**Key Features:**
+- ✅ HITL nodes in graph pattern
+- ✅ Conditional routing based on HITL responses
+- ✅ HITL in loops (iteration counting)
+- ✅ Template context: `{{ nodes.<id>.response }}`
+- ✅ Session pause/resume
+
+**Testing:**
+- ✅ Pause at HITL node
+- ✅ Resume with response
+- ✅ Conditional edge evaluation
+- ✅ HITL in loops
+- ✅ Multiple HITL nodes
 
 ### 2.4 Interactive CLI Mode (Optional)
 

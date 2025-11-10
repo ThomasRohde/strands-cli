@@ -758,6 +758,14 @@ pattern:
       handle_billing:
         agent: billing_support
       
+      # HITL node (Phase 2.3 feature)
+      approval_gate:
+        type: hitl
+        prompt: "Review the decision. Approve or reject?"
+        context_display: "{{ nodes.intake.response }}"
+        default: "approved"
+        timeout_seconds: 3600
+      
       # Terminal node (no outgoing edges)
       escalate:
         agent: senior_manager
@@ -882,6 +890,223 @@ edges:
    - Check global step limit (raise error if exceeded)
 5. **Termination**: Stop when terminal node reached or limits hit
 
+#### HITL Support in Graph Patterns
+
+**Phase 2.3 Feature**: Graph patterns support HITL as first-class nodes for human approval gates and dynamic routing.
+
+**Basic HITL Node:**
+```yaml
+nodes:
+  planner:
+    agent: planner_agent
+    input: "Create plan"
+  
+  review:
+    type: hitl  # HITL node type
+    prompt: "Review plan. Respond 'approve' or 'revise'"
+    context_display: "{{ nodes.planner.response }}"
+    default: "approved"
+    timeout_seconds: 3600
+  
+  executor:
+    agent: executor_agent
+    input: "Execute plan"
+
+edges:
+  - from: planner
+    to: [review]
+  
+  - from: review
+    choose:
+      - when: "{{ nodes.review.response == 'approve' }}"
+        to: executor
+      - when: else
+        to: planner  # Loop back for revision
+```
+
+**HITL Node Fields:**
+- `type`: Must be `"hitl"`
+- `prompt` (required): Message displayed to user requesting input
+- `context_display` (optional): Context to show user (supports templates)
+- `default` (optional): Default response on timeout or empty input
+- `timeout_seconds` (optional): Time in seconds before timeout (0 = no timeout)
+
+**Execution Flow:**
+
+1. **Pause**: When graph reaches HITL node:
+   - Session state saved with `current_node` = HITL node ID
+   - `hitl_state.node_id` set to current node
+   - Workflow exits with `EX_HITL_PAUSE` (code 19)
+   - Console displays prompt and resume instructions
+
+2. **User Review**: User reviews context and provides response
+
+3. **Resume**: 
+   ```bash
+   strands run --resume <session-id> --hitl-response "approve"
+   ```
+   - Response injected into `node_results[hitl_node_id]["response"]`
+   - Edge conditions can access `{{ nodes.review.response }}`
+   - Workflow continues from next node
+
+**Conditional Routing with HITL:**
+```yaml
+nodes:
+  initial_plan:
+    agent: planner
+  
+  manager_review:
+    type: hitl
+    prompt: "Respond 'approve', 'revise', or 'reject'"
+    context_display: "{{ nodes.initial_plan.response }}"
+  
+  revise_plan:
+    agent: revisor
+    input: "Revise based on: {{ nodes.manager_review.response }}"
+  
+  execute:
+    agent: executor
+  
+  rejected:
+    type: hitl
+    prompt: "Provide rejection reason for audit"
+
+edges:
+  - from: initial_plan
+    to: [manager_review]
+  
+  - from: manager_review
+    choose:
+      - when: "{{ nodes.manager_review.response == 'approve' }}"
+        to: execute
+      - when: "{{ nodes.manager_review.response == 'revise' }}"
+        to: revise_plan
+      - when: "{{ nodes.manager_review.response == 'reject' }}"
+        to: rejected
+  
+  - from: revise_plan
+    to: [manager_review]  # Loop back for re-review
+```
+
+**HITL in Loops:**
+
+HITL nodes count toward `max_iterations` per-node limit:
+
+```yaml
+config:
+  max_iterations: 3  # Max 3 revisions
+
+edges:
+  - from: review_hitl
+    choose:
+      - when: "{{ nodes.review_hitl.response == 'approve' }}"
+        to: finalize
+      - when: "{{ nodes.write.iteration >= 3 }}"
+        to: finalize  # Force exit after 3 attempts
+      - when: else
+        to: write  # Loop back
+```
+
+**Multiple HITL Nodes:**
+
+Graph can have multiple sequential or parallel HITL nodes:
+
+```yaml
+nodes:
+  task1:
+    agent: agent1
+  
+  review1:
+    type: hitl
+    prompt: "Approve task 1?"
+  
+  task2:
+    agent: agent2
+  
+  review2:
+    type: hitl
+    prompt: "Approve task 2?"
+  
+  final:
+    agent: agent3
+
+edges:
+  - from: task1
+    to: [review1]
+  - from: review1
+    to: [task2]
+  - from: task2
+    to: [review2]
+  - from: review2
+    to: [final]
+```
+
+**Template Context:**
+
+HITL responses are available in templates as `{{ nodes.<hitl_node_id>.response }}`:
+
+```yaml
+context_display: |
+  ## Plan for Review
+  {{ nodes.planner.response }}
+  
+  ## Previous Feedback
+  {% if nodes.review.iteration > 1 %}
+  Last response: {{ nodes.review.response }}
+  {% endif %}
+```
+
+**Session State:**
+
+During HITL pause, `pattern_state` contains:
+
+```python
+{
+    "current_node": "review_hitl",
+    "node_results": {
+        "planner": {
+            "response": "Plan: ...",
+            "agent": "planner",
+            "status": "success",
+            "iteration": 1
+        },
+        "review_hitl": {
+            "response": None,  # Set on resume
+            "type": "hitl",
+            "prompt": "Review plan...",
+            "status": "waiting_for_user",
+            "iteration": 1
+        }
+    },
+    "hitl_state": {
+        "active": true,
+        "node_id": "review_hitl",
+        "prompt": "Review plan. Respond 'approve' or 'revise'",
+        "context_display": "Rendered context...",
+        "default_response": "approved",
+        "timeout_at": "2025-11-10T15:00:00Z",
+        "user_response": None
+    }
+}
+```
+
+**Best Practices:**
+
+1. **Terminal HITL**: HITL nodes can be terminal (no outgoing edges) for final sign-off
+2. **Iteration Limits**: Set reasonable `max_iterations` to prevent infinite loops
+3. **Default Responses**: Provide safe defaults for timeout scenarios
+4. **Clear Prompts**: Be explicit about expected response formats
+5. **Context Display**: Show users exactly what they need to review
+
+**Example Workflow:**
+
+See [`examples/graph-hitl-approval-demo-openai.yaml`](../../examples/graph-hitl-approval-demo-openai.yaml) for complete working example with:
+- Initial planning
+- Manager review (HITL)
+- Revision loop
+- Executive approval (HITL)
+- Execution or rejection
+
 #### Output Templates
 
 Access node data in output artifacts:
@@ -896,6 +1121,11 @@ outputs:
         {% if nodes.approve %}
         ## Approved
         {{ nodes.approve.response }}
+        {% endif %}
+        
+        {% if nodes.manager_review %}
+        ## Review Decision
+        Manager: {{ nodes.manager_review.response }}
         {% endif %}
         
         {% if nodes.reject %}

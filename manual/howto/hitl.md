@@ -581,19 +581,75 @@ uv run strands sessions show <session-id>
 
 ---
 
-## Limitations (Phase 1)
+## Supported Patterns
 
-### Current Constraints
+### Pattern Support Status
 
-- **Chain pattern only**: HITL only supported in chain workflows
+✅ **Fully Supported:**
+- **Chain pattern**: HITL steps between sequential steps
+- **Workflow pattern (DAG)**: HITL tasks with dependencies
+- **Parallel pattern**: HITL in branches OR at reduce step
+- **Graph pattern**: HITL nodes with conditional routing
+
+### Pattern-Specific Features
+
+**Graph Pattern** - HITL nodes enable dynamic routing:
+
+```yaml
+pattern:
+  type: graph
+  config:
+    nodes:
+      planner:
+        agent: planner_agent
+        input: "Create plan"
+      
+      review:
+        type: hitl
+        prompt: "Review plan. Respond 'approve' or 'revise'"
+        context_display: "{{ nodes.planner.response }}"
+      
+      executor:
+        agent: executor_agent
+        input: "Execute plan"
+    
+    edges:
+      - from: planner
+        to: [review]
+      
+      - from: review
+        choose:
+          - when: "{{ nodes.review.response == 'approve' }}"
+            to: executor
+          - when: else
+            to: planner  # Loop back for revision
+```
+
+**Template Access by Pattern:**
+- **Chain**: `{{ steps[n].response }}` or `{{ hitl_response }}`
+- **Workflow**: `{{ tasks.<id>.response }}`
+- **Parallel**: `{{ branches.<id>.response }}`
+- **Graph**: `{{ nodes.<id>.response }}`
+
+See pattern-specific examples:
+- [`examples/chain-hitl-approval-demo.yaml`](../../examples/chain-hitl-approval-demo.yaml)
+- [`examples/workflow-hitl-approval-demo.yaml`](../../examples/workflow-hitl-approval-demo.yaml)
+- [`examples/parallel-hitl-branch-demo.yaml`](../../examples/parallel-hitl-branch-demo.yaml)
+- [`examples/parallel-hitl-reduce-demo.yaml`](../../examples/parallel-hitl-reduce-demo.yaml)
+- [`examples/graph-hitl-approval-demo-openai.yaml`](../../examples/graph-hitl-approval-demo-openai.yaml)
+
+---
+
+## Current Limitations
+
+### Phase 2 Constraints
+
 - **CLI-based interaction**: Must use `--resume` and `--hitl-response` flags
 - **No timeout enforcement**: `timeout_seconds` parsed but not enforced
 - **No validation**: Response validation not implemented yet
 - **No multi-user**: Single-user approval only
 
 ### Workarounds
-
-**For other patterns**: Convert to chain or wait for Phase 2 multi-pattern support
 
 **For interactive mode**: Use `--hitl-response` with a wrapper script:
 
@@ -646,26 +702,26 @@ uv run strands run --resume abc123 --hitl-response ""
 
 ---
 
-## Phase 1 Status
+## Phase 2 Status
 
 ✅ **Implemented:**
-- HITL step type in chain pattern
+- HITL step type in chain, workflow, parallel, and graph patterns
 - Automatic session pause on HITL step
 - Exit code 19 (EX_HITL_PAUSE)
 - CLI flags: `--hitl-response`
-- Template access: `{{ steps[n].response }}`
+- Template access: Pattern-specific (`{{ steps[n].response }}`, `{{ nodes.<id>.response }}`, etc.)
 - Context display with templates
 - Session integration (save/resume)
-- Example workflow: `chain-hitl-approval-demo.yaml`
+- Multi-pattern support with conditional routing (graph)
+- Example workflows for all supported patterns
 
-🔜 **Coming in Phase 2:**
-- Multi-pattern support (workflow, parallel, routing, graph, etc.)
+🔜 **Coming in Phase 3:**
 - Timeout enforcement
 - Response validation with regex patterns
 - Conditional HITL skipping
 - Interactive CLI mode (inline prompts)
 
-🔜 **Coming in Phase 3:**
+🔜 **Coming in Phase 4:**
 - Programmatic API for custom handlers
 - Multi-user approval workflows
 - HITL history and audit trails
