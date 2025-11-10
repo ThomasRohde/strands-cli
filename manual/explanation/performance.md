@@ -149,10 +149,11 @@ pattern:
 ```
 
 **Cache Statistics**:
-- Builds: 3 (researcher, analyst, writer)
-- Cache hits: 2 (researcher, analyst)
+- Builds: 3 (researcher, analyst, writer on first appearance)
+- Cache hits: 2 (researcher on step 2, analyst on step 3)
 - Total operations: 5 steps
-- Cache hit rate: 40%
+- Cache hit rate: 2 / 5 = 40%
+- **Explanation**: Cache misses occur when an agent ID appears for the first time (steps 0, 1, 4). Subsequent uses of the same agent ID hit the cache (steps 2, 3).
 
 ---
 

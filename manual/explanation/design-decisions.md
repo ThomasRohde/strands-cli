@@ -591,7 +591,10 @@ Named constants prevent:
 | 3 | `EX_SCHEMA` | JSON Schema validation error |
 | 10 | `EX_RUNTIME` | Provider/model/tool runtime failure |
 | 12 | `EX_IO` | Artifact write/IO error |
+| 17 | `EX_SESSION` | Session not found/corrupted/already completed |
 | 18 | `EX_UNSUPPORTED` | Feature present but not supported |
+| 19 | `EX_HITL_PAUSE` | Workflow paused for human input (normal) |
+| 20 | `EX_BUDGET_EXCEEDED` | Token or time budget exhausted |
 | 70 | `EX_UNKNOWN` | Unexpected exception |
 
 ### Implementation
@@ -605,7 +608,10 @@ EX_USAGE = 2  # Bad CLI usage
 EX_SCHEMA = 3  # Schema validation error
 EX_RUNTIME = 10  # Runtime error
 EX_IO = 12  # I/O error
+EX_SESSION = 17  # Session error
 EX_UNSUPPORTED = 18  # Unsupported feature
+EX_HITL_PAUSE = 19  # HITL workflow pause (normal)
+EX_BUDGET_EXCEEDED = 20  # Budget exceeded
 EX_UNKNOWN = 70  # Unknown error
 ```
 

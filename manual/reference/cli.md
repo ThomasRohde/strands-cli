@@ -55,14 +55,16 @@ strands run [OPTIONS] SPEC_FILE
 **Options**:
 
 - `--var KEY=VALUE` - Override template variables (can be used multiple times)
-- `--out TEXT` - Output directory for artifacts (default: current directory)
-- `--format [json|text]` - Output format for results (default: `text`)
+- `--out TEXT` - Output directory for artifacts (default: `./artifacts`)
 - `--force` - Force overwrite existing artifact files
-- `--trace` - Enable trace artifact generation
+- `--bypass-tool-consent` - Skip interactive tool confirmations (e.g., file_write prompts)
+- `--trace` - Auto-generate trace artifact with OTEL spans (writes `<spec-name>-trace.json`)
+- `--debug` - Enable debug logging (variable resolution, templates, etc.)
+- `--verbose` - Enable detailed logging and error traces
 - `--resume SESSION_ID` - Resume workflow from saved session (mutually exclusive with SPEC_FILE)
 - `--save-session / --no-save-session` - Enable/disable session saving (default: enabled)
-- `--debug` - Enable debug logging
-- `--verbose` - Enable verbose output
+- `--auto-resume` - Auto-resume from most recent failed/paused session if spec matches
+- `--hitl-response TEXT` - User response when resuming from HITL pause (requires `--resume`)
 
 **Examples**:
 

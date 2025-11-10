@@ -51,18 +51,18 @@ The Ollama service should now be running on `http://localhost:11434`.
 
 ## Step 2: Pull a Model
 
-Ollama supports many models. We'll use `llama3.2` which provides a good balance of performance and resource usage:
+Ollama supports many models. We'll use `gpt-oss` which is the default:
 
 ```bash
 # Pull the model (this may take a few minutes)
-ollama pull llama3.2
+ollama pull gpt-oss
 
 # Verify the model is available
 ollama list
 ```
 
 !!! tip "Other Models"
-    You can use other models like `llama3.2:70b`, `mistral`, `qwen2.5`, or `gemma2`. See [ollama.com/library](https://ollama.com/library) for the full list.
+    You can use other models like `llama3.2`, `llama3.2:70b`, `mistral`, `qwen2.5`, or `gemma2`. See [ollama.com/library](https://ollama.com/library) for the full list.
 
 ## Step 3: Install Strands CLI
 
@@ -102,7 +102,7 @@ description: My first Strands workflow using Ollama
 
 runtime:
   provider: ollama
-  model_id: llama3.2
+  model_id: gpt-oss
   host: http://localhost:11434
 
 inputs:

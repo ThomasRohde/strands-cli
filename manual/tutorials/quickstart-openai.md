@@ -133,6 +133,16 @@ OpenAI offers several models with different capabilities and pricing:
 | o1-mini | `o1-mini` | Fast reasoning | Input: $3.00, Output: $12.00 |
 | GPT-4 Turbo | `gpt-4-turbo` | Previous flagship | Input: $10.00, Output: $30.00 |
 
+!!! warning "o1 Model Limitations"
+    The o1 and o1-mini models have special constraints:
+    - Temperature is always 1.0 (cannot be changed)
+    - Maximum output tokens are fixed (cannot be overridden)
+    - System prompt support is limited
+    - Not suitable for all workflow patterns
+
+!!! tip "Pricing Note"
+    Prices are current as of November 2025. Check [OpenAI Pricing](https://openai.com/api/pricing/) for the latest rates.
+
 !!! tip "Start with GPT-4o mini"
     For learning and testing, use `gpt-4o-mini` - it's fast and cost-effective.
 
@@ -236,12 +246,19 @@ uv run strands run my-openai-workflow.yaml \
   --var model_override=o1-mini
 ```
 
-Or update your workflow to use environment variables:
+Or update your workflow to use a specific model ID:
 
 ```yaml
 runtime:
   provider: openai
-  model_id: ${OPENAI_MODEL_ID:-gpt-4o-mini}  # Default to gpt-4o-mini
+  model_id: gpt-4o  # Change model here
+```
+
+To override via CLI without editing the file:
+
+```bash
+# Override model ID when running
+uv run strands run my-openai-workflow.yaml --var model_id=gpt-4o-mini
 ```
 
 ## Step 10: Customize with Variables

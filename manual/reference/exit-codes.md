@@ -167,6 +167,35 @@ strands run workflow.yaml --out /invalid/../path
 
 ---
 
+### `EX_SESSION` (17)
+
+**Meaning**: Session not found, corrupted, or already completed
+
+**When returned**:
+- Specified session ID doesn't exist
+- Session file is corrupted
+- Attempt to resume an already completed session
+- Session directory permissions issue
+
+**Example**:
+```bash
+# Session doesn't exist
+strands run --resume invalid-session-id
+# Exit code: 17
+
+# Try to resume completed session
+strands run --resume completed-session-id
+# Exit code: 17
+```
+
+**Resolution**:
+- Verify session ID with `strands sessions list`
+- Check session status with `strands sessions show <session-id>`
+- Delete and recreate session if corrupted
+- Check file permissions in `~/.strands/sessions/`
+
+---
+
 ### `EX_UNSUPPORTED` (18)
 
 **Meaning**: Feature present in spec but not supported
@@ -200,14 +229,54 @@ strands run workflow-with-unsupported.yaml
 
 ---
 
-### `EX_BUDGET_EXCEEDED` (19)
+### `EX_HITL_PAUSE` (19)
 
-**Meaning**: Token budget exhausted during execution
+**Meaning**: Workflow paused for human input (normal operation)
+
+**When returned**:
+- HITL (Human-in-the-Loop) step encountered
+- Workflow awaiting user response or approval
+- Session is paused and can be resumed
+
+**Behavior**:
+- Normal exit (not an error)
+- Session automatically saved
+- Session ID displayed in output
+- Resume with `strands run --resume <session-id> --hitl-response "..."`
+
+**Example**:
+```bash
+strands run workflow-with-hitl.yaml
+# Output:
+# 🤝 HUMAN INPUT REQUIRED
+# Review the proposal and approve or reject?
+# [Context displayed here]
+# Session ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Exit code: 19
+
+# Resume with user response
+strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890 --hitl-response "approved"
+# Workflow continues...
+# Exit code: 0 (on success)
+```
+
+**Resolution**:
+- This is not an error - it's expected behavior for HITL workflows
+- Provide response with `--hitl-response` flag
+- Use `strands sessions show <session-id>` to view context
+- Resume the workflow with the same session ID
+
+---
+
+### `EX_BUDGET_EXCEEDED` (20)
+
+**Meaning**: Token or time budget exhausted during execution
 
 **When returned**:
 - Cumulative token usage reaches 100% of `budgets.max_tokens`
+- Execution time exceeds `budgets.max_duration_s`
 - Budget enforcement is enabled
-- Token consumption exceeds configured limits
+- Token/time consumption exceeds configured limits
 
 **Behavior**:
 - Warning logged at threshold (default 80%)
@@ -217,9 +286,10 @@ strands run workflow-with-unsupported.yaml
 **Example**:
 ```yaml
 # workflow.yaml
-budgets:
-  max_tokens: 10000
-  threshold: 0.8
+runtime:
+  budgets:
+    max_tokens: 10000
+    max_duration_s: 300
 ```
 
 ```bash
@@ -227,11 +297,12 @@ strands run workflow.yaml
 # Output:
 # Warning: Token budget at 82% (8200/10000)
 # Error: Token budget exceeded (10100/10000) - aborting workflow
-# Exit code: 19
+# Exit code: 20
 ```
 
 **Resolution**:
 - Increase `budgets.max_tokens` if legitimate
+- Increase `budgets.max_duration_s` for longer workflows
 - Enable `context_policy.compaction` to reduce context
 - Optimize prompts to use fewer tokens
 - Split complex workflows into smaller ones
@@ -311,12 +382,22 @@ case $exit_code in
         echo "I/O error - check permissions and disk space"
         exit 1
         ;;
+    17)
+        echo "Session error - session not found or corrupted"
+        strands sessions list
+        exit 1
+        ;;
     18)
         echo "Unsupported features - see remediation report"
         exit 1
         ;;
     19)
-        echo "Token budget exceeded - increase limits or optimize"
+        echo "Workflow paused for human input (normal)"
+        echo "Resume with: strands run --resume <session-id> --hitl-response '...'"
+        exit 0
+        ;;
+    20)
+        echo "Token/time budget exceeded - increase limits or optimize"
         exit 1
         ;;
     70)
@@ -346,7 +427,11 @@ esac
   run: |
     strands run workflow.yaml --out ./artifacts
     exit_code=$?
-    if [ $exit_code -eq 18 ]; then
+    if [ $exit_code -eq 19 ]; then
+      echo "::notice::Workflow paused for human input (HITL)"
+      echo "Resume with: strands run --resume <session-id> --hitl-response '...'"
+      exit 0  # Normal for HITL workflows
+    elif [ $exit_code -eq 18 ]; then
       echo "::warning::Unsupported features detected"
       cat ./remediation_report_*.md
       exit 1
@@ -369,7 +454,9 @@ from strands_cli.exit_codes import (
     EX_SCHEMA,
     EX_RUNTIME,
     EX_IO,
+    EX_SESSION,
     EX_UNSUPPORTED,
+    EX_HITL_PAUSE,
     EX_BUDGET_EXCEEDED,
     EX_UNKNOWN,
 )
@@ -386,8 +473,15 @@ if result.returncode == EX_OK:
     print("Success!")
 elif result.returncode == EX_SCHEMA:
     print("Schema validation failed")
+elif result.returncode == EX_SESSION:
+    print("Session error")
+elif result.returncode == EX_HITL_PAUSE:
+    print("Workflow paused for human input")
+    # Extract session ID from output and prompt user
 elif result.returncode == EX_UNSUPPORTED:
     print("Unsupported features detected")
+elif result.returncode == EX_BUDGET_EXCEEDED:
+    print("Budget exceeded")
 ```
 
 ---

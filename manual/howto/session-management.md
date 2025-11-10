@@ -11,7 +11,9 @@ Strands CLI automatically saves workflow execution state (sessions) to enable:
 - **Long-Running Workflows**: Pause and resume multi-hour workflows across CLI sessions
 - **Debugging**: Inspect workflow state between steps
 
-Sessions are enabled by default and stored in `~/.strands/sessions/`.
+Sessions are enabled by default and stored in:
+- **Linux/macOS**: `~/.strands/sessions/`
+- **Windows**: `%USERPROFILE%\.strands\sessions\`
 
 ---
 

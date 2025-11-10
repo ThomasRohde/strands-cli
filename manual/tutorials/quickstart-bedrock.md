@@ -45,9 +45,15 @@ AWS Bedrock requires explicit model access activation in your AWS account.
 
 | Model | ID | Use Case |
 |-------|-----|----------|
-| Claude 3.5 Sonnet | `anthropic.claude-3-5-sonnet-20241022-v2:0` | Best overall performance |
-| Claude 3 Sonnet | `anthropic.claude-3-sonnet-20240229-v1:0` | Balanced performance/cost |
-| Claude 3 Haiku | `anthropic.claude-3-haiku-20240307-v1:0` | Fast, cost-effective |
+| Claude 3.5 Sonnet | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Best overall performance |
+| Claude 3 Sonnet | `us.anthropic.claude-3-sonnet-20240229-v1:0` | Balanced performance/cost |
+| Claude 3 Haiku | `us.anthropic.claude-3-haiku-20240307-v1:0` | Fast, cost-effective |
+
+!!! note "Regional Prefixes"
+    Bedrock model IDs must include a regional prefix:
+    - US regions: `us.anthropic.claude-...`
+    - EU regions: `eu.anthropic.claude-...`
+    - Asia-Pacific: `ap-northeast.anthropic.claude-...` or `ap-southeast.anthropic.claude-...`
 
 ## Step 2: Configure AWS Credentials
 

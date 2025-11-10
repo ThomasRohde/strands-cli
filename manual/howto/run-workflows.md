@@ -66,7 +66,7 @@ Specify where to save workflow artifacts:
 
 ```bash
 # Save to specific directory
-strands run workflow.yaml --artifacts-dir ./output
+strands run workflow.yaml --out ./output
 
 # Default is current directory
 strands run workflow.yaml
