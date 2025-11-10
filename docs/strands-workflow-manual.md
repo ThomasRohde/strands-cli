@@ -477,6 +477,40 @@ pattern:
 
 **Use for**: straight-line handoffs and deterministic flows.
 
+#### HITL Support in Chain Patterns
+
+Chain patterns support HITL steps for approval gates and quality control:
+
+```yaml
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research {{ topic }}"
+      
+      # HITL approval gate
+      - type: hitl
+        prompt: "Review research findings. Approve to proceed?"
+        context_display: "{{ steps[0].response }}"
+      
+      - agent: analyst
+        input: |
+          User decision: {{ hitl_response }}
+          Analyze: {{ steps[0].response }}
+```
+
+**Template Variables:**
+- **In HITL context**: `{{ steps[n].response }}` accesses all previous steps
+- **After HITL**: `{{ hitl_response }}` contains user's input
+
+**Behavior:**
+- Execution pauses at HITL step, saves session, exits with code 20
+- Resume with: `strands run --resume <session-id> --hitl-response "approved"`
+- Multiple HITL steps supported; `{{ hitl_response }}` returns most recent
+
+See [docs/HITL.md](HITL.md) for complete guide.
+
 ---
 
 ### 12.2 Routing
@@ -531,6 +565,84 @@ pattern:
 
 **Use for**: fanning out and reducing into a single result. CLI must join branch results deterministically.
 **Requirements**: At least 2 branches required; each branch must have at least 1 step.
+
+#### HITL Support in Parallel Patterns
+
+Parallel patterns support HITL (Human-in-the-Loop) in **two locations**:
+
+**1. Branch-Level HITL**: Pause individual branches for review
+
+```yaml
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: web_research
+        steps:
+          - agent: scraper
+            input: "Scrape {{ topic }}"
+          
+          # HITL approval gate within branch
+          - type: hitl
+            prompt: "Review scraped data quality. Approve to continue?"
+            context_display: "{{ steps[0].response }}"
+          
+          - agent: validator
+            input: "Validate: {{ hitl_response }}"
+      
+      - id: docs_research
+        steps:
+          - agent: docs_reader
+            input: "Read docs for {{ topic }}"
+    
+    reduce:
+      agent: aggregator
+      input: |
+        Web: {{ branches.web_research.response }}
+        Docs: {{ branches.docs_research.response }}
+```
+
+**Behavior:**
+- First branch to reach HITL pauses ENTIRE workflow (Phase 2.2 limitation)
+- Branch context isolated: HITL step only sees `{{ steps[n] }}` from its own branch
+- `{{ hitl_response }}` available in subsequent steps within same branch
+- Multi-branch HITL coordination planned for Phase 3
+
+**2. Reduce-Level HITL**: Review all branch results before aggregation
+
+```yaml
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: source_a
+        steps:
+          - agent: analyzer_a
+            input: "Analyze source A"
+      
+      - id: source_b
+        steps:
+          - agent: analyzer_b
+            input: "Analyze source B"
+    
+    reduce:
+      type: hitl
+      prompt: "Review both analyses. Approve to aggregate?"
+      context_display: |
+        Source A: {{ branches.source_a.response }}
+        Source B: {{ branches.source_b.response }}
+```
+
+**Behavior:**
+- All branches execute to completion before pausing
+- User reviews all branch results via `{{ branches.<id>.response }}`
+- After resume, user's response IS the final result (no agent execution)
+
+**Template Variables:**
+- **Branch HITL**: `{{ steps[n].response }}` (own branch only), `{{ hitl_response }}`
+- **Reduce HITL**: `{{ branches.<id>.response }}` (all branches), `{{ hitl_response }}`
+
+See [docs/HITL.md](HITL.md) for complete guide and examples.
 
 ---
 
@@ -841,6 +953,51 @@ pattern:
 ```
 
 **Use for**: fixed DAGs; supports parallel execution where deps allow.
+
+#### HITL Support in Workflow Patterns
+
+Workflow patterns support HITL tasks with dependency-based execution:
+
+```yaml
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: research
+        agent: researcher
+        input: "Research {{ topic }}"
+      
+      # HITL approval task
+      - id: approval
+        type: hitl
+        prompt: "Approve research before analysis?"
+        context_display: "{{ tasks.research.response }}"
+        deps: [research]
+      
+      - id: analysis
+        agent: analyst
+        input: "Analyze: {{ tasks.research.response }}"
+        deps: [approval]  # Waits for HITL
+      
+      - id: writeup
+        agent: writer
+        input: |
+          Research: {{ tasks.research.response }}
+          Analysis: {{ tasks.analysis.response }}
+          Approval notes: {{ hitl_response }}
+        deps: [approval, analysis]
+```
+
+**Template Variables:**
+- **In HITL context**: `{{ tasks.<id>.response }}` accesses completed tasks
+- **After HITL**: `{{ hitl_response }}` contains user's input
+
+**Behavior:**
+- Tasks execute in parallel when dependencies are satisfied
+- HITL task pauses entire workflow (all parallel tasks wait)
+- After resume, workflow continues with dependent tasks
+
+See [docs/HITL.md](HITL.md) for complete guide.
 
 ---
 

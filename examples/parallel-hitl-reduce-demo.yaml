@@ -1,0 +1,72 @@
+version: 0
+name: "parallel-hitl-reduce-demo"
+description: "Parallel workflow with HITL approval at reduce step"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+agents:
+  source_analyzer_a:
+    prompt: "Analyze data from source A and extract key insights."
+  
+  source_analyzer_b:
+    prompt: "Analyze data from source B and extract key insights."
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      - id: source_a
+        steps:
+          - agent: source_analyzer_a
+            input: "Analyze source A: {{ source_a_data }}"
+      
+      - id: source_b
+        steps:
+          - agent: source_analyzer_b
+            input: "Analyze source B: {{ source_b_data }}"
+    
+    # HITL approval before aggregation
+    reduce:
+      type: hitl
+      prompt: |
+        Review the analysis results from both sources before final aggregation.
+        
+        Approve the results by responding 'approved', or provide specific
+        modifications/concerns.
+      context_display: |
+        ### Source A Analysis
+        {{ branches.source_a.response }}
+        
+        ---
+        
+        ### Source B Analysis
+        {{ branches.source_b.response }}
+      default: "approved"
+
+outputs:
+  artifacts:
+    - path: "./parallel-reduce-hitl-output.md"
+      from: |
+        # Analysis Review Results
+        
+        **User Decision:** {{ last_response }}
+        
+        ## Source A
+        {{ branches.source_a.response }}
+        
+        ## Source B
+        {{ branches.source_b.response }}
+
+# Usage:
+# 1. Run workflow (both branches execute, then pause at reduce):
+#    strands run examples/parallel-hitl-reduce-demo.yaml \
+#      --var source_a_data="Sales data for Q1 2024" \
+#      --var source_b_data="Market trends for 2024"
+#
+# 2. Resume with approval:
+#    strands run --resume <session-id> --hitl-response "approved"
+#
+# 3. Or resume with modifications:
+#    strands run --resume <session-id> --hitl-response "approved with minor corrections to market data"

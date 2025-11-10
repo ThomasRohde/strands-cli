@@ -93,7 +93,7 @@ min_level = logging.DEBUG if log_level_str == "true" else logging.INFO
 def _spec_has_hitl_steps(spec: Spec) -> bool:
     """Check if spec contains any HITL steps.
 
-    Checks chain and workflow patterns for HITL steps/tasks.
+    Checks chain, workflow, and parallel patterns for HITL steps/tasks.
 
     Args:
         spec: Workflow specification
@@ -109,8 +109,18 @@ def _spec_has_hitl_steps(spec: Spec) -> bool:
     if spec.pattern.type == PatternType.WORKFLOW:
         tasks = spec.pattern.config.tasks or []
         return any(getattr(task, "type", None) == "hitl" for task in tasks)
+    if spec.pattern.type == PatternType.PARALLEL:
+        # Check branches for HITL steps
+        branches = spec.pattern.config.branches or []
+        for branch in branches:
+            if any(hasattr(step, "type") and step.type == "hitl" for step in branch.steps):
+                return True
+        # Check reduce step for HITL
+        if spec.pattern.config.reduce:
+            if hasattr(spec.pattern.config.reduce, "type") and spec.pattern.config.reduce.type == "hitl":
+                return True
+        return False
     # TODO: Add HITL detection for other patterns when they support HITL
-    # - parallel pattern (branches with HITL steps)
     return False
 
 

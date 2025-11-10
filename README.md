@@ -198,11 +198,11 @@ Artifacts written:
 
 ## Human-in-the-Loop (HITL) Workflows
 
-Strands CLI supports human-in-the-loop steps for approval gates, quality control, and interactive workflows. HITL steps pause execution, save the session automatically, and wait for user input before continuing.
+Strands CLI supports human-in-the-loop steps for approval gates, quality control, and interactive workflows across **all workflow patterns** (chain, workflow, parallel). HITL steps pause execution, save the session automatically, and wait for user input before continuing.
 
-### Basic Usage
+### Quick Example
 
-Add a HITL step in your chain workflow:
+Add a HITL step in any workflow:
 
 ```yaml
 pattern:
@@ -216,12 +216,10 @@ pattern:
       - type: hitl
         prompt: "Review the research findings. Approve to proceed?"
         context_display: "{{ steps[0].response }}"
-        default: "approved"
-        timeout_seconds: 3600  # 1 hour
 
       - agent: analyst
         input: |
-          User decision: {{ steps[1].response }}
+          User decision: {{ hitl_response }}
           Analyze: {{ steps[0].response }}
 ```
 
@@ -232,37 +230,40 @@ pattern:
 uv run strands run workflow.yaml --var topic="AI Safety"
 
 # Output:
-# 🤝 HUMAN INPUT REQUIRED
-# Review the research findings. Approve to proceed?
-#
-# [Context displayed here]
-#
+# ⏸️  HITL Pause at step 1
+# 
+# Prompt: Review the research findings. Approve to proceed?
+# Context: [Research findings shown here]
+# 
 # Session ID: abc-123-def
-# Resume with: strands run --resume abc-123-def --hitl-response 'your response'
+# Resume with: strands run --resume abc-123-def --hitl-response "your response"
 
 # Resume with user response
 uv run strands run --resume abc-123-def --hitl-response "approved"
 ```
 
-### Features
+### Supported Patterns
 
-- **Automatic Pause**: Workflow saves state and exits with code 19 (EX_HITL_PAUSE)
+**✅ Chain Pattern**: HITL steps between any sequential steps  
+**✅ Workflow Pattern (DAG)**: HITL tasks with dependencies  
+**✅ Parallel Pattern**: HITL in branches OR at reduce step
+
+Example workflows:
+- Chain: [`examples/chain-hitl-approval-demo.yaml`](examples/chain-hitl-approval-demo.yaml)
+- Workflow: [`examples/workflow-hitl-approval-demo.yaml`](examples/workflow-hitl-approval-demo.yaml)
+- Parallel (branch): [`examples/parallel-hitl-branch-demo.yaml`](examples/parallel-hitl-branch-demo.yaml)
+- Parallel (reduce): [`examples/parallel-hitl-reduce-demo.yaml`](examples/parallel-hitl-reduce-demo.yaml)
+
+### Key Features
+
+- **Multi-Pattern Support**: Works with chain, workflow, and parallel patterns
+- **Automatic Pause**: Workflow saves state and exits with code 20 (EX_HITL_PAUSE)
 - **Context Display**: Show users what to review using template variables
-- **Default Responses**: Optional fallback if timeout expires (not enforced in Phase 1)
+- **Template Access**: Access HITL responses via `{{ hitl_response }}` in subsequent steps
 - **Session Integration**: Leverages durable session management for seamless resume
-- **Template Access**: Access HITL responses via `{{ steps[n].response }}` in subsequent steps
+- **Context Isolation**: Parallel branch HITL only sees its own branch context
 
-### Example Workflow
-
-See [`examples/chain-hitl-approval-demo.yaml`](examples/chain-hitl-approval-demo.yaml) for a complete working example.
-
-### Current Limitations (Phase 1)
-
-- **Chain pattern only**: HITL support currently limited to chain workflows (other patterns in Phase 2)
-- **CLI-based only**: Must use `--resume` and `--hitl-response` flags (interactive mode and API in Phase 3)
-- **Timeout not enforced**: `timeout_seconds` parsed but not enforced yet (Phase 2)
-
-**See [HITL.md](HITL.md) for complete implementation plan and future roadmap.**
+**📖 See [docs/HITL.md](docs/HITL.md) for complete guide with all patterns and examples.**
 
 ---
 

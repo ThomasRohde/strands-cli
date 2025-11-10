@@ -1,0 +1,96 @@
+version: 0
+name: "parallel-hitl-branch-demo"
+description: "Parallel workflow with HITL approval gate within a branch"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 15000
+
+agents:
+  web_scraper:
+    prompt: "You are a web scraping agent. Extract key information from web sources."
+  
+  data_validator:
+    prompt: "You are a data validation agent. Analyze scraped data quality."
+  
+  docs_reader:
+    prompt: "You are a documentation reader. Summarize technical documentation."
+  
+  aggregator:
+    prompt: "You are an aggregator. Combine results from multiple sources."
+
+pattern:
+  type: parallel
+  config:
+    branches:
+      # Branch with HITL approval gate
+      - id: web_research
+        steps:
+          # Step 1: Scrape data
+          - agent: web_scraper
+            input: "Scrape data about {{ topic }}"
+          
+          # Step 2: HITL approval gate
+          - type: hitl
+            prompt: |
+              Review the scraped web data quality and accuracy.
+              
+              Respond with 'approved' to continue analysis, or provide specific
+              feedback about data issues.
+            context_display: |
+              ### Scraped Web Data
+              
+              {{ steps[0].response }}
+            default: "approved"
+            timeout_seconds: 7200  # 2 hours
+          
+          # Step 3: Data validation (uses user approval)
+          - agent: data_validator
+            input: |
+              User review: {{ steps[1].response }}
+              
+              {% if steps[1].response == 'approved' %}
+              Validate and analyze this web data:
+              {{ steps[0].response }}
+              {% else %}
+              The user provided this feedback about data quality issues:
+              {{ steps[1].response }}
+              
+              Please address these concerns in your analysis:
+              {{ steps[0].response }}
+              {% endif %}
+      
+      # Independent branch (no HITL)
+      - id: docs_research
+        steps:
+          - agent: docs_reader
+            input: "Read and summarize documentation about {{ topic }}"
+    
+    # Aggregate all results
+    reduce:
+      agent: aggregator
+      input: |
+        Combine these research findings:
+        
+        ### Web Research (validated by user)
+        {{ branches.web_research.response }}
+        
+        ### Documentation Summary
+        {{ branches.docs_research.response }}
+
+outputs:
+  artifacts:
+    - path: "./parallel-branch-hitl-output.md"
+      from: "{{ last_response }}"
+
+# Usage:
+# 1. Run workflow (will pause at branch HITL):
+#    strands run examples/parallel-hitl-branch-demo.yaml --var topic="Python async programming"
+#
+# 2. Resume with approval:
+#    strands run --resume <session-id> --hitl-response "approved"
+#
+# 3. Or resume with feedback:
+#    strands run --resume <session-id> --hitl-response "Data looks incomplete - missing code examples"

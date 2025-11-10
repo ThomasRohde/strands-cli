@@ -31,10 +31,12 @@ Reduce Step:
 """
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
+from rich.console import Console
+from rich.panel import Panel
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -51,7 +53,7 @@ from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
-from strands_cli.types import ParallelBranch, PatternType, RunResult, Spec
+from strands_cli.types import HITLState, ParallelBranch, PatternType, RunResult, Spec
 
 try:
     from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
@@ -67,6 +69,7 @@ class ParallelExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+console = Console()  # For HITL pause display
 
 
 def _build_branch_step_context(
@@ -100,6 +103,13 @@ def _build_branch_step_context(
     if step_history:
         context["last_response"] = step_history[-1]["response"]
 
+    # Add hitl_response convenience variable (most recent HITL step response)
+    # Walk backwards through step_history to find the latest HITL step
+    for step_record in reversed(step_history):
+        if step_record.get("type") == "hitl":
+            context["hitl_response"] = step_record.get("response", "")
+            break
+
     # Add per-step variable overrides
     if step_vars:
         context.update(step_vars)
@@ -107,7 +117,7 @@ def _build_branch_step_context(
     return context
 
 
-async def _execute_branch(
+async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL support
     spec: Spec,
     branch: ParallelBranch,
     user_variables: dict[str, Any],
@@ -120,8 +130,11 @@ async def _execute_branch(
     notes_manager: Any = None,
     start_step: int = 0,
     restored_step_history: list[dict[str, Any]] | None = None,
-) -> tuple[str, int, list[dict[str, Any]]]:
-    """Execute all steps in a branch sequentially with optional resume support.
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
+) -> tuple[str, int, list[dict[str, Any]]] | dict[str, Any]:
+    """Execute all steps in a branch sequentially with optional resume and HITL support.
 
     Args:
         spec: Workflow spec
@@ -136,9 +149,13 @@ async def _execute_branch(
         notes_manager: Optional notes manager
         start_step: Step index to start from (for resume)
         restored_step_history: Previously completed steps (for resume)
+        session_state: Session state for HITL pause/resume
+        session_repo: Repository for saving session on HITL pause
+        hitl_response: User's response when resuming from HITL pause
 
     Returns:
-        Tuple of (final_response, cumulative_tokens, step_history)
+        Tuple of (final_response, cumulative_tokens, step_history) on completion,
+        OR dict with HITL pause information if branch hits HITL step
 
     Raises:
         ParallelExecutionError: If any step fails after retries
@@ -159,9 +176,143 @@ async def _execute_branch(
         restored_steps=len(step_history),
     )
 
+    # Check if resuming from branch HITL pause
+    if session_state and hitl_response:
+        hitl_state_dict = session_state.pattern_state.get("hitl_state")
+        if (
+            hitl_state_dict
+            and hitl_state_dict.get("step_type") == "branch"
+            and hitl_state_dict.get("branch_id") == branch.id
+        ):
+            # Restore pre-HITL step history from session state
+            branch_states = session_state.pattern_state.get("branch_states", {})
+            if branch.id in branch_states:
+                step_history = branch_states[branch.id]["step_history"].copy()
+                cumulative_tokens = branch_states[branch.id]["cumulative_tokens"]
+
+            # Inject HITL response into step history
+            hitl_step_record = {
+                "index": hitl_state_dict["step_index"],
+                "type": "hitl",
+                "prompt": hitl_state_dict["prompt"],
+                "response": hitl_response,
+                "tokens_estimated": 0,
+            }
+            step_history.append(hitl_step_record)
+
+            # Continue from next step after HITL
+            start_step = hitl_state_dict["step_index"] + 1
+
+            # Persist updated branch + HITL state before continuing
+            # This prevents data loss if workflow crashes after resume but before next checkpoint
+            if session_repo and session_state:
+                # Update branch state with injected HITL response
+                branch_states = session_state.pattern_state.setdefault("branch_states", {})
+                branch_state = branch_states.setdefault(branch.id, {})
+                branch_state["step_history"] = step_history.copy()
+                branch_state["current_step"] = hitl_state_dict["step_index"] + 1
+                branch_state["cumulative_tokens"] = cumulative_tokens
+
+                # Clear HITL state (no longer active)
+                hitl_state = HITLState(**hitl_state_dict)
+                hitl_state.active = False
+                hitl_state.user_response = hitl_response
+                session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                session_state.metadata.updated_at = now_iso8601()
+
+                # Checkpoint session
+                await session_repo.save(session_state, "")
+
+                logger.info(
+                    "branch_hitl_resume_checkpointed",
+                    session_id=session_state.metadata.session_id,
+                    branch_id=branch.id,
+                    step=hitl_state_dict["step_index"],
+                    response_length=len(hitl_response),
+                )
+            else:
+                # No session repo - just update in-memory state
+                if session_state:
+                    hitl_state = HITLState(**hitl_state_dict)
+                    hitl_state.active = False
+                    hitl_state.user_response = hitl_response
+                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                logger.warning(
+                    "branch_hitl_resume_without_checkpoint",
+                    branch_id=branch.id,
+                    message="HITL response not persisted - crash will lose progress",
+                )
+
+            logger.info(
+                "branch_hitl_response_received",
+                branch_id=branch.id,
+                step=hitl_state_dict["step_index"],
+                response_preview=hitl_response[:100] if len(hitl_response) > 100 else hitl_response,
+            )
+
     # Execute steps from start_step onward
     for step_index in range(start_step, len(branch.steps)):
         step = branch.steps[step_index]
+
+        # Phase 2.2 HITL: Check if this is a HITL step
+        if hasattr(step, "type") and step.type == "hitl":
+            # BLOCKER: Validate session persistence is available
+            if not session_repo or not session_state:
+                raise ParallelExecutionError(
+                    f"HITL step in branch '{branch.id}' at step {step_index} requires "
+                    f"session persistence. Remove --no-save-session flag or remove HITL steps."
+                )
+
+            logger.info(
+                "branch_hitl_pause",
+                branch_id=branch.id,
+                step=step_index,
+            )
+
+            # Build context for this branch (steps[] = this branch only)
+            step_context = _build_branch_step_context(
+                spec=spec,
+                step_index=step_index,
+                step_history=step_history,
+                user_variables=user_variables,
+                step_vars=None,
+            )
+
+            # Render context_display template
+            context_text = ""
+            if step.context_display:
+                context_text = render_template(step.context_display, step_context)
+
+            # Calculate timeout
+            timeout_at = None
+            if step.timeout_seconds and step.timeout_seconds > 0:
+                timeout_dt = datetime.now(UTC) + timedelta(seconds=step.timeout_seconds)
+                timeout_at = timeout_dt.isoformat()
+
+            # Create HITL state
+            hitl_state = HITLState(
+                active=True,
+                step_index=step_index,
+                branch_id=branch.id,
+                step_type="branch",
+                prompt=step.prompt,
+                context_display=context_text,
+                default_response=step.default,
+                timeout_at=timeout_at,
+                user_response=None,
+            )
+
+            # Return HITL pause info to caller (run_parallel will save session and exit)
+            return {
+                "hitl_pause": True,
+                "branch_id": branch.id,
+                "step_index": step_index,
+                "hitl_state": hitl_state,
+                "step_history": step_history,
+                "cumulative_tokens": cumulative_tokens,
+            }
+
+        # Regular agent step execution
         logger.info(
             "Executing branch step",
             branch_id=branch.id,
@@ -365,8 +516,11 @@ async def _execute_all_branches_async(
     notes_manager: Any = None,
     completed_branches: set[str] | None = None,
     branch_results_dict: dict[str, dict[str, Any]] | None = None,
-) -> list[tuple[str, tuple[str, int, list[dict[str, Any]]]]]:
-    """Execute all branches with semaphore control and resume support.
+    session_state: SessionState | None = None,
+    session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
+) -> list[tuple[str, tuple[str, int, list[dict[str, Any]]] | dict[str, Any]]]:
+    """Execute all branches with semaphore control, resume support, and HITL support.
 
     Args:
         spec: Workflow spec
@@ -382,9 +536,12 @@ async def _execute_all_branches_async(
         notes_manager: Optional notes manager
         completed_branches: Set of already-completed branch IDs (for resume)
         branch_results_dict: Previously completed branch results (for resume)
+        session_state: Session state for HITL pause/resume
+        session_repo: Repository for saving session on HITL pause
+        hitl_response: User's response when resuming from HITL pause
 
     Returns:
-        List of (branch_id, (response, tokens, step_history)) tuples
+        List of (branch_id, (response, tokens, step_history) OR hitl_pause_dict) tuples
 
     Raises:
         ParallelExecutionError: If any branch fails (fail-fast)
@@ -396,7 +553,7 @@ async def _execute_all_branches_async(
 
     async def _execute_with_semaphore(
         branch: ParallelBranch,
-    ) -> tuple[str, tuple[str, int, list[dict[str, Any]]]]:
+    ) -> tuple[str, tuple[str, int, list[dict[str, Any]]] | dict[str, Any]]:
         """Execute branch with semaphore limit or return cached result."""
         # Return cached result if branch already completed
         if branch.id in completed_branches:
@@ -431,6 +588,9 @@ async def _execute_all_branches_async(
                     notes_manager,
                     start_step=0,
                     restored_step_history=None,
+                    session_state=session_state,
+                    session_repo=session_repo,
+                    hitl_response=hitl_response,
                 )
         else:
             result = await _execute_branch(
@@ -446,6 +606,9 @@ async def _execute_all_branches_async(
                 notes_manager,
                 start_step=0,
                 restored_step_history=None,
+                session_state=session_state,
+                session_repo=session_repo,
+                hitl_response=hitl_response,
             )
         return (branch.id, result)
 
@@ -462,8 +625,9 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
 ) -> RunResult:
-    """Execute parallel pattern with concurrent branches and optional session persistence.
+    """Execute parallel pattern with concurrent branches, optional session persistence, and HITL support.
 
     Phase 6 Performance Optimization:
     - Async execution with shared AgentCache across all branches and reduce step
@@ -474,6 +638,11 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
     - Resume from checkpoint: Skip completed branches on resume
     - Branch-level checkpointing: Save state after all branches complete
     - Reduce gate: Execute reduce step once after all branches
+
+    Phase 2.2 HITL Support:
+    - Branch-level HITL: Pause individual branches for human review
+    - Reduce-level HITL: Pause at aggregation step to review all branch outputs
+    - Session persistence required for HITL steps
 
     Args:
         spec: Validated workflow spec with parallel pattern
@@ -636,6 +805,9 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                     notes_manager,
                     completed_branches,
                     branch_results_dict,
+                    session_state,
+                    session_repo,
+                    hitl_response,
                 )
             except Exception as e:
                 end_time = datetime.now(UTC)
@@ -660,26 +832,166 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
             # Build branches dictionary (alphabetically ordered by branch ID)
             branches_dict: dict[str, dict[str, Any]] = {}
 
-            # Process results from branch execution
-            for branch_id, (response, tokens, step_history) in branch_exec_results:
+            # Phase 2.2 HITL: Check if any branch returned HITL pause
+            for branch_id, result in branch_exec_results:
+                if isinstance(result, dict) and result.get("hitl_pause"):
+                    # Branch hit HITL step - save session and exit
+                    hitl_info = result
+                    hitl_state = hitl_info["hitl_state"]
+
+                    # CRITICAL: Populate branches_dict with completed (non-HITL) branches BEFORE pausing
+                    for other_branch_id, other_result in branch_exec_results:
+                        if not (isinstance(other_result, dict) and other_result.get("hitl_pause")):
+                            other_response, other_tokens, other_step_history = other_result
+                            # Ensure tokens is an integer
+                            other_tokens_int = other_tokens if isinstance(other_tokens, int) else 0
+                            if other_branch_id not in completed_branches:
+                                cumulative_tokens += other_tokens_int
+                                completed_branches.add(other_branch_id)
+                            branches_dict[other_branch_id] = {
+                                "response": other_response,
+                                "status": "success",
+                                "tokens_estimated": other_tokens_int,
+                                "step_history": other_step_history,
+                            }
+
+                    # Save session with branch HITL state
+                    if session_state and session_repo:
+                        session_state.pattern_state["current_step"] = hitl_info["step_index"]
+                        session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                        session_state.pattern_state["completed_branches"] = list(completed_branches)
+                        session_state.pattern_state["branch_results"] = branches_dict
+                        session_state.pattern_state["reduce_executed"] = False
+                        # Persist branch step_history so resume can restore pre-HITL context
+                        if "branch_states" not in session_state.pattern_state:
+                            session_state.pattern_state["branch_states"] = {}
+                        session_state.pattern_state["branch_states"][branch_id] = {
+                            "step_history": hitl_info["step_history"],
+                            "current_step": hitl_info["step_index"],
+                            "cumulative_tokens": hitl_info["cumulative_tokens"],
+                        }
+                        # CRITICAL: Persist token usage before pause to prevent budget bypass on resume
+                        pause_tokens = cumulative_tokens + hitl_info["cumulative_tokens"]
+                        session_state.token_usage.total_input_tokens = pause_tokens // 2
+                        session_state.token_usage.total_output_tokens = pause_tokens - session_state.token_usage.total_input_tokens
+                        session_state.metadata.status = SessionStatus.PAUSED
+                        session_state.metadata.updated_at = now_iso8601()
+
+                        try:
+                            spec_content = ""  # Spec already saved
+                            await session_repo.save(session_state, spec_content)
+                            logger.info(
+                                "branch_hitl_pause_saved",
+                                session_id=session_state.metadata.session_id,
+                                branch_id=branch_id,
+                                step=hitl_info["step_index"],
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "branch_hitl_pause_save_failed",
+                                session_id=session_state.metadata.session_id,
+                                error=str(e),
+                            )
+                            raise ParallelExecutionError(
+                                f"Failed to save branch HITL pause state: {e}"
+                            ) from e
+
+                    # Display HITL prompt to user
+                    console.print()
+                    console.print(
+                        Panel(
+                            f"[bold yellow]>>> HUMAN INPUT REQUIRED <<<[/bold yellow]\n\n"
+                            f"Branch: {branch_id}\n"
+                            f"Step: {hitl_info['step_index']}\n\n"
+                            f"{hitl_state.prompt}",
+                            border_style="yellow",
+                            padding=(1, 2),
+                            title="HITL Pause (Branch)",
+                        )
+                    )
+
+                    if hitl_state.context_display:
+                        console.print(
+                            Panel(
+                                f"[bold]Context:[/bold]\n\n{hitl_state.context_display}",
+                                border_style="dim",
+                                padding=(1, 2),
+                            )
+                        )
+
+                    console.print(
+                        f"\n[dim]Resume with:[/dim] strands run --resume "
+                        f"{session_state.metadata.session_id if session_state else 'SESSION_ID'} "
+                        f'--hitl-response "your response"'
+                    )
+
+                    # Return HITL pause result
+                    end_time = datetime.now(UTC)
+                    duration = (end_time - start_time).total_seconds()
+
+                    return RunResult(
+                        success=True,
+                        last_response=f"Branch HITL pause at {branch_id} step {hitl_info['step_index']}",
+                        pattern_type=PatternType.PARALLEL,
+                        agent_id="hitl",
+                        started_at=started_at,
+                        completed_at=end_time.isoformat(),
+                        duration_seconds=duration,
+                        tokens_estimated=cumulative_tokens + hitl_info["cumulative_tokens"],
+                        execution_context={
+                            "session_id": session_state.metadata.session_id
+                            if session_state
+                            else None,
+                            "branch_id": branch_id,
+                            "step_index": hitl_info["step_index"],
+                        },
+                    )
+
+            # Clear hitl_state after successful branch resume
+            if session_state and hitl_response and session_state.pattern_state.get("hitl_state"):
+                hitl_state_dict = session_state.pattern_state["hitl_state"]
+                if hitl_state_dict.get("step_type") == "branch":
+                    session_state.pattern_state["hitl_state"] = None
+                    logger.debug("branch_hitl_state_cleared")
+
+            # Process results from branch execution (skip HITL pauses which were already handled)
+            for branch_id, result in branch_exec_results:
+                # Skip HITL pauses (already handled above)
+                if isinstance(result, dict) and result.get("hitl_pause"):
+                    continue
+
+                # Unpack regular branch result
+                # Result is guaranteed to be a tuple here (dict case filtered above)
+                branch_response: str
+                branch_tokens: int | str
+                branch_step_history: list[dict[str, Any]]
+                if isinstance(result, tuple):
+                    branch_response, branch_tokens, branch_step_history = result
+                else:
+                    # Should never happen due to filter above, but satisfy type checker
+                    continue
+
+                # Ensure tokens is an integer
+                branch_tokens_int = branch_tokens if isinstance(branch_tokens, int) else 0
+
                 # Update cumulative tokens (only for newly executed branches)
                 if branch_id not in completed_branches:
-                    cumulative_tokens += tokens
+                    cumulative_tokens += branch_tokens_int
                     completed_branches.add(branch_id)
 
                 branches_dict[branch_id] = {
-                    "response": response,
+                    "response": branch_response,
                     "status": "success",
-                    "tokens_estimated": tokens,
-                    "step_history": step_history,
+                    "tokens_estimated": branch_tokens_int,
+                    "step_history": branch_step_history,
                 }
                 # Add branch_complete event for each branch
                 span.add_event(
                     "branch_complete",
                     {
                         "branch_id": branch_id,
-                        "response_length": len(response),
-                        "tokens": tokens,
+                        "response_length": len(branch_response),
+                        "tokens": branch_tokens_int,
                     },
                 )
 
@@ -719,8 +1031,177 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
             final_agent_id: str
 
             if spec.pattern.config.reduce:
-                # Execute reduce only if not already done (resume gate)
-                if not reduce_executed:
+                # Phase 2.2 HITL: Check if reduce is HITL step
+                if (
+                    hasattr(spec.pattern.config.reduce, "type")
+                    and spec.pattern.config.reduce.type == "hitl"
+                ):
+                    # Reduce HITL step
+                    if not reduce_executed and not hitl_response:
+                        # First time reaching reduce - pause for user input
+
+                        # BLOCKER: Validate session persistence
+                        if not session_repo or not session_state:
+                            raise ParallelExecutionError(
+                                "HITL reduce step requires session persistence. "
+                                "Remove --no-save-session flag or remove HITL from reduce."
+                            )
+
+                        logger.info("reduce_hitl_pause")
+
+                        # Build context with all branches
+                        reduce_context = {
+                            **user_vars,
+                            "branches": branches_dict,
+                        }
+
+                        # Render context_display
+                        context_text = ""
+                        if spec.pattern.config.reduce.context_display:
+                            context_text = render_template(
+                                spec.pattern.config.reduce.context_display, reduce_context
+                            )
+
+                        # Calculate timeout
+                        timeout_at = None
+                        if (
+                            spec.pattern.config.reduce.timeout_seconds
+                            and spec.pattern.config.reduce.timeout_seconds > 0
+                        ):
+                            timeout_dt = datetime.now(UTC) + timedelta(
+                                seconds=spec.pattern.config.reduce.timeout_seconds
+                            )
+                            timeout_at = timeout_dt.isoformat()
+
+                        # Create HITL state
+                        hitl_state = HITLState(
+                            active=True,
+                            step_type="reduce",
+                            prompt=spec.pattern.config.reduce.prompt,
+                            context_display=context_text,
+                            default_response=spec.pattern.config.reduce.default,
+                            timeout_at=timeout_at,
+                            user_response=None,
+                        )
+
+                        # Save session with reduce HITL state
+                        session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                        session_state.pattern_state["completed_branches"] = list(completed_branches)
+                        session_state.pattern_state["branch_results"] = branches_dict
+                        session_state.pattern_state["reduce_executed"] = False
+                        # CRITICAL: Persist token usage before pause to prevent budget bypass on resume
+                        session_state.token_usage.total_input_tokens = cumulative_tokens // 2
+                        session_state.token_usage.total_output_tokens = cumulative_tokens - session_state.token_usage.total_input_tokens
+                        session_state.metadata.status = SessionStatus.PAUSED
+                        session_state.metadata.updated_at = now_iso8601()
+
+                        try:
+                            spec_content = ""
+                            await session_repo.save(session_state, spec_content)
+                            logger.info(
+                                "reduce_hitl_pause_saved",
+                                session_id=session_state.metadata.session_id,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "reduce_hitl_pause_save_failed",
+                                session_id=session_state.metadata.session_id,
+                                error=str(e),
+                            )
+                            raise ParallelExecutionError(
+                                f"Failed to save reduce HITL pause state: {e}"
+                            ) from e
+
+                        # Display HITL prompt
+                        console.print()
+                        console.print(
+                            Panel(
+                                f"[bold yellow]>>> HUMAN INPUT REQUIRED <<<[/bold yellow]\n\n"
+                                f"{spec.pattern.config.reduce.prompt}",
+                                border_style="yellow",
+                                padding=(1, 2),
+                                title="HITL Pause (Reduce)",
+                            )
+                        )
+
+                        if context_text:
+                            console.print(
+                                Panel(
+                                    f"[bold]All Branch Results:[/bold]\n\n{context_text}",
+                                    border_style="dim",
+                                    padding=(1, 2),
+                                )
+                            )
+
+                        console.print(
+                            f"\n[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+                            f'--hitl-response "your response"'
+                        )
+
+                        # Return HITL pause result
+                        end_time = datetime.now(UTC)
+                        duration = (end_time - start_time).total_seconds()
+
+                        return RunResult(
+                            success=True,
+                            last_response=f"Reduce HITL pause: {spec.pattern.config.reduce.prompt}",
+                            pattern_type=PatternType.PARALLEL,
+                            agent_id="hitl",
+                            started_at=started_at,
+                            completed_at=end_time.isoformat(),
+                            duration_seconds=duration,
+                            tokens_estimated=cumulative_tokens,
+                            execution_context={
+                                "session_id": session_state.metadata.session_id,
+                                "reduce_hitl": True,
+                            },
+                        )
+                    else:
+                        # Resumed from reduce HITL - use user response as final result
+                        final_response = hitl_response or ""
+                        final_agent_id = "parallel"  # NOT 'hitl' - prevents CLI infinite pause loop
+                        reduce_executed = True
+
+                        logger.info(
+                            "reduce_hitl_resumed",
+                            session_id=session_state.metadata.session_id if session_state else None,
+                            response_preview=final_response[:100]
+                            if len(final_response) > 100
+                            else final_response,
+                        )
+
+                        # Clear HITL state and mark reduce as executed
+                        if session_state:
+                            session_state.pattern_state["hitl_state"] = None
+                            session_state.pattern_state["reduce_executed"] = True
+                            session_state.pattern_state["final_response"] = final_response
+                            session_state.metadata.updated_at = now_iso8601()
+                            logger.debug("reduce_hitl_state_cleared")
+
+                        # Checkpoint session after reduce HITL resume
+                        if session_repo and session_state:
+                            session_state.metadata.updated_at = now_iso8601()
+                            try:
+                                spec_content = ""
+                                await session_repo.save(session_state, spec_content)
+                                logger.info(
+                                    "reduce_hitl_resume_checkpointed",
+                                    session_id=session_state.metadata.session_id,
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    "reduce_hitl_resume_checkpoint_failed",
+                                    session_id=session_state.metadata.session_id,
+                                    error=str(e),
+                                )
+                                # Log warning but continue - checkpoint failure shouldn't block execution
+                                logger.warning(
+                                    "reduce_hitl_resume_without_checkpoint",
+                                    message="HITL response not persisted - workflow crash will lose user input"
+                                )
+
+                elif not reduce_executed:
+                    # Regular agent reduce step
                     span.add_event("reduce_start")
                     reduce_response, reduce_tokens = await _execute_reduce_step(
                         spec,
@@ -828,6 +1309,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                 started_at=started_at,
                 completed_at=end_time.isoformat(),
                 duration_seconds=duration,
+                tokens_estimated=cumulative_tokens,
                 execution_context={"branches": branches_dict},
             )
         except Exception as e:

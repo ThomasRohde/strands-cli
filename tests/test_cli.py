@@ -22,7 +22,7 @@ from strands_cli.exit_codes import (
     EX_RUNTIME,
     EX_SCHEMA,
 )
-from strands_cli.types import PatternType, Spec
+from strands_cli.types import Spec
 
 runner = CliRunner()
 

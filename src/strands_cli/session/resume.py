@@ -173,7 +173,7 @@ async def _dispatch_pattern_executor(
     elif pattern_type == PatternType.PARALLEL:
         from strands_cli.exec.parallel import run_parallel
 
-        return await run_parallel(spec, variables, session_state, session_repo)
+        return await run_parallel(spec, variables, session_state, session_repo, hitl_response)
 
     elif pattern_type == PatternType.EVALUATOR_OPTIMIZER:
         from strands_cli.exec.evaluator_optimizer import run_evaluator_optimizer

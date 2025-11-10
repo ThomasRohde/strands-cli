@@ -342,13 +342,16 @@ class HITLState(BaseModel):
     Tracks the state of an active HITL pause, including the prompt shown
     to the user and the response (when provided).
 
-    Supports both chain pattern (step_index) and workflow pattern (task_id + layer_index).
+    Supports chain (step_index), workflow (task_id + layer_index), and
+    parallel (branch_id + step_type) patterns.
 
     Attributes:
         active: Whether HITL is currently waiting for user input
-        step_index: Index of the HITL step (chain pattern, optional)
+        step_index: Index of the HITL step (chain/parallel branch patterns)
         task_id: ID of the HITL task (workflow pattern, optional)
         layer_index: Index of execution layer (workflow pattern, optional)
+        branch_id: ID of the branch with HITL step (parallel pattern, optional)
+        step_type: Type of parallel HITL: 'branch' or 'reduce' (parallel pattern, optional)
         prompt: Prompt displayed to user
         context_display: Rendered context shown to user
         default_response: Default if empty (Phase 2)
@@ -359,11 +362,17 @@ class HITLState(BaseModel):
     active: bool = Field(..., description="Whether HITL is currently waiting")
 
     # Chain pattern fields
-    step_index: int | None = Field(None, description="Index of HITL step (chain pattern)")
+    step_index: int | None = Field(None, description="Index of HITL step (chain/parallel branch)")
 
     # Workflow pattern fields
     task_id: str | None = Field(None, description="ID of HITL task (workflow pattern)")
     layer_index: int | None = Field(None, description="Execution layer index (workflow pattern)")
+
+    # Parallel pattern fields
+    branch_id: str | None = Field(None, description="Branch ID (parallel pattern)")
+    step_type: str | None = Field(
+        None, description="HITL step type: 'branch' or 'reduce' (parallel pattern)"
+    )
 
     # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
@@ -374,22 +383,43 @@ class HITLState(BaseModel):
 
     @model_validator(mode="after")
     def validate_pattern_fields(self) -> "HITLState":
-        """Validate either chain or workflow pattern fields are present."""
-        has_chain_fields = self.step_index is not None
+        """Validate pattern-specific fields are present and consistent."""
+        has_chain_fields = self.step_index is not None and self.branch_id is None
         has_workflow_fields = self.task_id is not None or self.layer_index is not None
+        has_parallel_fields = self.branch_id is not None or self.step_type is not None
 
-        if has_chain_fields and has_workflow_fields:
+        # Count how many pattern field sets are present
+        pattern_count = sum([has_chain_fields, has_workflow_fields, has_parallel_fields])
+
+        if pattern_count == 0:
             raise ValueError(
-                "HITLState cannot have both chain (step_index) and workflow (task_id/layer_index) fields"
+                "HITLState must have fields for one pattern: "
+                "step_index (chain) OR task_id+layer_index (workflow) OR "
+                "branch_id/step_type (parallel)"
             )
-        if not has_chain_fields and not has_workflow_fields:
+        if pattern_count > 1:
             raise ValueError(
-                "HITLState must have either step_index (chain) or task_id+layer_index (workflow)"
+                "HITLState cannot mix fields from multiple patterns. "
+                "Use only chain OR workflow OR parallel fields."
             )
 
         # Workflow pattern requires both task_id and layer_index
         if has_workflow_fields and (self.task_id is None or self.layer_index is None):
             raise ValueError("Workflow HITL requires both task_id and layer_index")
+
+        # Parallel pattern validation
+        if has_parallel_fields:
+            if self.step_type not in ["branch", "reduce", None]:
+                raise ValueError("Parallel HITL step_type must be 'branch' or 'reduce'")
+            # Branch HITL requires both branch_id and step_type='branch'
+            if self.step_type == "branch" and not self.branch_id:
+                raise ValueError("Parallel branch HITL requires branch_id")
+            # Branch HITL also needs step_index
+            if self.step_type == "branch" and self.step_index is None:
+                raise ValueError("Parallel branch HITL requires step_index")
+            # Reduce HITL requires step_type='reduce' but no branch_id
+            if self.step_type == "reduce" and self.branch_id:
+                raise ValueError("Parallel reduce HITL should not have branch_id")
 
         return self
 
