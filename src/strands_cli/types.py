@@ -342,9 +342,13 @@ class HITLState(BaseModel):
     Tracks the state of an active HITL pause, including the prompt shown
     to the user and the response (when provided).
 
+    Supports both chain pattern (step_index) and workflow pattern (task_id + layer_index).
+
     Attributes:
         active: Whether HITL is currently waiting for user input
-        step_index: Index of the HITL step in the workflow
+        step_index: Index of the HITL step (chain pattern, optional)
+        task_id: ID of the HITL task (workflow pattern, optional)
+        layer_index: Index of execution layer (workflow pattern, optional)
         prompt: Prompt displayed to user
         context_display: Rendered context shown to user
         default_response: Default if empty (Phase 2)
@@ -353,12 +357,38 @@ class HITLState(BaseModel):
     """
 
     active: bool = Field(..., description="Whether HITL is currently waiting")
-    step_index: int = Field(..., description="Index of HITL step")
+    
+    # Chain pattern fields
+    step_index: int | None = Field(None, description="Index of HITL step (chain pattern)")
+    
+    # Workflow pattern fields
+    task_id: str | None = Field(None, description="ID of HITL task (workflow pattern)")
+    layer_index: int | None = Field(None, description="Execution layer index (workflow pattern)")
+    
+    # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
     context_display: str | None = Field(None, description="Context shown to user")
     default_response: str | None = Field(None, description="Default if empty")
     timeout_at: str | None = Field(None, description="ISO 8601 timeout timestamp")
     user_response: str | None = Field(None, description="User's response when resumed")
+
+    @model_validator(mode="after")
+    def validate_pattern_fields(self) -> "HITLState":
+        """Validate either chain or workflow pattern fields are present."""
+        has_chain_fields = self.step_index is not None
+        has_workflow_fields = self.task_id is not None or self.layer_index is not None
+
+        if has_chain_fields and has_workflow_fields:
+            raise ValueError("HITLState cannot have both chain (step_index) and workflow (task_id/layer_index) fields")
+        if not has_chain_fields and not has_workflow_fields:
+            raise ValueError("HITLState must have either step_index (chain) or task_id+layer_index (workflow)")
+
+        # Workflow pattern requires both task_id and layer_index
+        if has_workflow_fields:
+            if self.task_id is None or self.layer_index is None:
+                raise ValueError("Workflow HITL requires both task_id and layer_index")
+
+        return self
 
 
 class ChainStep(BaseModel):
@@ -422,22 +452,115 @@ class ChainStep(BaseModel):
         return self
 
 
-class WorkflowTask(BaseModel):
-    """Single task in a workflow pattern.
+class HITLTask(BaseModel):
+    """Human-in-the-loop pause task for workflow pattern.
+
+    Pauses workflow execution at a specific task to request user input or approval.
+    Session is automatically saved and execution exits with EX_HITL_PAUSE.
+    User resumes with --hitl-response flag.
 
     Attributes:
-        id: Unique identifier for the task
-        agent: Reference to an agent key in the agents map
+        id: Unique identifier for the task (required for dependency tracking)
+        type: Must be "hitl" to identify this as a HITL task
         deps: List of task IDs this task depends on
-        description: Human-readable task description
-        input: Prompt supplement or instruction (template allowed)
+        prompt: Message displayed to user requesting input
+        context_display: Context to show user (supports templates)
+        default: Default response if user provides empty input (Phase 2)
+        timeout_seconds: Seconds before timeout (0=no timeout, Phase 2)
     """
 
     id: str  # Unique task identifier (required)
-    agent: str  # Agent ID (required)
+    type: str = Field(default="hitl", pattern="^hitl$")  # Must be "hitl"
     deps: list[str] | None = None  # Task dependencies
-    description: str | None = None  # Human-readable description
-    input: str | None = None  # Prompt template (optional)
+    prompt: str = Field(..., description="Message to display to user")
+    context_display: str | None = Field(
+        None, description="Context to show user (supports templates like {{ tasks.task_id.response }})"
+    )
+    default: str | None = Field(
+        None, description="Default response if empty (enforcement in Phase 2)"
+    )
+    timeout_seconds: int = Field(
+        default=0, ge=0, description="Seconds before timeout (0=no timeout, enforcement in Phase 2)"
+    )
+
+
+class WorkflowTask(BaseModel):
+    """Single task in a workflow pattern.
+
+    Supports two task types:
+    1. Agent task: Executes an agent with optional input template
+    2. HITL task: Pauses for human input/approval
+
+    Exactly one of (agent) or (type="hitl") must be present.
+
+    Attributes:
+        id: Unique identifier for the task (required)
+        agent: Reference to an agent key in the agents map (agent task)
+        deps: List of task IDs this task depends on
+        description: Human-readable task description (agent task)
+        input: Prompt supplement or instruction (agent task, template allowed)
+        type: Must be "hitl" for HITL tasks
+        prompt: Message to display to user (HITL task)
+        context_display: Context to show user (HITL task)
+        default: Default response if empty (HITL task)
+        timeout_seconds: Timeout in seconds (HITL task)
+    """
+
+    id: str  # Unique task identifier (required for all task types)
+    
+    # Agent task fields
+    agent: str | None = None  # Agent ID (agent task, required if not HITL)
+    description: str | None = None  # Human-readable description (agent task)
+    input: str | None = None  # Prompt template (agent task, optional)
+    
+    # HITL task fields
+    type: str | None = None  # "hitl" for HITL tasks
+    prompt: str | None = None  # HITL prompt
+    context_display: str | None = None  # HITL context
+    default: str | None = None  # HITL default (Phase 2)
+    timeout_seconds: int | None = None  # HITL timeout (Phase 2)
+    
+    # Common fields
+    deps: list[str] | None = None  # Task dependencies (both task types)
+
+    @model_validator(mode="after")
+    def validate_task_type(self) -> "WorkflowTask":
+        """Validate exactly one of agent or HITL type is present."""
+        has_agent = self.agent is not None
+        has_hitl = self.type == "hitl"
+
+        if has_agent and has_hitl:
+            raise ValueError("Task cannot have both 'agent' and 'type: hitl'")
+        if not has_agent and not has_hitl:
+            raise ValueError("Task must have either 'agent' or 'type: hitl'")
+
+        # Validate HITL-specific requirements
+        if has_hitl:
+            if not self.prompt:
+                raise ValueError("HITL task must have 'prompt' field")
+            if self.timeout_seconds is not None and self.timeout_seconds < 0:
+                raise ValueError("HITL timeout_seconds must be >= 0")
+            # Agent-specific fields not allowed on HITL tasks
+            if self.agent is not None:
+                raise ValueError("HITL task cannot have 'agent' field")
+            if self.description is not None:
+                raise ValueError("HITL task cannot have 'description' field (reserved for agent tasks)")
+            if self.input is not None:
+                raise ValueError("HITL task cannot have 'input' field (use 'context_display' instead)")
+
+        # Validate agent-specific requirements
+        if has_agent:
+            # HITL-specific fields not allowed on agent tasks
+            if self.prompt is not None:
+                raise ValueError("Agent task cannot have 'prompt' field (HITL-only)")
+            if self.context_display is not None:
+                raise ValueError("Agent task cannot have 'context_display' field (HITL-only)")
+            if self.default is not None:
+                raise ValueError("Agent task cannot have 'default' field (HITL-only)")
+            if self.timeout_seconds is not None:
+                raise ValueError("Agent task cannot have 'timeout_seconds' field (HITL-only)")
+
+        return self
 
 
 class Route(BaseModel):
@@ -940,10 +1063,14 @@ class RunResult(BaseModel):
 
     Attributes:
         success: True if workflow completed without errors
+        message: Human-readable status message (optional)
+        exit_code: Exit code (e.g., EX_OK, EX_HITL_PAUSE)
+        pattern_type: Pattern used for execution
+        session_id: Session ID for resumable workflows (HITL pauses)
+        agent_id: ID of the agent that executed
         last_response: Final agent response text (for artifact templating)
         error: Error message if execution failed
-        agent_id: ID of the agent that executed
-        pattern_type: Pattern used for execution
+        tokens_estimated: Estimated token count for execution
         started_at: ISO 8601 timestamp of execution start
         completed_at: ISO 8601 timestamp of execution completion
         duration_seconds: Total execution time
@@ -954,10 +1081,14 @@ class RunResult(BaseModel):
     """
 
     success: bool
+    message: str | None = None
+    exit_code: int | None = None
+    pattern_type: PatternType
+    session_id: str | None = None
+    agent_id: str
     last_response: str | None = None
     error: str | None = None
-    agent_id: str
-    pattern_type: PatternType
+    tokens_estimated: int = 0
     started_at: str  # ISO 8601 timestamp
     completed_at: str  # ISO 8601 timestamp
     duration_seconds: float

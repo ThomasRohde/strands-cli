@@ -1111,33 +1111,81 @@
           "type": "array",
           "minItems": 1,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "agent"
-            ],
-            "properties": {
-              "id": {
-                "$ref": "#/$defs/identifier"
+            "oneOf": [
+              {
+                "description": "Agent execution task",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "agent"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/identifier"
+                  },
+                  "agent": {
+                    "type": "string"
+                  },
+                  "deps": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/identifier"
+                    },
+                    "uniqueItems": true
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "input": {
+                    "type": "string"
+                  }
+                }
               },
-              "agent": {
-                "type": "string"
-              },
-              "deps": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/identifier"
-                },
-                "uniqueItems": true
-              },
-              "description": {
-                "type": "string"
-              },
-              "input": {
-                "type": "string"
+              {
+                "description": "Human-in-the-loop pause task",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "type",
+                  "prompt"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/identifier"
+                  },
+                  "type": {
+                    "const": "hitl",
+                    "description": "Task type identifier for HITL (human-in-the-loop) tasks"
+                  },
+                  "deps": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/identifier"
+                    },
+                    "uniqueItems": true
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "Message displayed to user requesting input or approval"
+                  },
+                  "context_display": {
+                    "type": "string",
+                    "description": "Context to display for user review (supports templates like {{ tasks.task_id.response }})"
+                  },
+                  "default": {
+                    "type": "string",
+                    "description": "Default response if user provides empty input (enforcement in Phase 2)"
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Time in seconds before HITL expires (0 = no timeout, enforcement in Phase 2)"
+                  }
+                }
               }
-            }
+            ]
           }
         }
       }

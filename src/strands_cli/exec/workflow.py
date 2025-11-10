@@ -27,10 +27,12 @@ Context Threading:
 
 import asyncio
 from collections import deque
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
+from rich.console import Console
+from rich.panel import Panel
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -39,9 +41,10 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
+from strands_cli.exit_codes import EX_HITL_PAUSE
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
-from strands_cli.session import SessionState
+from strands_cli.session import SessionState, SessionStatus, TokenUsage
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
     fail_session,
@@ -52,7 +55,7 @@ from strands_cli.session.checkpoint_utils import (
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
-from strands_cli.types import PatternType, RunResult, Spec
+from strands_cli.types import HITLState, PatternType, RunResult, Spec
 
 try:
     from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
@@ -68,6 +71,7 @@ class WorkflowExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+console = Console()
 
 
 def _topological_sort(tasks: list[Any]) -> list[list[str]]:
@@ -140,11 +144,11 @@ def _build_task_context(
 
     Args:
         spec: Workflow spec
-        task_results: Map of task_id -> {response, status, ...}
+        task_results: Map of task_id -> {response, status, type, ...}
         variables: User-provided variables from --var flags
 
     Returns:
-        Template context dictionary with tasks{}, user variables
+        Template context dictionary with tasks{}, user variables, hitl_response
     """
     context = {}
 
@@ -159,7 +163,173 @@ def _build_task_context(
     # Add task results as tasks{} dictionary
     context["tasks"] = task_results
 
+    # Add hitl_response convenience variable (most recent HITL task response)
+    # Walk task_results to find most recent HITL task
+    for task_id, result in task_results.items():
+        if result.get("type") == "hitl":
+            context["hitl_response"] = result.get("response", "")
+            # Continue walking to find the LAST hitl task (most recent)
+
     return context
+
+
+def _check_layer_for_hitl(
+    layer_task_ids: list[str],
+    task_map: dict[str, Any],
+    completed_tasks: set[str],
+) -> str | None:
+    """Check if layer contains a HITL task that hasn't been completed.
+
+    MVP constraint: Only one HITL task allowed per layer.
+
+    Args:
+        layer_task_ids: Task IDs in this layer
+        task_map: Map of task ID to task object
+        completed_tasks: Set of already completed task IDs
+
+    Returns:
+        Task ID of first HITL task found, or None if no HITL tasks
+
+    Raises:
+        WorkflowExecutionError: If multiple HITL tasks found in same layer (MVP constraint)
+    """
+    hitl_tasks = []
+    for task_id in layer_task_ids:
+        if task_id in completed_tasks:
+            continue  # Skip completed tasks
+        task = task_map[task_id]
+        if hasattr(task, "type") and task.type == "hitl":
+            hitl_tasks.append(task_id)
+
+    if len(hitl_tasks) > 1:
+        raise WorkflowExecutionError(
+            f"Multiple HITL tasks found in same execution layer (MVP constraint): {hitl_tasks}. "
+            "Please restructure workflow so HITL tasks are in separate layers using dependencies."
+        )
+
+    return hitl_tasks[0] if hitl_tasks else None
+
+
+async def _execute_hitl_pause(
+    spec: Spec,
+    task_id: str,
+    hitl_task: Any,
+    task_results: dict[str, dict[str, Any]],
+    variables: dict[str, str] | None,
+    session_state: SessionState,
+    session_repo: FileSessionRepository,
+    layer_index: int,
+    completed_tasks: set[str],
+) -> RunResult:
+    """Execute HITL pause logic and save session.
+
+    Args:
+        spec: Workflow spec
+        task_id: ID of the HITL task
+        hitl_task: HITL task object
+        task_results: Existing task results
+        variables: User variables
+        session_state: Session state to update
+        session_repo: Repository for saving session
+        layer_index: Current execution layer index
+        completed_tasks: Set of completed task IDs
+
+    Returns:
+        RunResult with EX_HITL_PAUSE exit code
+    """
+    # Build context for rendering context_display
+    task_context = _build_task_context(spec, task_results, variables)
+
+    # Render context_display template if provided
+    context_text = ""
+    if hitl_task.context_display:
+        try:
+            context_text = render_template(hitl_task.context_display, task_context)
+        except Exception as e:
+            logger.warning(
+                "hitl_context_render_failed",
+                task_id=task_id,
+                error=str(e),
+            )
+            context_text = "(Context rendering failed)"
+
+    # Calculate timeout if specified
+    timeout_at = None
+    if hitl_task.timeout_seconds and hitl_task.timeout_seconds > 0:
+        timeout_dt = datetime.now(UTC) + timedelta(seconds=hitl_task.timeout_seconds)
+        timeout_at = timeout_dt.isoformat()
+
+    # Create HITL state
+    hitl_state = HITLState(
+        active=True,
+        task_id=task_id,
+        layer_index=layer_index,
+        prompt=hitl_task.prompt,
+        context_display=context_text,
+        default_response=hitl_task.default,
+        timeout_at=timeout_at,
+        user_response=None,
+        step_index=None,  # Not used in workflow pattern
+    )
+
+    # Save session with HITL state
+    session_state.pattern_state["current_layer"] = layer_index
+    session_state.pattern_state["task_results"] = task_results
+    session_state.pattern_state["completed_tasks"] = list(completed_tasks)
+    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+    session_state.metadata.status = SessionStatus.PAUSED
+    session_state.metadata.updated_at = datetime.now(UTC).isoformat()
+
+    await session_repo.save(session_state, "")
+
+    logger.info(
+        "hitl_pause_initiated",
+        session_id=session_state.metadata.session_id,
+        task_id=task_id,
+        layer=layer_index,
+    )
+
+    # Display HITL prompt to user
+    console.print()
+    console.print(
+        Panel(
+            f"[bold yellow]🤝 HUMAN INPUT REQUIRED[/bold yellow]\\n\\n{hitl_task.prompt}",
+            border_style="yellow",
+            padding=(1, 2),
+        )
+    )
+
+    if context_text:
+        console.print(
+            Panel(
+                f"[bold]Context for Review:[/bold]\\n\\n{context_text}",
+                border_style="dim",
+                padding=(1, 2),
+            )
+        )
+
+    console.print(f"\\n[dim]Session ID: {session_state.metadata.session_id}[/dim]")
+    console.print(
+        f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+        "--hitl-response 'your response'"
+    )
+    console.print()
+
+    # Return with HITL pause exit code
+    return RunResult(
+        success=True,
+        message="Workflow paused for human input",
+        exit_code=EX_HITL_PAUSE,
+        pattern_type=PatternType.WORKFLOW,
+        session_id=session_state.metadata.session_id,
+        agent_id="hitl",
+        last_response="",
+        error=None,
+        tokens_estimated=0,
+        started_at=session_state.metadata.created_at,
+        completed_at=datetime.now(UTC).isoformat(),
+        duration_seconds=0.0,
+    )
 
 
 async def _execute_task(
@@ -382,8 +552,9 @@ async def run_workflow(  # noqa: C901
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,  # NEW: User's response when resuming from HITL pause
 ) -> RunResult:
-    """Execute a multi-task workflow with DAG dependencies and optional session persistence.
+    """Execute a multi-task workflow with DAG dependencies, HITL support, and optional session persistence.
 
     Executes tasks in topological order with parallel execution within each layer.
     Tasks can reference completed task outputs via {{ tasks.<id>.response }}.
@@ -398,11 +569,18 @@ async def run_workflow(  # noqa: C901
         - Layer checkpointing: Save state after each layer completes
         - Partial layer resume: Handle tasks completed mid-layer
 
+    Phase 2.1 HITL Support:
+        - HITL tasks pause execution for user input
+        - Session auto-enabled when HITL task detected
+        - Resume with --hitl-response flag
+        - Template context includes hitl_response variable
+
     Args:
         spec: Workflow spec with workflow pattern
         variables: Optional CLI --var overrides
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
+        hitl_response: User response for resuming from HITL pause
 
     Returns:
         RunResult with final task response and execution metadata
@@ -467,6 +645,54 @@ async def run_workflow(  # noqa: C901
             current_layer = session_state.pattern_state.get("current_layer", 0)
             cumulative_tokens = get_cumulative_tokens(session_state)
             started_at = session_state.metadata.created_at
+            
+            # HITL: Check if resuming from HITL pause
+            hitl_state_dict = session_state.pattern_state.get("hitl_state")
+            if hitl_state_dict:
+                hitl_state = HITLState(**hitl_state_dict)
+                if hitl_state.active:
+                    # Validate HITL response provided
+                    logger.debug(
+                        "hitl_validation_check",
+                        hitl_response=repr(hitl_response),
+                        is_none=hitl_response is None,
+                        is_falsy=not hitl_response,
+                    )
+                    if not hitl_response:
+                        raise WorkflowExecutionError(
+                            f"Session {session_state.metadata.session_id} is waiting for HITL response. "
+                            f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                            "--hitl-response 'your response'"
+                        )
+
+                    # Inject HITL response into task_results
+                    task_results[hitl_state.task_id] = {
+                        "type": "hitl",
+                        "prompt": hitl_state.prompt,
+                        "response": hitl_response,
+                        "status": "success",
+                        "tokens_estimated": 0,
+                    }
+                    completed_tasks.add(hitl_state.task_id)
+
+                    # Mark HITL as no longer active
+                    hitl_state.active = False
+                    hitl_state.user_response = hitl_response
+                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                    # CRITICAL: Checkpoint after injection (prevents re-prompt on crash)
+                    session_state.pattern_state["task_results"] = task_results
+                    session_state.pattern_state["completed_tasks"] = list(completed_tasks)
+                    # Note: current_layer stays same (resume from same layer)
+                    await session_repo.save(session_state, "")
+
+                    logger.info(
+                        "hitl_response_injected",
+                        session_id=session_state.metadata.session_id,
+                        task_id=hitl_state.task_id,
+                        response=hitl_response[:100],
+                    )
+            
             logger.info(
                 "workflow_resume",
                 session_id=session_state.metadata.session_id,
@@ -559,6 +785,121 @@ async def run_workflow(  # noqa: C901
                     pending_tasks=pending_tasks,
                     total_tasks=len(layer_task_ids),
                 )
+
+                # HITL: Check if layer contains HITL task (MVP: only one HITL per layer)
+                hitl_task_id = _check_layer_for_hitl(layer_task_ids, task_map, completed_tasks)
+                
+                if hitl_task_id:
+                    # HITL task detected - ensure session persistence is enabled
+                    if not session_state or not session_repo:
+                        # Auto-enable sessions for HITL support
+                        from pathlib import Path
+                        from platformdirs import user_cache_dir
+                        from strands_cli.session import SessionMetadata
+                        
+                        cache_dir = Path(user_cache_dir("strands-cli")) / "sessions"
+                        cache_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        session_repo = FileSessionRepository(storage_dir=cache_dir)
+                        
+                        # Create new session state
+                        session_id = f"{spec.name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+                        # Simple hash for auto-created HITL sessions (MVP)
+                        import hashlib
+                        import json
+
+                        spec_hash = hashlib.sha256(
+                            json.dumps(spec.model_dump(), sort_keys=True).encode()
+                        ).hexdigest()
+
+                        session_metadata = SessionMetadata(
+                            session_id=session_id,
+                            workflow_name=spec.name,
+                            spec_hash=spec_hash,
+                            pattern_type=PatternType.WORKFLOW,
+                            status=SessionStatus.RUNNING,
+                            created_at=started_at,
+                            updated_at=datetime.now(UTC).isoformat(),
+                        )
+                        session_state = SessionState(
+                            metadata=session_metadata,
+                            runtime_config={},
+                            pattern_state={
+                                "task_results": task_results,
+                                "completed_tasks": list(completed_tasks),
+                                "current_layer": layer_index,
+                            },
+                            variables=variables or {},
+                            token_usage=TokenUsage(),
+                        )
+                        
+                        logger.info(
+                            "hitl_auto_enabled_sessions",
+                            session_id=session_id,
+                            storage_dir=str(cache_dir),
+                            task_id=hitl_task_id,
+                        )
+                    
+                    # Execute tasks before HITL sequentially
+                    pre_hitl_tasks = []
+                    for tid in pending_tasks:
+                        if tid == hitl_task_id:
+                            break
+                        pre_hitl_tasks.append(tid)
+                    
+                    # Execute pre-HITL tasks if any
+                    if pre_hitl_tasks:
+                        logger.info(
+                            "hitl_executing_pre_tasks",
+                            layer=layer_index,
+                            pre_hitl_tasks=pre_hitl_tasks,
+                        )
+                        try:
+                            pre_hitl_results = await _execute_workflow_layer(
+                                spec,
+                                pre_hitl_tasks,
+                                task_map,
+                                task_results,
+                                variables,
+                                max_attempts,
+                                wait_min,
+                                wait_max,
+                                cache,
+                                context_manager,
+                                hooks,
+                                notes_manager,
+                            )
+                        except Exception as e:
+                            raise WorkflowExecutionError(
+                                f"Pre-HITL tasks in layer {layer_index} failed: {e}"
+                            ) from e
+                        
+                        # Store pre-HITL results
+                        for task_id, (response_text, estimated_tokens) in zip(
+                            pre_hitl_tasks, pre_hitl_results, strict=True
+                        ):
+                            cumulative_tokens += estimated_tokens
+                            task_results[task_id] = {
+                                "response": response_text,
+                                "status": "success",
+                                "tokens_estimated": estimated_tokens,
+                                "agent": task_map[task_id].agent,
+                            }
+                            completed_tasks.add(task_id)
+                    
+                    # Execute HITL pause
+                    hitl_task = task_map[hitl_task_id]
+                    return await _execute_hitl_pause(
+                        spec,
+                        hitl_task_id,
+                        hitl_task,
+                        task_results,
+                        variables,
+                        session_state,
+                        session_repo,
+                        layer_index,
+                        completed_tasks,
+                    )
 
                 # Phase 5: Direct await instead of asyncio.run() per layer
                 try:

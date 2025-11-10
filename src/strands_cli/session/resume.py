@@ -168,7 +168,7 @@ async def _dispatch_pattern_executor(
     elif pattern_type == PatternType.WORKFLOW:
         from strands_cli.exec.workflow import run_workflow
 
-        return await run_workflow(spec, variables, session_state, session_repo)
+        return await run_workflow(spec, variables, session_state, session_repo, hitl_response)
 
     elif pattern_type == PatternType.PARALLEL:
         from strands_cli.exec.parallel import run_parallel
@@ -252,7 +252,10 @@ async def run_resume(
         - Implement node history restoration for graph
     """
     logger.info(
-        "resume_requested", session_id=session_id, has_hitl_response=hitl_response is not None
+        "resume_requested", 
+        session_id=session_id, 
+        has_hitl_response=hitl_response is not None,
+        hitl_response_value=repr(hitl_response)
     )
 
     if verbose:

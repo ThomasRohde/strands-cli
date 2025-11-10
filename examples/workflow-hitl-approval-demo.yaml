@@ -1,0 +1,91 @@
+version: 0
+name: "workflow-hitl-approval-demo"
+description: "Workflow pattern demonstrating HITL approval gate with task dependencies"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+agents:
+  researcher:
+    prompt: "Research the given topic thoroughly and provide detailed findings."
+
+  analyst:
+    prompt: "Analyze research findings and create recommendations."
+
+  writer:
+    prompt: "Write a comprehensive report based on the analysis."
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      # Task 1: Research the topic
+      - id: research
+        agent: researcher
+        input: "Research the topic: {{ topic }}"
+
+      # Task 2: HITL approval gate (depends on research)
+      - id: review_research
+        type: hitl
+        deps: [research]
+        prompt: |
+          Review the research findings below.
+          Respond with 'approved' to proceed to analysis,
+          or provide feedback for revisions.
+        context_display: |
+          ## Research Findings
+
+          {{ tasks.research.response }}
+        default: "approved"
+        timeout_seconds: 3600  # 1 hour timeout
+
+      # Task 3: Analyze findings (depends on HITL approval)
+      - id: analysis
+        agent: analyst
+        deps: [review_research]
+        input: |
+          User review: {{ tasks.review_research.response }}
+
+          {% if tasks.review_research.response == 'approved' %}
+          Analyze these research findings and provide recommendations:
+          {{ tasks.research.response }}
+          {% else %}
+          The user provided this feedback on the research:
+          {{ tasks.review_research.response }}
+
+          Please address their concerns and provide revised analysis.
+          {% endif %}
+
+      # Task 4: Second HITL gate for final approval
+      - id: approve_analysis
+        type: hitl
+        deps: [analysis]
+        prompt: "Review the analysis. Approve to proceed to report generation? (yes/no)"
+        context_display: |
+          ## Analysis
+
+          {{ tasks.analysis.response }}
+        timeout_seconds: 1800  # 30 minutes
+
+      # Task 5: Generate final report (depends on analysis approval)
+      - id: report
+        agent: writer
+        deps: [approve_analysis]
+        input: |
+          User approval: {{ tasks.approve_analysis.response }}
+
+          {% if tasks.approve_analysis.response == 'yes' %}
+          Write a comprehensive final report based on:
+
+          Research: {{ tasks.research.response }}
+
+          Analysis: {{ tasks.analysis.response }}
+          {% else %}
+          Report generation blocked by user. Status: {{ tasks.approve_analysis.response }}
+          {% endif %}
+
+outputs:
+  artifacts:
+    - path: "./workflow-hitl-report.md"
+      from: "{{ tasks.report.response }}"
