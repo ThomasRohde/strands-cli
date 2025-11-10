@@ -1,0 +1,177 @@
+version: 0
+name: "graph-hitl-approval-demo"
+description: "Graph workflow with human approval gates and conditional routing"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 10000
+
+agents:
+  planner:
+    prompt: "You are a project planner. Create detailed plans based on requirements."
+  
+  revisor:
+    prompt: "You are a project revisor. Revise plans based on feedback."
+  
+  executor:
+    prompt: "You are a project executor. Execute approved plans."
+
+pattern:
+  type: graph
+  config:
+    max_iterations: 5
+    
+    nodes:
+      # Initial planning
+      initial_plan:
+        agent: planner
+        input: "Create a project plan for: {{ project_description }}"
+      
+      # Manager review (HITL)
+      manager_review:
+        type: hitl
+        prompt: |
+          Review the project plan below.
+          Respond with:
+          - 'approve' to proceed to execution
+          - 'revise' to request changes
+          - 'reject' to cancel project
+        context_display: |
+          ## Project Plan
+          
+          {{ nodes.initial_plan.response }}
+          
+          ## Review Instructions
+          
+          Evaluate the plan for:
+          - Feasibility
+          - Resource allocation
+          - Timeline realism
+          - Risk assessment
+        timeout_seconds: 3600
+      
+      # Revision step
+      revise_plan:
+        agent: revisor
+        input: |
+          The manager requested revisions to the plan.
+          Manager feedback: {{ nodes.manager_review.response }}
+          
+          Original plan:
+          {{ nodes.initial_plan.response }}
+          
+          Please revise the plan addressing the feedback.
+      
+      # Executive approval (HITL) - only if manager approved
+      exec_approval:
+        type: hitl
+        prompt: |
+          Executive approval required.
+          Review the plan and respond 'yes' to approve or 'no' to reject.
+        context_display: |
+          ## Plan for Executive Approval
+          
+          {{ nodes.initial_plan.response }}
+          
+          ## Manager Status
+          Manager approved: {{ nodes.manager_review.response }}
+        timeout_seconds: 7200
+      
+      # Execution step
+      execute_plan:
+        agent: executor
+        input: |
+          Execute the following approved plan:
+          
+          {{ nodes.initial_plan.response }}
+          
+          Manager approval: {{ nodes.manager_review.response }}
+          Executive approval: {{ nodes.exec_approval.response }}
+      
+      # Rejection terminal
+      rejected:
+        type: hitl
+        prompt: "Plan rejected. Provide reason for audit trail."
+        context_display: |
+          ## Rejection Context
+          
+          Original plan:
+          {{ nodes.initial_plan.response }}
+    
+    edges:
+      # Start with initial planning
+      - from: initial_plan
+        to: [manager_review]
+      
+      # Manager review routing
+      - from: manager_review
+        choose:
+          - when: "{{ nodes.manager_review.response == 'approve' }}"
+            to: exec_approval
+          - when: "{{ nodes.manager_review.response == 'revise' }}"
+            to: revise_plan
+          - when: "{{ nodes.manager_review.response == 'reject' }}"
+            to: rejected
+          - when: else
+            to: rejected  # Default to rejection for safety
+      
+      # Revision loop - back to manager review
+      - from: revise_plan
+        to: [manager_review]
+      
+      # Executive approval routing
+      - from: exec_approval
+        choose:
+          - when: "{{ nodes.exec_approval.response == 'yes' }}"
+            to: execute_plan
+          - when: else
+            to: rejected
+      
+      # No outgoing edges from execute_plan and rejected (terminal nodes)
+
+outputs:
+  artifacts:
+    - path: "./graph-hitl-approval-output.md"
+      from: |
+        # Project Plan Execution Results
+        
+        ## Final Status
+        
+        {% if nodes.execute_plan is defined and nodes.execute_plan.response %}
+        **Status:** Executed Successfully
+        
+        ### Execution Details
+        {{ nodes.execute_plan.response }}
+        {% elif nodes.rejected is defined and nodes.rejected.response %}
+        **Status:** Rejected
+        
+        ### Rejection Reason
+        {{ nodes.rejected.response }}
+        {% else %}
+        **Status:** In Progress
+        {% endif %}
+        
+        ## Approval History
+        
+        {% if nodes.manager_review is defined and nodes.manager_review.response %}
+        - Manager Review: {{ nodes.manager_review.response }}
+        {% endif %}
+        {% if nodes.exec_approval is defined and nodes.exec_approval.response %}
+        - Executive Approval: {{ nodes.exec_approval.response }}
+        {% endif %}
+        
+        ## Original Plan
+        
+        {% if nodes.initial_plan is defined and nodes.initial_plan.response %}
+        {{ nodes.initial_plan.response }}
+        {% else %}
+        (Plan not yet generated)
+        {% endif %}
+        
+        {% if nodes.revise_plan is defined and nodes.revise_plan.response %}
+        ## Revised Plan
+        
+        {{ nodes.revise_plan.response }}
+        {% endif %}

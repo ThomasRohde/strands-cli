@@ -35,10 +35,12 @@ Template Context:
     - {{ nodes.<id>.iteration }}: Number of times node executed (for loops)
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
+from rich.console import Console
+from rich.panel import Panel
 
 from strands_cli.exec.conditions import ConditionEvaluationError, evaluate_condition
 from strands_cli.exec.utils import (
@@ -48,6 +50,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
+from strands_cli.exit_codes import EX_HITL_PAUSE
 from strands_cli.loader import render_template
 from strands_cli.session import SessionState, SessionStatus
 from strands_cli.session.checkpoint_utils import (
@@ -59,15 +62,187 @@ from strands_cli.session.checkpoint_utils import (
 )
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
-from strands_cli.types import GraphEdge, PatternType, RunResult, Spec
+from strands_cli.types import GraphEdge, HITLState, PatternType, RunResult, Spec
 
 logger = structlog.get_logger(__name__)
+console = Console()
 
 
 class GraphExecutionError(Exception):
     """Raised when graph execution fails."""
 
     pass
+
+
+class HITLPauseError(Exception):
+    """Raised to exit executor when HITL pause occurs."""
+
+    def __init__(self, result: RunResult):
+        """Initialize with RunResult to return from executor."""
+        self.result = result
+        super().__init__("HITL pause")
+
+
+async def _handle_hitl_pause(
+    spec: Spec,
+    hitl_node_id: str,
+    node_config: dict[str, Any],
+    node_results: dict[str, dict[str, Any]],
+    session_state: SessionState | None,
+    session_repo: FileSessionRepository | None,
+    variables: dict[str, str] | None,
+    cumulative_tokens: int,
+    execution_path: list[str],
+    iteration_counts: dict[str, int],
+    total_steps: int,
+) -> None:
+    """Handle HITL pause in graph pattern.
+
+    Saves session, displays prompt, and exits with EX_HITL_PAUSE.
+    This function never returns - it raises HITLPauseError.
+
+    Args:
+        spec: Workflow spec
+        hitl_node_id: ID of HITL node being paused at
+        node_config: HITL node configuration dictionary
+        node_results: Current node execution results
+        session_state: Session state for persistence
+        session_repo: Session repository for saving
+        variables: User-provided variables
+        cumulative_tokens: Total tokens used so far
+        execution_path: List of nodes executed so far
+        iteration_counts: Per-node visit counts
+        total_steps: Total steps executed
+
+    Raises:
+        GraphExecutionError: If session persistence not available
+        HITLPauseError: Always - to exit executor with HITL result
+    """
+    from strands_cli.session.utils import now_iso8601
+
+    # Validate session persistence available
+    if not session_repo or not session_state:
+        raise GraphExecutionError(
+            f"HITL node '{hitl_node_id}' requires session persistence. "
+            "Remove --no-save-session flag or remove HITL nodes from spec."
+        )
+
+    # Parse HITL node config
+    hitl_prompt = node_config["prompt"]
+    hitl_context_display = node_config.get("context_display")
+    hitl_default = node_config.get("default")
+    hitl_timeout_seconds = node_config.get("timeout_seconds", 0)
+
+    # Build template context
+    template_context = _build_node_context(spec, node_results, variables)
+
+    # Render context_display template
+    context_text = ""
+    if hitl_context_display:
+        try:
+            context_text = render_template(hitl_context_display, template_context)
+        except Exception as e:
+            logger.warning(
+                "context_display_render_failed",
+                node=hitl_node_id,
+                error=str(e),
+            )
+            context_text = f"(Failed to render context: {e})"
+
+    # Calculate timeout
+    timeout_at = None
+    if hitl_timeout_seconds and hitl_timeout_seconds > 0:
+        timeout_dt = datetime.now(UTC) + timedelta(seconds=hitl_timeout_seconds)
+        timeout_at = timeout_dt.isoformat()
+
+    # Create HITL state
+    new_hitl_state = HITLState(
+        active=True,
+        node_id=hitl_node_id,
+        step_index=None,
+        task_id=None,
+        layer_index=None,
+        branch_id=None,
+        step_type=None,
+        prompt=hitl_prompt,
+        context_display=context_text,
+        default_response=hitl_default,
+        timeout_at=timeout_at,
+        user_response=None,
+    )
+
+    # Update node_results for this HITL node
+    node_results[hitl_node_id] = {
+        "response": None,
+        "type": "hitl",
+        "prompt": hitl_prompt,
+        "status": "waiting_for_user",
+        "iteration": iteration_counts.get(hitl_node_id, 0),
+    }
+
+    # CRITICAL: Save session BEFORE displaying prompt
+    session_state.pattern_state["current_node"] = hitl_node_id
+    session_state.pattern_state["node_results"] = node_results
+    session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
+    session_state.pattern_state["cumulative_tokens"] = cumulative_tokens
+    session_state.pattern_state["execution_path"] = execution_path
+    session_state.pattern_state["iteration_counts"] = iteration_counts
+    session_state.pattern_state["total_steps"] = total_steps
+    session_state.metadata.status = SessionStatus.PAUSED
+    session_state.metadata.updated_at = now_iso8601()
+
+    await session_repo.save(session_state, spec_content="")
+
+    logger.info(
+        "hitl_pause_initiated",
+        session_id=session_state.metadata.session_id,
+        node_id=hitl_node_id,
+    )
+
+    # Display to user
+    console.print()
+    console.print(
+        Panel(
+            f"[bold yellow]>>> HUMAN INPUT REQUIRED <<<[/bold yellow]\n\n{hitl_prompt}",
+            border_style="yellow",
+            title="HITL Pause",
+            padding=(1, 2),
+        )
+    )
+
+    if context_text:
+        console.print(
+            Panel(
+                f"[bold]Context for Review:[/bold]\n\n{context_text}",
+                border_style="dim",
+                padding=(1, 2),
+            )
+        )
+
+    console.print(f"\n[dim]Session ID: {session_state.metadata.session_id}[/dim]")
+    console.print(f"[dim]Node: {hitl_node_id}[/dim]")
+    console.print(
+        f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+        f"--hitl-response 'your response'"
+    )
+    console.print()
+
+    # Create RunResult for HITL pause exit
+    result = RunResult(
+        success=True,
+        last_response=f"HITL pause at node '{hitl_node_id}': {hitl_prompt}",
+        pattern_type=PatternType.GRAPH,
+        tokens_estimated=cumulative_tokens,
+        session_id=session_state.metadata.session_id,
+        exit_code=EX_HITL_PAUSE,
+        agent_id="hitl",  # Special marker for HITL pause (matches other patterns)
+        started_at=session_state.metadata.created_at,
+        completed_at=session_state.metadata.updated_at,
+        duration_seconds=0.0,  # Will be calculated on resume
+    )
+
+    # Raise exception to exit executor cleanly
+    raise HITLPauseError(result)
 
 
 def _build_node_context(
@@ -283,6 +458,9 @@ async def _execute_graph_node(
             input_text += f" Prior nodes: {prior_nodes}."
 
     # Get agent config
+    if not node.agent:
+        raise GraphExecutionError(f"Node '{node_id}' has no agent specified")
+
     agent_config = spec.agents.get(node.agent)
     if not agent_config:
         raise GraphExecutionError(f"Node '{node_id}' references non-existent agent '{node.agent}'")
@@ -373,6 +551,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
 ) -> RunResult:
     """Execute a graph pattern workflow with optional session persistence.
 
@@ -389,6 +568,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
         variables: User-provided variables from --var flags
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
+        hitl_response: User response for HITL resume (None = not resuming from HITL)
 
     Returns:
         RunResult with terminal node response and execution metadata
@@ -477,6 +657,105 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
             if execution_path:
                 last_executed_node = execution_path[-1]
 
+            # Check for HITL resume
+            hitl_state_dict = pattern_state.get("hitl_state")
+            if hitl_state_dict:
+                hitl_state = HITLState(**hitl_state_dict)
+                if hitl_state.active:
+                    # Resuming from HITL pause - validate response provided
+                    if not hitl_response:
+                        raise GraphExecutionError(
+                            f"Session {session_state.metadata.session_id} is waiting for HITL response.\n"
+                            f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                            f"--hitl-response 'your response'"
+                        )
+
+                    # Inject user response into node_results
+                    hitl_node_id = hitl_state.node_id
+                    if not hitl_node_id:
+                        raise GraphExecutionError("HITL state missing node_id")
+
+                    # Update node_results with response (same structure as agent nodes)
+                    node_results[hitl_node_id]["response"] = hitl_response
+                    node_results[hitl_node_id]["status"] = "success"
+
+                    # Mark HITL as inactive
+                    hitl_state.active = False
+                    hitl_state.user_response = hitl_response
+                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                    # Update execution path
+                    execution_path.append(hitl_node_id)
+
+                    # Checkpoint BEFORE continuing
+                    from strands_cli.session.utils import now_iso8601
+                    session_state.pattern_state["node_results"] = node_results
+                    session_state.pattern_state["execution_path"] = execution_path
+                    session_state.metadata.status = SessionStatus.RUNNING
+                    session_state.metadata.updated_at = now_iso8601()
+                    await session_repo.save(session_state, spec_content="")
+
+                    logger.info(
+                        "hitl_response_received",
+                        session_id=session_state.metadata.session_id,
+                        node_id=hitl_node_id,
+                        response=hitl_response[:100],
+                    )
+
+                    # Find next node via edge traversal
+                    # Edge conditions can now access {{ nodes.<hitl_node_id>.response }}
+                    next_node_id = _get_next_node(
+                        current_node_id=hitl_node_id,
+                        edges=spec.pattern.config.edges,
+                        node_results=node_results,
+                    )
+
+                    # Update current_node to continue from next node
+                    current_node_id = next_node_id if next_node_id else hitl_node_id
+
+                    # If no next node, workflow is complete - skip to final result generation
+                    if not next_node_id:
+                        logger.info(
+                            "graph_completed_after_hitl",
+                            session_id=session_state.metadata.session_id,
+                            terminal_node=hitl_node_id,
+                        )
+
+                        # Set last_executed_node and skip to result generation
+                        last_executed_node = hitl_node_id
+
+                        end_time = datetime.now(UTC)
+                        duration = (end_time - start_time).total_seconds()
+
+                        final_response = node_results[hitl_node_id]["response"]
+
+                        # HITL nodes don't have agents - use empty string
+                        final_agent_id = ""
+
+                        # Finalize session
+                        await finalize_session(session_state, session_repo)
+
+                        return RunResult(
+                            success=True,
+                            last_response=final_response,
+                            error=None,
+                            agent_id=final_agent_id,
+                            pattern_type=PatternType.GRAPH,
+                            started_at=start_time.isoformat(),
+                            completed_at=end_time.isoformat(),
+                            duration_seconds=duration,
+                            artifacts_written=[],
+                            execution_context={
+                                "nodes": node_results,
+                                "terminal_node": hitl_node_id,
+                                "total_steps": total_steps,
+                                "iteration_counts": iteration_counts,
+                                "cumulative_tokens": cumulative_tokens,
+                                "name": spec.name,
+                                "timestamp": end_time.isoformat(),
+                            },
+                        )
+
             logger.info(
                 "resuming_graph",
                 session_id=session_state.metadata.session_id,
@@ -506,7 +785,25 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                     },
                 )
 
-                # Execute node
+                # Check if HITL node
+                node_config_dict = spec.pattern.config.nodes[current_node_id].model_dump()
+                if node_config_dict.get("type") == "hitl":
+                    # HITL pause point - this function never returns
+                    await _handle_hitl_pause(
+                        spec=spec,
+                        hitl_node_id=current_node_id,
+                        node_config=node_config_dict,
+                        node_results=node_results,
+                        session_state=session_state,
+                        session_repo=session_repo,
+                        variables=variables,
+                        cumulative_tokens=cumulative_tokens,
+                        execution_path=execution_path,
+                        iteration_counts=iteration_counts,
+                        total_steps=total_steps,
+                    )
+
+                # Execute node (regular agent node)
                 response_text, response_tokens = await _execute_graph_node(
                     node_id=current_node_id,
                     spec=spec,
@@ -610,7 +907,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
 
             terminal_node = last_executed_node
             final_response = node_results[terminal_node]["response"]
-            final_agent_id = spec.pattern.config.nodes[terminal_node].agent
+            final_agent_id = spec.pattern.config.nodes[terminal_node].agent or ""
 
             end_time = datetime.now(UTC)
             duration = (end_time - start_time).total_seconds()
@@ -653,6 +950,15 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                     "timestamp": end_time.isoformat(),
                 },
             )
+
+        except HITLPauseError as e:
+            # HITL pause occurred - return result with EX_HITL_PAUSE
+            logger.info(
+                "graph_paused_for_hitl",
+                session_id=e.result.session_id,
+                exit_code=EX_HITL_PAUSE,
+            )
+            return e.result
 
         except Exception as e:
             # Mark session as failed before re-raising

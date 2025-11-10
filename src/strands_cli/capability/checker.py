@@ -431,9 +431,13 @@ def _validate_graph_pattern(spec: Spec, issues: list[CapabilityIssue]) -> None: 
         )
         return  # Can't validate further without edges
 
-    # Validate node agents exist
+    # Validate node agents exist (skip HITL nodes)
     for node_id, node in config.nodes.items():
-        if node.agent not in spec.agents:
+        # Skip validation for HITL nodes (they don't have an agent field)
+        if node.type == "hitl":
+            continue
+        
+        if node.agent and node.agent not in spec.agents:
             issues.append(
                 CapabilityIssue(
                     pointer=f"/pattern/config/nodes/{node_id}/agent",

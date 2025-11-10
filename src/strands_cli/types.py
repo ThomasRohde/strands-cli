@@ -342,8 +342,8 @@ class HITLState(BaseModel):
     Tracks the state of an active HITL pause, including the prompt shown
     to the user and the response (when provided).
 
-    Supports chain (step_index), workflow (task_id + layer_index), and
-    parallel (branch_id + step_type) patterns.
+    Supports chain (step_index), workflow (task_id + layer_index),
+    parallel (branch_id + step_type), and graph (node_id) patterns.
 
     Attributes:
         active: Whether HITL is currently waiting for user input
@@ -352,6 +352,7 @@ class HITLState(BaseModel):
         layer_index: Index of execution layer (workflow pattern, optional)
         branch_id: ID of the branch with HITL step (parallel pattern, optional)
         step_type: Type of parallel HITL: 'branch' or 'reduce' (parallel pattern, optional)
+        node_id: ID of the HITL node (graph pattern, optional)
         prompt: Prompt displayed to user
         context_display: Rendered context shown to user
         default_response: Default if empty (Phase 2)
@@ -374,6 +375,9 @@ class HITLState(BaseModel):
         None, description="HITL step type: 'branch' or 'reduce' (parallel pattern)"
     )
 
+    # Graph pattern fields
+    node_id: str | None = Field(None, description="ID of HITL node (graph pattern)")
+
     # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
     context_display: str | None = Field(None, description="Context shown to user")
@@ -387,20 +391,21 @@ class HITLState(BaseModel):
         has_chain_fields = self.step_index is not None and self.branch_id is None
         has_workflow_fields = self.task_id is not None or self.layer_index is not None
         has_parallel_fields = self.branch_id is not None or self.step_type is not None
+        has_graph_fields = self.node_id is not None
 
         # Count how many pattern field sets are present
-        pattern_count = sum([has_chain_fields, has_workflow_fields, has_parallel_fields])
+        pattern_count = sum([has_chain_fields, has_workflow_fields, has_parallel_fields, has_graph_fields])
 
         if pattern_count == 0:
             raise ValueError(
                 "HITLState must have fields for one pattern: "
                 "step_index (chain) OR task_id+layer_index (workflow) OR "
-                "branch_id/step_type (parallel)"
+                "branch_id/step_type (parallel) OR node_id (graph)"
             )
         if pattern_count > 1:
             raise ValueError(
                 "HITLState cannot mix fields from multiple patterns. "
-                "Use only chain OR workflow OR parallel fields."
+                "Use only chain OR workflow OR parallel OR graph fields."
             )
 
         # Workflow pattern requires both task_id and layer_index
@@ -733,18 +738,75 @@ class GraphEdge(BaseModel):
 
 
 class GraphNode(BaseModel):
-    """Node definition for graph pattern.
+    """Node definition for graph pattern (agent or HITL).
 
     Represents a single execution node in the graph.
-    Each node executes an agent with optional input.
+    Each node is either an agent execution node or a HITL pause node.
 
-    Attributes:
+    Agent node attributes:
         agent: Agent ID to execute at this node
         input: Optional input template (defaults to auto-generated)
+
+    HITL node attributes:
+        type: Node type identifier ("hitl")
+        prompt: Message displayed to user
+        context_display: Context template for review
+        default: Default response on timeout
+        timeout_seconds: Timeout in seconds (0 = no timeout)
     """
 
-    agent: str  # Agent ID (required)
-    input: str | None = None  # Optional input template
+    # Agent node fields
+    agent: str | None = Field(None, description="Agent ID")
+    input: str | None = Field(None, description="Input template")
+
+    # HITL node fields
+    type: str | None = Field(None, description="Node type (hitl)")
+    prompt: str | None = Field(None, description="HITL prompt")
+    context_display: str | None = Field(None, description="Context template")
+    default: str | None = Field(None, description="Default response")
+    timeout_seconds: int | None = Field(None, ge=0, description="Timeout")
+
+    @model_validator(mode="after")
+    def validate_node_type(self) -> "GraphNode":
+        """Validate node is either agent or HITL."""
+        is_agent = self.agent is not None
+        is_hitl = self.type == "hitl" and self.prompt is not None
+
+        if not (is_agent or is_hitl):
+            raise ValueError(
+                "Node must be agent (with 'agent' field) or HITL (with 'type: hitl' and 'prompt')"
+            )
+
+        if is_agent and is_hitl:
+            raise ValueError("Node cannot be both agent and HITL")
+
+        # HITL-specific validation
+        if is_hitl:
+            if self.timeout_seconds is not None and self.timeout_seconds < 0:
+                raise ValueError("HITL timeout_seconds must be >= 0")
+            # Agent-specific fields not allowed on HITL nodes
+            if self.agent is not None:
+                raise ValueError("HITL node cannot have 'agent' field")
+            if self.input is not None:
+                raise ValueError(
+                    "HITL node cannot have 'input' field (use 'context_display' instead)"
+                )
+
+        # Agent-specific validation
+        if is_agent:
+            # HITL-specific fields not allowed on agent nodes
+            if self.type is not None:
+                raise ValueError("Agent node cannot have 'type' field (HITL-only)")
+            if self.prompt is not None:
+                raise ValueError("Agent node cannot have 'prompt' field (HITL-only)")
+            if self.context_display is not None:
+                raise ValueError("Agent node cannot have 'context_display' field (HITL-only)")
+            if self.default is not None:
+                raise ValueError("Agent node cannot have 'default' field (HITL-only)")
+            if self.timeout_seconds is not None:
+                raise ValueError("Agent node cannot have 'timeout_seconds' field (HITL-only)")
+
+        return self
 
 
 class OrchestratorLimits(BaseModel):

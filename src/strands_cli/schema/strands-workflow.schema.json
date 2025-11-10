@@ -1028,19 +1028,56 @@
           "type": "object",
           "minProperties": 1,
           "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "agent"
-            ],
-            "properties": {
-              "agent": {
-                "type": "string"
+            "oneOf": [
+              {
+                "description": "Agent execution node",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "agent"
+                ],
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "input": {
+                    "type": "string"
+                  }
+                }
               },
-              "input": {
-                "type": "string"
+              {
+                "description": "Human-in-the-loop pause node",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "prompt"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "hitl",
+                    "description": "Node type identifier for HITL (human-in-the-loop) nodes"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "Message displayed to user requesting input or approval"
+                  },
+                  "context_display": {
+                    "type": "string",
+                    "description": "Context to display for user review (supports templates like {{ nodes.node_id.response }})"
+                  },
+                  "default": {
+                    "type": "string",
+                    "description": "Default response if user provides empty input (enforcement in Phase 2)"
+                  },
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Time in seconds before HITL expires (0 = no timeout, enforcement in Phase 2)"
+                  }
+                }
               }
-            }
+            ]
           }
         },
         "edges": {

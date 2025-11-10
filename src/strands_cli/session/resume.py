@@ -188,7 +188,7 @@ async def _dispatch_pattern_executor(
     elif pattern_type == PatternType.GRAPH:
         from strands_cli.exec.graph import run_graph
 
-        return await run_graph(spec, variables, session_state, session_repo)
+        return await run_graph(spec, variables, session_state, session_repo, hitl_response)
 
     else:
         raise NotImplementedError(
