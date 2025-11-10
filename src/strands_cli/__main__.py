@@ -1183,8 +1183,8 @@ def sessions_list(
     table.add_column("Updated", style="dim")
 
     for session in sessions:
-        # Truncate session ID unless verbose
-        session_id_display = session.session_id if verbose else session.session_id[:12] + "..."
+        # Always show full session ID for easy copy/paste
+        session_id_display = session.session_id
 
         # Format timestamp (show full if verbose, date only if not)
         timestamp_display = session.updated_at if verbose else session.updated_at.split("T")[0]
