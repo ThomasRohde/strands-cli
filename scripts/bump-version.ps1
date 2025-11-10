@@ -11,6 +11,7 @@
     - README.md
     - manual/reference/cli.md
     - manual/howto/tools.md
+    - .github/workflows/docs.yml
 
 .PARAMETER Version
     The new version number (semantic version: X.Y.Z)
@@ -106,6 +107,11 @@ $filesToUpdate = @(
         Path = "manual\reference\cli.md"
         Pattern = '\(e\.g\., `\d+\.\d+\.\d+`\)'
         Replacement = "(e.g., ``$Version``)"
+    },
+    @{
+        Path = ".github\workflows\docs.yml"
+        Pattern = "default: 'v\d+\.\d+'"
+        Replacement = "default: 'v$($Version -replace '\.\d+$', '')'"
     }
 )
 

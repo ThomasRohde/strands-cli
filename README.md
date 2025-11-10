@@ -6,7 +6,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen.svg)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-795+-success.svg)](#development)
 [![Coverage](https://img.shields.io/badge/coverage-82%25-yellow.svg)](#development)
 
@@ -741,7 +741,7 @@ Show the CLI version.
 
 ```bash
 uv run strands version
-# Output: strands-cli version 0.2.1
+# Output: strands-cli version 0.3.0
 ```
 
 ### `strands sessions`
@@ -1347,7 +1347,7 @@ uv run strands doctor
 
 ## Roadmap
 
-### Current Version (v0.2.1)
+### Current Version (v0.3.0)
 
 ✅ All 7 workflow patterns (chain, workflow, routing, parallel, evaluator-optimizer, orchestrator-workers, graph)  
 ✅ Full OpenTelemetry tracing with OTLP export  

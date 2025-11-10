@@ -740,9 +740,52 @@ def test_save_and_load_session(tmp_path):
 
 ---
 
+## Architecture Overview
+
+### Design Principles
+
+The session management system is built on these core principles:
+
+1. **Leverage Strands SDK**: Use native `FileSessionManager` for agent conversation persistence
+2. **File-based Storage**: Local filesystem storage for MVP (cloud storage in future phases)
+3. **Checkpoint After Completion**: Save state after each step/task/branch/node finishes
+4. **Idempotent Resume**: Safe to resume multiple times without side effects
+5. **Pattern-Specific State**: Each pattern defines its own execution state structure
+
+### Checkpoint Timing
+
+Checkpoints are saved automatically at these milestones:
+
+| Pattern | Checkpoint Trigger |
+|---------|-------------------|
+| Chain | After each step completes |
+| Workflow | After each task completes |
+| Parallel | After each branch completes |
+| Routing | After router decision and selected agent execution |
+| Evaluator-Optimizer | After each iteration |
+| Orchestrator-Workers | After each round and reduce step |
+| Graph | After each node transition |
+
+### Agent Conversation Restoration
+
+Agent conversation history is managed by the Strands SDK `FileSessionManager`:
+
+- Each agent has a unique session ID: `{session_id}_{agent_id}`
+- Messages stored in `agents/{agent_id}/messages/message_*.json`
+- Agent state (key-value store) in `agents/{agent_id}/agent.json`
+- Automatic restoration on resume via `AgentCache.get_or_build_agent()`
+
+### Implementation Modules
+
+- **`session/__init__.py`**: Core data models (SessionState, SessionMetadata, TokenUsage)
+- **`session/file_repository.py`**: File-based persistence (save, load, list, delete)
+- **`session/utils.py`**: Utilities (session ID generation, spec hashing, timestamps)
+- **`exec/chain.py`**: Chain pattern checkpointing reference implementation
+- **`exec/utils.py`**: AgentCache with session restoration support
+
+---
+
 ## Related Documentation
 
 - [Session Management Guide](../howto/session-management.md) - User-facing session management
-- [DURABLE.md](../../DURABLE.md) - Complete session architecture and roadmap
-- [Chain Executor](../../src/strands_cli/exec/chain.py) - Chain pattern checkpointing implementation
 - [Workflow Manual](./workflow-manual.md) - Workflow spec reference

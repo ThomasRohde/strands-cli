@@ -391,9 +391,69 @@ uv run strands run workflow.yaml
 
 ---
 
+## Session Architecture
+
+### Storage Structure
+
+Sessions are stored in `~/.strands/sessions/` with the following structure:
+
+```
+~/.strands/sessions/session_<uuid>/
+├── session.json              # Metadata, variables, runtime config, token usage
+├── pattern_state.json        # Pattern-specific execution state
+├── spec_snapshot.yaml        # Original workflow spec for validation
+└── agents/                   # Strands SDK agent sessions
+    ├── <agent_id>/
+    │   ├── agent.json        # Agent state (key-value store)
+    │   └── messages/
+    │       └── message_*.json # Conversation history
+```
+
+### Session State Components
+
+Each session captures:
+
+- **Metadata**: Session ID, workflow name, pattern type, status, timestamps
+- **Variables**: User-provided variables from `--var` flags
+- **Runtime Config**: Provider, model ID, region, and other runtime settings
+- **Pattern State**: Pattern-specific execution state (current step, completed tasks, etc.)
+- **Token Usage**: Cumulative token counts by agent for cost tracking
+- **Agent Sessions**: Full conversation history managed by Strands SDK FileSessionManager
+- **Artifacts**: List of output files already written
+
+### Checkpointing Behavior
+
+The CLI automatically checkpoints after each significant execution milestone:
+
+- **Chain**: After each step completes
+- **Workflow**: After each task completes
+- **Parallel**: After each branch completes
+- **Routing**: After router decision and selected agent execution
+- **Evaluator-Optimizer**: After each iteration
+- **Orchestrator-Workers**: After each round and reduce step
+- **Graph**: After each node transition
+
+### Roadmap
+
+**Current (v0.12.0 - Phase 2):**
+- ✅ Chain pattern resume
+- ✅ File-based storage
+- ✅ Session management CLI
+
+**Upcoming (Phase 3):**
+- 🔜 Multi-pattern resume (workflow, parallel, routing, evaluator-optimizer, orchestrator-workers, graph)
+- 🔜 Variable override on resume
+
+**Future (Phase 4):**
+- 🔜 File locking for concurrent execution safety
+- 🔜 Automatic session cleanup and expiration
+- 🔜 Auto-resume on failure flag
+- 🔜 Performance optimizations (lazy loading)
+
+---
+
 ## Related Documentation
 
-- [DURABLE.md](../../DURABLE.md) - Complete session architecture and roadmap
 - [Session API Reference](../reference/session-api.md) - Pydantic models and repository API
 - [Workflow Manual](../reference/workflow-manual.md) - Workflow spec reference
 - [Exit Codes](../reference/exit-codes.md) - CLI exit code meanings
