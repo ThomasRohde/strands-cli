@@ -90,6 +90,28 @@ log_level_str = os.environ.get("STRANDS_DEBUG", "").lower()
 min_level = logging.DEBUG if log_level_str == "true" else logging.INFO
 
 
+def _spec_has_hitl_steps(spec: Spec) -> bool:
+    """Check if spec contains any HITL steps.
+    
+    Currently only checks chain pattern. Future: Add workflow, parallel, etc.
+    
+    Args:
+        spec: Workflow specification
+        
+    Returns:
+        True if spec contains HITL steps, False otherwise
+    """
+    if spec.pattern.type == PatternType.CHAIN:
+        return any(
+            hasattr(step, "type") and step.type == "hitl"
+            for step in spec.pattern.config.steps
+        )
+    # TODO: Add HITL detection for other patterns when they support HITL
+    # - workflow pattern (tasks with type=hitl)
+    # - parallel pattern (branches with HITL steps)
+    return False
+
+
 # Custom log level filter processor for structlog
 def filter_by_level_processor(
     logger: Any, method_name: str, event_dict: dict[str, Any]
@@ -672,6 +694,12 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
                     console.print(f"\n[red]Resume failed:[/red] {result.error}")
                     sys.exit(EX_RUNTIME)
 
+                # BLOCKER 1 FIX: Check if workflow paused at another HITL step
+                if result.agent_id == "hitl":
+                    # Workflow paused again at next HITL step - exit with pause code
+                    shutdown_telemetry()
+                    sys.exit(EX_HITL_PAUSE)
+
                 # Write any remaining artifacts
                 if result.spec and result.spec.outputs and result.spec.outputs.artifacts:
                     written_files = _write_and_report_artifacts(
@@ -728,6 +756,18 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
 
         if not capability_report.supported:
             _handle_unsupported_spec(spec, spec_path, capability_report, out)
+
+        # BLOCKER 2 FIX: Validate HITL steps require session persistence
+        if not save_session and _spec_has_hitl_steps(spec):
+            console.print(
+                "[red]Error:[/red] Workflow contains HITL (Human-in-the-Loop) steps which require session persistence.\n\n"
+                "[yellow]HITL steps pause execution and require resuming with:[/yellow]\n"
+                "  strands run --resume <session-id> --hitl-response 'your response'\n\n"
+                "[cyan]To fix, choose one:[/cyan]\n"
+                "  1. Remove --no-save-session flag (recommended)\n"
+                "  2. Remove HITL steps from workflow"
+            )
+            sys.exit(EX_USAGE)
 
         # Configure telemetry (currently scaffolding only)
         if spec.telemetry:

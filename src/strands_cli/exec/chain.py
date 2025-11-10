@@ -327,6 +327,14 @@ async def run_chain(  # noqa: C901
 
                 # Phase 1 HITL: Check if this is a HITL step
                 if hasattr(step, "type") and step.type == "hitl":
+                    # BLOCKER 2 FIX: Validate session persistence is available
+                    if not session_repo or not session_state:
+                        raise ChainExecutionError(
+                            f"HITL step at index {step_index} requires session persistence, but session is disabled. "
+                            "Session persistence is required to save pause state and enable resume. "
+                            "Remove --no-save-session flag or remove HITL steps from workflow."
+                        )
+                    
                     # HITL pause point
                     logger.info(
                         "hitl_step_detected",

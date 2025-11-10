@@ -569,3 +569,129 @@ class TestHITLArtifactTemplates:
 
         # Note: This is desired behavior per user decision (Option B: raise template error)
         # Jinja2 will raise UndefinedError if template uses {{ hitl_response }}
+
+
+class TestHITLSessionValidation:
+    """Test suite for HITL session persistence validation (BLOCKER 2)."""
+
+    @pytest.mark.asyncio
+    async def test_hitl_step_without_session_raises_error(
+        self, double_hitl_spec: Any, mocker: Any
+    ) -> None:
+        """BLOCKER 2: HITL step without session should raise ChainExecutionError."""
+        # Arrange: Mock AgentCache to prevent actual agent creation
+        mock_cache = AsyncMock()
+        mock_agent = AsyncMock()
+        mock_agent.invoke_async = AsyncMock(return_value="step 0 result")
+        mock_cache.get_or_build_agent.return_value = mock_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.chain.AgentCache", return_value=mock_cache)
+
+        # Act & Assert - Should raise error when HITL step detected without session
+        with pytest.raises(
+            ChainExecutionError,
+            match=r"HITL step at index 1 requires session persistence.*disabled"
+        ):
+            await run_chain(
+                spec=double_hitl_spec,
+                variables={},
+                session_state=None,  # No session state
+                session_repo=None,   # No repository
+            )
+
+    @pytest.mark.asyncio
+    async def test_normal_workflow_without_session_works(
+        self, minimal_chain_spec: Any, mocker: Any
+    ) -> None:
+        """Non-HITL workflow should work without session persistence."""
+        # Arrange: Mock AgentCache to prevent actual agent creation
+        mock_cache = AsyncMock()
+        mock_agent = AsyncMock()
+        mock_agent.invoke_async = AsyncMock(return_value="test result for step")
+        mock_cache.get_or_build_agent.return_value = mock_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.chain.AgentCache", return_value=mock_cache)
+
+        # Act: Run without session (should work for non-HITL workflows)
+        result = await run_chain(
+            spec=minimal_chain_spec,
+            variables={},
+            session_state=None,
+            session_repo=None,
+        )
+
+        # Assert: Should complete successfully
+        assert result.success is True
+        assert result.agent_id != "hitl"
+        assert "HITL" not in result.last_response
+class TestHITLResumeRePause:
+    """Test suite for HITL resume re-pause behavior (BLOCKER 1)."""
+
+    @pytest.mark.asyncio
+    async def test_resume_pauses_at_second_hitl_step(
+        self, double_hitl_spec: Any, tmp_path: Any, mocker: Any
+    ) -> None:
+        """BLOCKER 1: Resume from first HITL should pause at second HITL, not report success."""
+        # Arrange: Create session paused at step 1 (first HITL)
+        from pathlib import Path
+
+        from strands_cli.session import SessionMetadata, SessionState, SessionStatus, TokenUsage
+        from strands_cli.session.file_repository import FileSessionRepository
+
+        repo = FileSessionRepository(storage_dir=Path(tmp_path))
+
+        session_state = SessionState(
+            metadata=SessionMetadata(
+                session_id="test-double-hitl-123",
+                workflow_name=double_hitl_spec.name,
+                pattern_type="chain",
+                spec_hash="test-hash-456",
+                status=SessionStatus.PAUSED,
+                created_at="2025-11-10T10:00:00Z",
+                updated_at="2025-11-10T10:05:00Z",
+            ),
+            variables={"topic": "test"},
+            runtime_config={},
+            pattern_state={
+                "current_step": 1,  # Paused at first HITL (step 1)
+                "step_history": [
+                    {"index": 0, "agent": "agent1", "response": "Step 0 completed", "tokens_estimated": 100}
+                ],
+                "hitl_state": {
+                    "active": True,
+                    "step_index": 1,
+                    "prompt": "First approval - review step 0?",
+                    "user_response": None,
+                }
+            },
+            token_usage=TokenUsage(),
+        )
+
+        # Mock AgentCache for step 2 (between first and second HITL)
+        mock_cache = AsyncMock()
+        mock_agent = AsyncMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Step 2 executed successfully")
+        mock_cache.get_or_build_agent.return_value = mock_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.chain.AgentCache", return_value=mock_cache)
+
+        # Act: Resume with HITL response (should execute step 2, then pause at step 3)
+        result = await run_chain(
+            spec=double_hitl_spec,
+            variables={"topic": "test"},
+            session_state=session_state,
+            session_repo=repo,
+            hitl_response="first approval granted",  # User's response to first HITL
+        )
+
+        # Assert: Should pause at second HITL (agent_id="hitl"), NOT complete
+        assert result.success is True
+        assert result.agent_id == "hitl", "Expected HITL pause at second step, got completion"
+        assert "step 3" in result.last_response.lower() or "HITL pause" in result.last_response
+
+        # Verify session was updated with second HITL state
+        loaded_state = await repo.load("test-double-hitl-123")
+        assert loaded_state.metadata.status == SessionStatus.PAUSED
+        assert "hitl_state" in loaded_state.pattern_state
+        assert loaded_state.pattern_state["hitl_state"]["step_index"] == 3  # Second HITL at step 3
+

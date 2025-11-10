@@ -757,6 +757,51 @@ def hitl_session_state(chain_with_hitl_spec_dict: dict[str, Any]) -> dict[str, A
     }
 
 
+@pytest.fixture
+def double_hitl_spec() -> Any:
+    """Workflow with 2 HITL steps for testing resume re-pause (BLOCKER 1)."""
+    from strands_cli.types import Agent, ChainStep, Pattern, PatternConfig, PatternType, Runtime, Spec
+
+    return Spec(
+        name="test-double-hitl",
+        runtime=Runtime(provider="ollama", model_id="llama3.2:3b", host="http://localhost:11434"),
+        agents={"agent1": Agent(prompt="Test agent for multi-HITL workflow")},
+        pattern=Pattern(
+            type=PatternType.CHAIN,
+            config=PatternConfig(
+                steps=[
+                    ChainStep(agent="agent1", input="Execute step 0"),
+                    ChainStep(type="hitl", prompt="First approval - review step 0?"),
+                    ChainStep(agent="agent1", input="Execute step 2"),
+                    ChainStep(type="hitl", prompt="Second approval - review step 2?"),
+                    ChainStep(agent="agent1", input="Execute final step"),
+                ]
+            ),
+        ),
+    )
+
+
+@pytest.fixture
+def minimal_chain_spec() -> Any:
+    """Minimal chain spec without HITL steps for testing normal execution."""
+    from strands_cli.types import Agent, ChainStep, Pattern, PatternConfig, PatternType, Runtime, Spec
+
+    return Spec(
+        name="test-minimal-chain",
+        runtime=Runtime(provider="ollama", model_id="llama3.2:3b", host="http://localhost:11434"),
+        agents={"agent1": Agent(prompt="Test agent")},
+        pattern=Pattern(
+            type=PatternType.CHAIN,
+            config=PatternConfig(
+                steps=[
+                    ChainStep(agent="agent1", input="Step 1"),
+                    ChainStep(agent="agent1", input="Step 2"),
+                ]
+            ),
+        ),
+    )
+
+
 # ============================================================================
 # Environment Variables
 # ============================================================================
