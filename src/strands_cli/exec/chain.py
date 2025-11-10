@@ -40,7 +40,6 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
-from strands_cli.exit_codes import EX_HITL_PAUSE
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
@@ -239,6 +238,8 @@ async def run_chain(  # noqa: C901
                     hitl_state.active = False
                     hitl_state.user_response = hitl_response
                     session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                    # Advance current_step to prevent re-prompting on crash after response injection
+                    session_state.pattern_state["current_step"] = hitl_state.step_index + 1
 
                     # Checkpoint session after injecting HITL response (before continuing execution)
                     # This prevents data loss if workflow crashes mid-step after resume
@@ -334,7 +335,7 @@ async def run_chain(  # noqa: C901
                             "Session persistence is required to save pause state and enable resume. "
                             "Remove --no-save-session flag or remove HITL steps from workflow."
                         )
-                    
+
                     # HITL pause point
                     logger.info(
                         "hitl_step_detected",

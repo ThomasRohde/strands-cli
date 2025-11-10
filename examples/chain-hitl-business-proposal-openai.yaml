@@ -1,0 +1,260 @@
+version: 0
+name: "hitl-business-proposal"
+description: "Chain workflow with 2 HITL approval gates for business proposal review"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 15000
+
+agents:
+  market_analyst:
+    prompt: |
+      You are a senior market analyst with expertise in competitive analysis and market research.
+      Provide detailed, data-driven market analysis with clear insights and recommendations.
+      Focus on market size, growth trends, competitive landscape, and opportunities.
+
+  financial_analyst:
+    prompt: |
+      You are a financial analyst specializing in business case development and ROI analysis.
+      Create comprehensive financial projections including revenue forecasts, cost structures,
+      break-even analysis, and return on investment calculations.
+
+  strategist:
+    prompt: |
+      You are a business strategist who synthesizes market and financial data into
+      actionable strategic recommendations. Provide clear go/no-go recommendations
+      with risk mitigation strategies and implementation roadmaps.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      # Step 1: Market Analysis
+      - agent: market_analyst
+        input: |
+          Conduct a comprehensive market analysis for the following business opportunity:
+          
+          Business Concept: {{ business_concept }}
+          Target Market: {{ target_market }}
+          Geographic Scope: {{ geographic_scope }}
+          
+          Please provide:
+          1. Market size and growth projections
+          2. Competitive landscape analysis
+          3. Customer segments and pain points
+          4. Market entry barriers and opportunities
+          5. Key success factors
+
+      # Step 2: HITL Gate - Review Market Analysis
+      - type: hitl
+        prompt: |
+          **EXECUTIVE REVIEW REQUIRED**
+          
+          Please review the market analysis below. You may:
+          - Type 'approved' to proceed to financial analysis
+          - Provide specific feedback or questions for the analyst to address
+          - Type 'reject' with reasons to halt the proposal process
+        context_display: |
+          ## Market Analysis Report
+          
+          {{ steps[0].response }}
+          
+          ---
+          **Decision Options:**
+          - ✅ approved - Proceed to financial analysis
+          - 📝 [feedback text] - Request revisions with specific guidance
+          - ❌ reject - Stop proposal development
+        default: "approved"
+        timeout_seconds: 7200  # 2 hours
+
+      # Step 3: Financial Analysis (conditional on approval)
+      - agent: financial_analyst
+        input: |
+          {% if steps[1].response == 'reject' %}
+          The market analysis was rejected. Please provide a brief summary of why this
+          business opportunity is not viable based on the market assessment.
+          
+          Market Analysis:
+          {{ steps[0].response }}
+          {% elif steps[1].response == 'approved' %}
+          Based on the approved market analysis, develop a comprehensive financial model:
+          
+          Market Analysis:
+          {{ steps[0].response }}
+          
+          Please provide:
+          1. 3-year revenue projections with assumptions
+          2. Cost structure (COGS, operating expenses, capital requirements)
+          3. Break-even analysis
+          4. ROI and payback period calculations
+          5. Financial risks and sensitivities
+          {% else %}
+          Executive feedback was provided. Please revise the financial analysis to address:
+          
+          Executive Feedback:
+          {{ steps[1].response }}
+          
+          Original Market Analysis:
+          {{ steps[0].response }}
+          
+          Provide updated financial projections that address the concerns raised.
+          {% endif %}
+
+      # Step 4: HITL Gate - Review Financial Analysis
+      - type: hitl
+        prompt: |
+          **CFO REVIEW REQUIRED**
+          
+          Please review the financial analysis and projections below.
+          
+          Your decision will determine whether we proceed to final strategic recommendations.
+        context_display: |
+          ## Financial Analysis Report
+          
+          {{ steps[2].response }}
+          
+          ---
+          **Decision Options:**
+          - ✅ approved - Financials look solid, proceed to strategy
+          - 📝 [feedback text] - Request adjustments to assumptions or analysis
+          - ❌ reject - Financial case is insufficient
+        default: "approved"
+        timeout_seconds: 7200  # 2 hours
+
+      # Step 5: Strategic Recommendations
+      - agent: strategist
+        input: |
+          {% if steps[3].response == 'reject' %}
+          The financial analysis was rejected. Provide a brief executive summary explaining
+          why this opportunity does not meet our investment criteria.
+          
+          Market Analysis:
+          {{ steps[0].response }}
+          
+          Financial Analysis:
+          {{ steps[2].response }}
+          {% elif steps[3].response == 'approved' %}
+          Synthesize the market and financial analysis into strategic recommendations:
+          
+          Market Analysis:
+          {{ steps[0].response }}
+          
+          Financial Analysis:
+          {{ steps[2].response }}
+          
+          Provide:
+          1. Go/No-Go recommendation with clear rationale
+          2. Critical success factors
+          3. Top 5 risks with mitigation strategies
+          4. 12-month implementation roadmap with key milestones
+          5. Resource requirements (team, budget, partners)
+          6. KPIs to track progress
+          {% else %}
+          CFO feedback was provided. Adjust the strategic recommendations to address:
+          
+          CFO Feedback:
+          {{ steps[3].response }}
+          
+          Market Analysis:
+          {{ steps[0].response }}
+          
+          Financial Analysis:
+          {{ steps[2].response }}
+          
+          Provide revised strategic recommendations that incorporate the financial guidance.
+          {% endif %}
+
+outputs:
+  artifacts:
+    - path: "./business-proposal.md"
+      from: |
+        # Business Proposal: {{ business_concept }}
+        
+        **Date Generated:** November 10, 2025
+        **Status:** Approved for Execution
+        
+        ---
+        
+        ## Executive Summary
+        
+        This proposal has passed through multi-stakeholder review with approvals from:
+        - Executive Leadership (Market Analysis)
+        - CFO (Financial Projections)
+        
+        **Recommendation:** {{ "GO" if steps[3].response == "approved" else "REVIEW REQUIRED" }}
+        
+        ---
+        
+        ## 1. Market Analysis
+        
+        {{ steps[0].response }}
+        
+        ### Executive Review Decision
+        **Decision:** {{ steps[1].response }}
+        
+        ---
+        
+        ## 2. Financial Analysis
+        
+        {{ steps[2].response }}
+        
+        ### CFO Review Decision
+        **Decision:** {{ steps[3].response }}
+        
+        ---
+        
+        ## 3. Strategic Recommendations
+        
+        {{ steps[4].response }}
+        
+        ---
+        
+        ## Approval Chain Summary
+        
+        | Stage | Reviewer | Decision | Timestamp |
+        |-------|----------|----------|-----------|
+        | Market Analysis | Executive Team | {{ steps[1].response }} | Step 1 |
+        | Financial Analysis | CFO | {{ steps[3].response }} | Step 3 |
+        | Strategic Recommendation | Strategy Team | Complete | Step 4 |
+        
+        ---
+        
+        ## Next Steps
+        
+        With all approvals in place, proceed to:
+        1. Resource allocation per 12-month roadmap
+        2. Team hiring and partnership development
+        3. Q1 execution: Security certifications and integration development
+        4. Pilot program launch with 3-5 target customers
+
+# Example Usage Scenarios:
+
+# Scenario 1: New Product Launch
+# strands run examples/chain-hitl-business-proposal-openai.yaml \
+#   --var business_concept="AI-Powered Customer Service Platform" \
+#   --var target_market="Mid-market B2B SaaS companies" \
+#   --var geographic_scope="North America"
+
+# Scenario 2: Market Expansion
+# strands run examples/chain-hitl-business-proposal-openai.yaml \
+#   --var business_concept="European Market Expansion" \
+#   --var target_market="Enterprise manufacturing sector" \
+#   --var geographic_scope="Germany, France, UK"
+
+# Scenario 3: Strategic Partnership
+# strands run examples/chain-hitl-business-proposal-openai.yaml \
+#   --var business_concept="Strategic Partnership with Cloud Provider" \
+#   --var target_market="Cloud-native software vendors" \
+#   --var geographic_scope="Global"
+
+# Resume workflow with approvals:
+# Step 1 - Market Analysis Review:
+#   strands run --resume <session-id> --hitl-response "approved"
+#
+# Step 2 - CFO Review:
+#   strands run --resume <session-id> --hitl-response "approved"
+#
+# Or provide feedback at any gate:
+#   strands run --resume <session-id> --hitl-response "Please revise revenue projections to be more conservative"

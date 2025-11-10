@@ -269,6 +269,170 @@ pattern:
         input: "Analyze: {{ steps[0].response }}"
 ```
 
+### Example 4: Multi-Stage Business Proposal
+
+A sophisticated workflow with multiple HITL approval gates for executive and CFO review:
+
+```yaml
+version: 0
+name: "hitl-business-proposal"
+description: "Chain workflow with 2 HITL approval gates for business proposal review"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 15000
+
+agents:
+  market_analyst:
+    prompt: |
+      You are a senior market analyst with expertise in competitive analysis.
+      Provide detailed, data-driven market analysis with clear insights.
+
+  financial_analyst:
+    prompt: |
+      You are a financial analyst specializing in business case development.
+      Create comprehensive financial projections and ROI analysis.
+
+  strategist:
+    prompt: |
+      You are a business strategist who synthesizes market and financial data
+      into actionable strategic recommendations.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      # Step 1: Market Analysis
+      - agent: market_analyst
+        input: |
+          Conduct market analysis for:
+          Business: {{ business_concept }}
+          Market: {{ target_market }}
+          Geography: {{ geographic_scope }}
+
+      # Step 2: Executive Review Gate
+      - type: hitl
+        prompt: |
+          **EXECUTIVE REVIEW REQUIRED**
+          
+          Review market analysis. You may:
+          - Type 'approved' to proceed to financial analysis
+          - Provide feedback for revisions
+          - Type 'reject' to halt the proposal
+        context_display: |
+          ## Market Analysis Report
+          {{ steps[0].response }}
+          
+          **Decision Options:**
+          - ✅ approved - Proceed to financial analysis
+          - 📝 [feedback] - Request revisions
+          - ❌ reject - Stop proposal
+        default: "approved"
+        timeout_seconds: 7200  # 2 hours
+
+      # Step 3: Financial Analysis (conditional)
+      - agent: financial_analyst
+        input: |
+          {% if steps[1].response == 'reject' %}
+          Rejected. Summarize why this opportunity is not viable.
+          {% elif steps[1].response == 'approved' %}
+          Develop financial model based on approved analysis:
+          {{ steps[0].response }}
+          {% else %}
+          Revise analysis addressing: {{ steps[1].response }}
+          Original: {{ steps[0].response }}
+          {% endif %}
+
+      # Step 4: CFO Review Gate
+      - type: hitl
+        prompt: |
+          **CFO REVIEW REQUIRED**
+          
+          Review financial analysis and projections.
+        context_display: |
+          ## Financial Analysis Report
+          {{ steps[2].response }}
+          
+          **Decision Options:**
+          - ✅ approved - Proceed to strategy
+          - 📝 [feedback] - Request adjustments
+          - ❌ reject - Insufficient financial case
+        default: "approved"
+        timeout_seconds: 7200
+
+      # Step 5: Strategic Recommendations
+      - agent: strategist
+        input: |
+          {% if steps[3].response == 'reject' %}
+          Financial rejected. Explain why this doesn't meet criteria.
+          {% elif steps[3].response == 'approved' %}
+          Synthesize into strategic recommendations:
+          Market: {{ steps[0].response }}
+          Financial: {{ steps[2].response }}
+          {% else %}
+          Adjust recommendations per CFO feedback:
+          {{ steps[3].response }}
+          {% endif %}
+
+outputs:
+  artifacts:
+    - path: "./business-proposal.md"
+      from: |
+        # Business Proposal: {{ business_concept }}
+        
+        **Status:** Approved for Execution
+        
+        ## 1. Market Analysis
+        {{ steps[0].response }}
+        
+        ### Executive Review: {{ steps[1].response }}
+        
+        ## 2. Financial Analysis
+        {{ steps[2].response }}
+        
+        ### CFO Review: {{ steps[3].response }}
+        
+        ## 3. Strategic Recommendations
+        {{ steps[4].response }}
+        
+        ## Approval Chain
+        | Stage | Reviewer | Decision |
+        |-------|----------|----------|
+        | Market | Executive | {{ steps[1].response }} |
+        | Financial | CFO | {{ steps[3].response }} |
+```
+
+**Usage:**
+```bash
+# Run workflow
+uv run strands run chain-hitl-business-proposal-openai.yaml \
+  --var business_concept="AI Customer Service Platform" \
+  --var target_market="Mid-market B2B SaaS" \
+  --var geographic_scope="North America"
+
+# Output shows session ID and first HITL gate
+# Session ID: abc123...
+
+# Executive approval
+uv run strands run --resume abc123 --hitl-response "approved"
+
+# CFO approval (second gate)
+uv run strands run --resume abc123 --hitl-response "approved"
+
+# Or provide feedback at any gate
+uv run strands run --resume abc123 \
+  --hitl-response "Please use more conservative revenue projections"
+```
+
+**Key Features:**
+- **Multi-stakeholder**: Executive → CFO → Strategy team review
+- **Conditional logic**: Different prompts based on approval/rejection
+- **Rich context**: Formatted decision options in `context_display`
+- **Structured output**: Complete proposal with approval chain summary
+- **Resume workflow**: Each gate creates a resume point with full context
+
 ---
 
 ## Session Integration

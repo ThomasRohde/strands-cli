@@ -53,9 +53,21 @@ class TestHITLTemplateContext:
 
         step_history = [
             {"index": 0, "agent": "agent1", "response": "First result", "tokens_estimated": 100},
-            {"index": 1, "type": "hitl", "prompt": "First approval?", "response": "approved", "tokens_estimated": 0},
+            {
+                "index": 1,
+                "type": "hitl",
+                "prompt": "First approval?",
+                "response": "approved",
+                "tokens_estimated": 0,
+            },
             {"index": 2, "agent": "agent2", "response": "Second result", "tokens_estimated": 120},
-            {"index": 3, "type": "hitl", "prompt": "Final approval?", "response": "rejected - revise", "tokens_estimated": 0},
+            {
+                "index": 3,
+                "type": "hitl",
+                "prompt": "Final approval?",
+                "response": "rejected - revise",
+                "tokens_estimated": 0,
+            },
         ]
 
         # Act
@@ -97,7 +109,13 @@ class TestHITLTemplateContext:
 
         step_history = [
             {"index": 0, "agent": "agent1", "response": "Result", "tokens_estimated": 100},
-            {"index": 1, "type": "hitl", "prompt": "Approval?", "response": "", "tokens_estimated": 0},
+            {
+                "index": 1,
+                "type": "hitl",
+                "prompt": "Approval?",
+                "response": "",
+                "tokens_estimated": 0,
+            },
         ]
 
         # Act
@@ -138,6 +156,7 @@ class TestHITLPauseAndResume:
     ) -> None:
         """Test chain executor pauses at HITL step and exits with EX_HITL_PAUSE."""
         from pathlib import Path
+
         from strands_cli.session.file_repository import FileSessionRepository
 
         # Arrange
@@ -145,7 +164,9 @@ class TestHITLPauseAndResume:
 
         # Mock agent execution for step 0
         mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(return_value="Research findings: AI safety is critical...")
+        mock_agent.invoke_async = AsyncMock(
+            return_value="Research findings: AI safety is critical..."
+        )
 
         # Mock AgentCache
         mock_cache = mocker.AsyncMock()
@@ -209,6 +230,7 @@ class TestHITLPauseAndResume:
     ) -> None:
         """Test chain executor resumes from HITL pause and injects user response."""
         from pathlib import Path
+
         from strands_cli.session.file_repository import FileSessionRepository
 
         # Arrange
@@ -300,6 +322,7 @@ class TestHITLPauseAndResume:
     ) -> None:
         """Test resuming from HITL pause without --hitl-response raises error."""
         from pathlib import Path
+
         from strands_cli.session.file_repository import FileSessionRepository
 
         # Arrange
@@ -366,6 +389,7 @@ class TestHITLPauseAndResume:
     ) -> None:
         """Test session is checkpointed after injecting HITL response before continuing."""
         from pathlib import Path
+
         from strands_cli.session.file_repository import FileSessionRepository
 
         # Arrange
@@ -447,6 +471,7 @@ class TestHITLMultipleSteps:
     async def test_multiple_hitl_steps_sequential(self, tmp_path: Any, mocker: Any) -> None:
         """Test workflow with multiple sequential HITL steps."""
         from pathlib import Path
+
         from strands_cli.session.file_repository import FileSessionRepository
 
         # Arrange - Spec with 2 HITL steps
@@ -590,13 +615,13 @@ class TestHITLSessionValidation:
         # Act & Assert - Should raise error when HITL step detected without session
         with pytest.raises(
             ChainExecutionError,
-            match=r"HITL step at index 1 requires session persistence.*disabled"
+            match=r"HITL step at index 1 requires session persistence.*disabled",
         ):
             await run_chain(
                 spec=double_hitl_spec,
                 variables={},
                 session_state=None,  # No session state
-                session_repo=None,   # No repository
+                session_repo=None,  # No repository
             )
 
     @pytest.mark.asyncio
@@ -624,6 +649,8 @@ class TestHITLSessionValidation:
         assert result.success is True
         assert result.agent_id != "hitl"
         assert "HITL" not in result.last_response
+
+
 class TestHITLResumeRePause:
     """Test suite for HITL resume re-pause behavior (BLOCKER 1)."""
 
@@ -655,14 +682,19 @@ class TestHITLResumeRePause:
             pattern_state={
                 "current_step": 1,  # Paused at first HITL (step 1)
                 "step_history": [
-                    {"index": 0, "agent": "agent1", "response": "Step 0 completed", "tokens_estimated": 100}
+                    {
+                        "index": 0,
+                        "agent": "agent1",
+                        "response": "Step 0 completed",
+                        "tokens_estimated": 100,
+                    }
                 ],
                 "hitl_state": {
                     "active": True,
                     "step_index": 1,
                     "prompt": "First approval - review step 0?",
                     "user_response": None,
-                }
+                },
             },
             token_usage=TokenUsage(),
         )
@@ -695,3 +727,109 @@ class TestHITLResumeRePause:
         assert "hitl_state" in loaded_state.pattern_state
         assert loaded_state.pattern_state["hitl_state"]["step_index"] == 3  # Second HITL at step 3
 
+    @pytest.mark.asyncio
+    async def test_resume_after_hitl_checkpoint_without_new_response(
+        self, chain_with_hitl_spec_dict: dict[str, Any], tmp_path: Any, mocker: Any
+    ) -> None:
+        """BLOCKER FIX: Resume after HITL response injection checkpoint should NOT re-prompt.
+
+        Scenario:
+        1. Workflow pauses at HITL step 1
+        2. User resumes with --hitl-response "approved"
+        3. Executor injects response, checkpoints session, advances current_step
+        4. Process crashes before executing step 2
+        5. User resumes again WITHOUT --hitl-response (already provided)
+        6. Executor should skip HITL step 1 and continue from step 2
+
+        This tests the fix for the infinite approval loop bug where current_step
+        wasn't advanced during HITL response injection checkpoint.
+        """
+        from pathlib import Path
+
+        from strands_cli.session import SessionMetadata, SessionState, SessionStatus, TokenUsage
+        from strands_cli.session.file_repository import FileSessionRepository
+
+        # Arrange: Create session that was paused at HITL, then resumed with response
+        # Simulate the state AFTER hitl_response injection but BEFORE next step execution
+        spec = Spec(**chain_with_hitl_spec_dict)
+        repo = FileSessionRepository(storage_dir=Path(tmp_path))
+
+        # This is the critical state: HITL response already injected into step_history,
+        # hitl_state.active=False, and current_step advanced to 2
+        session_state = SessionState(
+            metadata=SessionMetadata(
+                session_id="test-checkpoint-123",
+                workflow_name=spec.name,
+                pattern_type="chain",
+                spec_hash="test-hash-789",
+                status=SessionStatus.RUNNING,  # Running, not paused
+                created_at="2025-11-10T10:00:00Z",
+                updated_at="2025-11-10T10:05:30Z",
+            ),
+            variables={"topic": "AI safety"},
+            runtime_config={},
+            pattern_state={
+                "current_step": 2,  # CRITICAL: Should skip HITL at step 1
+                "step_history": [
+                    {
+                        "index": 0,
+                        "agent": "researcher",
+                        "response": "Research complete",
+                        "tokens_estimated": 100,
+                    },
+                    {
+                        "index": 1,
+                        "type": "hitl",
+                        "prompt": "Review the research findings. Approve to proceed?",
+                        "response": "approved",  # Already provided by user
+                        "tokens_estimated": 0,
+                    },
+                ],
+                "hitl_state": {
+                    "active": False,  # No longer active
+                    "step_index": 1,
+                    "prompt": "Review the research findings. Approve to proceed?",
+                    "user_response": "approved",  # Already recorded
+                },
+            },
+            token_usage=TokenUsage(
+                total_input_tokens=100,
+                total_output_tokens=150,
+            ),
+        )
+
+        # Mock AgentCache for step 2 (analyst step after HITL)
+        mock_cache = AsyncMock()
+        mock_agent = AsyncMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Analysis complete")
+        mock_cache.get_or_build_agent.return_value = mock_agent
+        mock_cache.close.return_value = None
+        mocker.patch("strands_cli.exec.chain.AgentCache", return_value=mock_cache)
+
+        # Mock FileSessionManager
+        mock_session_manager = MagicMock()
+        mocker.patch(
+            "strands.session.file_session_manager.FileSessionManager",
+            return_value=mock_session_manager,
+        )
+
+        # Act: Resume WITHOUT hitl_response (already injected in step_history)
+        result = await run_chain(
+            spec=spec,
+            variables={"topic": "AI safety"},
+            session_state=session_state,
+            session_repo=repo,
+            hitl_response=None,  # No new response provided
+        )
+
+        # Assert: Should complete successfully, NOT pause at HITL again
+        assert result.success is True
+        assert result.agent_id == "analyst", "Expected workflow completion, got HITL pause"
+        assert "HITL pause" not in result.last_response
+        assert len(result.execution_context["steps"]) == 3  # All 3 steps completed
+
+        # Verify HITL step was NOT executed again (only step 2 was executed)
+        # AgentCache should only be called once for step 2 (analyst)
+        assert mock_cache.get_or_build_agent.call_count == 1
+        call_args = mock_cache.get_or_build_agent.call_args[0]
+        assert call_args[1] == "analyst"  # Step 2 agent ID

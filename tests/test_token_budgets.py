@@ -396,4 +396,4 @@ class TestBudgetExitCodes:
 
     def test_exit_code_constant_value(self) -> None:
         """Test EX_BUDGET_EXCEEDED has correct value."""
-        assert EX_BUDGET_EXCEEDED == 19
+        assert EX_BUDGET_EXCEEDED == 20

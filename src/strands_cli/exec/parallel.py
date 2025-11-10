@@ -736,6 +736,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                         notes_manager,
                     )
                     final_response = reduce_response
+                    assert spec.pattern.config.reduce.agent is not None
                     final_agent_id = spec.pattern.config.reduce.agent
                     cumulative_tokens += reduce_tokens
                     reduce_executed = True
@@ -767,6 +768,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                         session_state is not None
                     )  # For type checker (already validated reduce_executed implies session_state)
                     final_response = session_state.pattern_state.get("final_response", "")
+                    assert spec.pattern.config.reduce.agent is not None
                     final_agent_id = spec.pattern.config.reduce.agent
                     logger.info(
                         "Reduce step restored from checkpoint",

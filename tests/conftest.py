@@ -760,7 +760,15 @@ def hitl_session_state(chain_with_hitl_spec_dict: dict[str, Any]) -> dict[str, A
 @pytest.fixture
 def double_hitl_spec() -> Any:
     """Workflow with 2 HITL steps for testing resume re-pause (BLOCKER 1)."""
-    from strands_cli.types import Agent, ChainStep, Pattern, PatternConfig, PatternType, Runtime, Spec
+    from strands_cli.types import (
+        Agent,
+        ChainStep,
+        Pattern,
+        PatternConfig,
+        PatternType,
+        Runtime,
+        Spec,
+    )
 
     return Spec(
         name="test-double-hitl",
@@ -784,7 +792,15 @@ def double_hitl_spec() -> Any:
 @pytest.fixture
 def minimal_chain_spec() -> Any:
     """Minimal chain spec without HITL steps for testing normal execution."""
-    from strands_cli.types import Agent, ChainStep, Pattern, PatternConfig, PatternType, Runtime, Spec
+    from strands_cli.types import (
+        Agent,
+        ChainStep,
+        Pattern,
+        PatternConfig,
+        PatternType,
+        Runtime,
+        Spec,
+    )
 
     return Spec(
         name="test-minimal-chain",
