@@ -118,8 +118,17 @@ def _spec_has_hitl_steps(spec: Spec) -> bool:
                 return True
         # Check reduce step for HITL
         if spec.pattern.config.reduce:
-            if hasattr(spec.pattern.config.reduce, "type") and spec.pattern.config.reduce.type == "hitl":
+            if (
+                hasattr(spec.pattern.config.reduce, "type")
+                and spec.pattern.config.reduce.type == "hitl"
+            ):
                 return True
+        return False
+    if spec.pattern.type == PatternType.GRAPH:
+        # Check nodes for HITL
+        nodes_dict: dict[str, Any] | None = spec.pattern.config.nodes
+        if nodes_dict:
+            return any(getattr(node, "type", None) == "hitl" for node in nodes_dict.values())
         return False
     # TODO: Add HITL detection for other patterns when they support HITL
     return False

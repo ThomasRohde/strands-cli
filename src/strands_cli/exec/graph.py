@@ -687,14 +687,6 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                     # Update execution path
                     execution_path.append(hitl_node_id)
 
-                    # Checkpoint BEFORE continuing
-                    from strands_cli.session.utils import now_iso8601
-                    session_state.pattern_state["node_results"] = node_results
-                    session_state.pattern_state["execution_path"] = execution_path
-                    session_state.metadata.status = SessionStatus.RUNNING
-                    session_state.metadata.updated_at = now_iso8601()
-                    await session_repo.save(session_state, spec_content="")
-
                     logger.info(
                         "hitl_response_received",
                         session_id=session_state.metadata.session_id,
@@ -702,7 +694,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                         response=hitl_response[:100],
                     )
 
-                    # Find next node via edge traversal
+                    # Find next node via edge traversal BEFORE checkpoint
                     # Edge conditions can now access {{ nodes.<hitl_node_id>.response }}
                     next_node_id = _get_next_node(
                         current_node_id=hitl_node_id,
@@ -710,8 +702,24 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                         node_results=node_results,
                     )
 
-                    # Update current_node to continue from next node
-                    current_node_id = next_node_id if next_node_id else hitl_node_id
+                    # Update current_node and status BEFORE checkpoint save
+                    # This ensures crash recovery resumes from correct node
+                    if next_node_id is None:
+                        # Terminal HITL node - mark workflow complete
+                        current_node_id = hitl_node_id  # Keep terminal node for final response extraction
+                        session_state.metadata.status = SessionStatus.COMPLETED
+                    else:
+                        # Non-terminal HITL - advance to next node
+                        current_node_id = next_node_id
+                        session_state.metadata.status = SessionStatus.RUNNING
+
+                    # Checkpoint with correct current_node (crash-safe)
+                    from strands_cli.session.utils import now_iso8601
+                    session_state.pattern_state["current_node"] = current_node_id
+                    session_state.pattern_state["node_results"] = node_results
+                    session_state.pattern_state["execution_path"] = execution_path
+                    session_state.metadata.updated_at = now_iso8601()
+                    await session_repo.save(session_state, spec_content="")
 
                     # If no next node, workflow is complete - skip to final result generation
                     if not next_node_id:

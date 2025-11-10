@@ -112,6 +112,50 @@ class TestHITLDetection:
         spec = Spec(**spec_dict)
         assert _spec_has_hitl_steps(spec) is False
 
+    def test_spec_has_hitl_steps_detects_graph_hitl(self) -> None:
+        """Test _spec_has_hitl_steps detects HITL in graph pattern."""
+        spec_dict = {
+            "name": "test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "test"},
+            "agents": {"test": {"prompt": "Test"}},
+            "pattern": {
+                "type": "graph",
+                "config": {
+                    "max_iterations": 10,
+                    "nodes": {
+                        "n1": {"agent": "test", "input": "Test"},
+                        "n2": {"type": "hitl", "prompt": "Approve?"},
+                    },
+                    "edges": [{"from": "n1", "to": ["n2"]}],
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+        assert _spec_has_hitl_steps(spec) is True
+
+    def test_spec_has_hitl_steps_returns_false_for_graph_without_hitl(self) -> None:
+        """Test _spec_has_hitl_steps returns False for graph without HITL."""
+        spec_dict = {
+            "name": "test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "test"},
+            "agents": {"test": {"prompt": "Test"}},
+            "pattern": {
+                "type": "graph",
+                "config": {
+                    "max_iterations": 10,
+                    "nodes": {
+                        "n1": {"agent": "test", "input": "Test"},
+                        "n2": {"agent": "test", "input": "Test 2"},
+                    },
+                    "edges": [{"from": "n1", "to": ["n2"]}],
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+        assert _spec_has_hitl_steps(spec) is False
+
 
 class TestValidateCommand:
     """Tests for the validate command."""
@@ -648,6 +692,76 @@ outputs:
         stdout_lower = result.stdout.lower()
         assert "hitl" in stdout_lower or "human-in-the-loop" in stdout_lower
 
+    def test_run_graph_hitl_requires_session_persistence(
+        self,
+        tmp_path: Path,
+        temp_artifacts_dir: Path,
+    ) -> None:
+        """Test run command with graph HITL nodes requires session persistence."""
+        # Create graph spec with HITL node
+        graph_hitl_spec = tmp_path / "graph-hitl.yaml"
+        graph_hitl_spec.write_text(
+            """
+version: 0
+name: graph-hitl-test
+runtime:
+  provider: ollama
+  model_id: llama2
+  host: http://localhost:11434
+agents:
+  planner:
+    prompt: "Create a plan"
+  executor:
+    prompt: "Execute the plan"
+pattern:
+  type: graph
+  config:
+    max_iterations: 10
+    nodes:
+      plan:
+        agent: planner
+        input: "Create plan for {{ topic }}"
+      review:
+        type: hitl
+        prompt: "Review plan. Approve?"
+        context_display: "{{ nodes.plan.response }}"
+      execute:
+        agent: executor
+        input: "Execute: {{ nodes.review.response }}"
+    edges:
+      - from: plan
+        to: [review]
+      - from: review
+        to: [execute]
+outputs:
+  artifacts:
+    - path: "./out.txt"
+      from: "{{ last_response }}"
+"""
+        )
+
+        # Run with --no-save-session should fail with usage error
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(graph_hitl_spec),
+                "--no-save-session",
+                "--out",
+                str(temp_artifacts_dir),
+            ],
+        )
+
+        # Assert - Should exit with usage error and show helpful message
+        from strands_cli.exit_codes import EX_USAGE
+
+        assert result.exit_code == EX_USAGE
+        # Check for key terms in error message (case-insensitive due to ANSI codes)
+        stdout_lower = result.stdout.lower()
+        assert "hitl" in stdout_lower or "human-in-the-loop" in stdout_lower
+        assert "session" in stdout_lower
+        assert "no-save-session" in stdout_lower or "remove" in stdout_lower
+
 
 class TestCLIErrorHandling:
     """Tests for CLI error handling across commands."""
@@ -837,6 +951,64 @@ class TestCLIErrorHandling:
 
         # Should still succeed normally
         assert result.exit_code == EX_OK
+
+    def test_graph_execution_error_returns_ex_runtime(
+        self,
+        mocker: Any,
+        graph_spec_fixture: Any,
+        temp_artifacts_dir: Path,
+    ) -> None:
+        """Test GraphExecutionError surfaces with correct exit code and structured error."""
+        from strands_cli.exec.graph import GraphExecutionError
+
+        # Mock the graph executor to raise GraphExecutionError
+        mocker.patch(
+            "strands_cli.exec.graph.run_graph",
+            side_effect=GraphExecutionError("Test graph execution failure"),
+        )
+
+        # Create a temporary spec file from the fixture
+        # Convert Pydantic model to dict, then to YAML
+        graph_spec_file = temp_artifacts_dir / "graph-spec.yaml"
+        
+        # Use ruamel.yaml for proper serialization
+        from ruamel.yaml import YAML
+        yaml_writer = YAML()
+        
+        # Convert Spec to dict (mode='json' for enums, by_alias=True for 'from' field, exclude_none=True for clean YAML)
+        spec_dict = graph_spec_fixture.model_dump(mode='json', by_alias=True, exclude_none=True)
+        
+        # Add host for Ollama provider and outputs to ensure spec is fully supported
+        spec_dict['runtime']['host'] = 'http://localhost:11434'
+        spec_dict['outputs'] = {
+            'artifacts': [
+                {'path': './output.txt', 'from': '{{ last_response }}'}
+            ]
+        }
+        
+        with open(graph_spec_file, 'w') as f:
+            yaml_writer.dump(spec_dict, f)
+
+        # Run the graph spec
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(graph_spec_file),
+                "--out",
+                str(temp_artifacts_dir),
+                "--force",
+            ],
+        )
+
+        # Assert exit code is EX_RUNTIME (not EX_UNKNOWN)
+        assert result.exit_code == EX_RUNTIME
+        
+        # Assert error message is structured (not "Unexpected error")
+        assert "Unexpected error" not in result.stdout
+        assert "failed" in result.stdout.lower() or "error" in result.stdout.lower()
+        # Should mention the actual error message
+        assert "graph" in result.stdout.lower()
 
 
 class TestSessionsCommand:
