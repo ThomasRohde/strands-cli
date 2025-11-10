@@ -819,8 +819,11 @@ def _validate_parallel_pattern(spec: Spec, issues: list[CapabilityIssue]) -> Non
                 )
             )
         else:
-            # Validate all step agents exist
+            # Validate all step agents exist (skip HITL steps)
             for j, step in enumerate(branch.steps):
+                # Skip HITL steps (they don't have agents)
+                if hasattr(step, "type") and step.type == "hitl":
+                    continue
                 if step.agent not in spec.agents:
                     issues.append(
                         CapabilityIssue(
@@ -830,15 +833,18 @@ def _validate_parallel_pattern(spec: Spec, issues: list[CapabilityIssue]) -> Non
                         )
                     )
 
-    # Validate reduce step agent if present
-    if spec.pattern.config.reduce and spec.pattern.config.reduce.agent not in spec.agents:
-        issues.append(
-            CapabilityIssue(
-                pointer="/pattern/config/reduce/agent",
-                reason=f"Reduce step references unknown agent '{spec.pattern.config.reduce.agent}'",
-                remediation=f"Define agent '{spec.pattern.config.reduce.agent}' in agents section",
+    # Validate reduce step agent if present (skip HITL reduce)
+    if spec.pattern.config.reduce:
+        # Skip HITL reduce steps (they don't have agents)
+        is_hitl_reduce = hasattr(spec.pattern.config.reduce, "type") and spec.pattern.config.reduce.type == "hitl"
+        if not is_hitl_reduce and spec.pattern.config.reduce.agent not in spec.agents:
+            issues.append(
+                CapabilityIssue(
+                    pointer="/pattern/config/reduce/agent",
+                    reason=f"Reduce step references unknown agent '{spec.pattern.config.reduce.agent}'",
+                    remediation=f"Define agent '{spec.pattern.config.reduce.agent}' in agents section",
+                )
             )
-        )
 
 
 def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
