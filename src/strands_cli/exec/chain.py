@@ -381,7 +381,7 @@ async def run_chain(  # noqa: C901
                     console.print()
                     console.print(
                         Panel(
-                            f"[bold yellow]🤝 HUMAN INPUT REQUIRED[/bold yellow]\n\n{step.prompt}",
+                            f"[bold yellow]>>> HUMAN INPUT REQUIRED <<<[/bold yellow]\n\n{step.prompt}",
                             border_style="yellow",
                             padding=(1, 2),
                             title="HITL Pause",
@@ -417,16 +417,13 @@ async def run_chain(  # noqa: C901
 
                     return RunResult(
                         success=True,
-                        message="Workflow paused for human input",
-                        exit_code=EX_HITL_PAUSE,
+                        last_response=f"HITL pause at step {step_index}: {step.prompt}",
                         pattern_type=PatternType.CHAIN,
-                        session_id=session_state.metadata.session_id if session_state else None,
                         started_at=started_at,
                         completed_at=hitl_pause_completed_at,
                         duration_seconds=hitl_pause_duration,
-                        agent_id=None,  # No agent for HITL steps
-                        response=f"HITL pause at step {step_index}: {step.prompt}",
-                        step_history=step_history,
+                        agent_id="hitl",  # Special marker for HITL steps
+                        execution_context={"steps": step_history},
                     )
 
                 # Regular agent step execution

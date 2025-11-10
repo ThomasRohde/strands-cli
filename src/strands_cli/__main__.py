@@ -60,6 +60,7 @@ from strands_cli.exec.single_agent import ExecutionError as SingleAgentExecution
 from strands_cli.exec.single_agent import run_single_agent
 from strands_cli.exec.workflow import WorkflowExecutionError, run_workflow
 from strands_cli.exit_codes import (
+    EX_HITL_PAUSE,
     EX_IO,
     EX_OK,
     EX_RUNTIME,
@@ -780,6 +781,12 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
         if not result.success:
             console.print(f"\n[red]Workflow failed:[/red] {result.error}")
             sys.exit(EX_RUNTIME)
+
+        # Check for HITL pause (agent_id="hitl" indicates pause, not completion)
+        if result.agent_id == "hitl":
+            # Shutdown telemetry and exit with HITL_PAUSE code
+            shutdown_telemetry()
+            sys.exit(EX_HITL_PAUSE)
 
         # Write artifacts
         written_files = _write_and_report_artifacts(spec, result, out, force, variables)
