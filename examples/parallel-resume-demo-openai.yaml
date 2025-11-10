@@ -20,8 +20,9 @@ runtime:
   budgets:
     max_tokens: 100000
     warn_threshold: 0.8
-  retries:
-    max_attempts: 3
+  failure_policy:
+    retries: 3
+    backoff: exponential
     wait_min: 1
     wait_max: 10
   max_parallel: 2  # Limit concurrent branches
@@ -99,7 +100,7 @@ pattern:
 outputs:
   artifacts:
     - path: parallel-research-report.md
-      content: |
+      from: |
         # Research Report: {{ topic }}
         
         {{ last_response }}
