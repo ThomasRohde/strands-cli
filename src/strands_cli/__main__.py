@@ -54,6 +54,7 @@ from strands_cli.exec.evaluator_optimizer import (
     EvaluatorOptimizerExecutionError,
     run_evaluator_optimizer,
 )
+from strands_cli.exec.graph import GraphExecutionError
 from strands_cli.exec.parallel import ParallelExecutionError, run_parallel
 from strands_cli.exec.routing import RoutingExecutionError, run_routing
 from strands_cli.exec.single_agent import ExecutionError as SingleAgentExecutionError
@@ -173,6 +174,7 @@ ExecutionError = (
     RoutingExecutionError,
     ParallelExecutionError,
     EvaluatorOptimizerExecutionError,
+    GraphExecutionError,
 )
 
 app = typer.Typer(
@@ -364,16 +366,6 @@ def _dispatch_executor(
     try:
         return _route_to_executor(spec, variables, session_state, session_repo)
     except ExecutionError as e:
-        console.print(f"\n[red]Execution failed:[/red] {e}")
-        if verbose:
-            console.print_exception()
-        sys.exit(EX_RUNTIME)
-    except (
-        ChainExecutionError,
-        WorkflowExecutionError,
-        RoutingExecutionError,
-        ParallelExecutionError,
-    ) as e:
         console.print(f"\n[red]Execution failed:[/red] {e}")
         if verbose:
             console.print_exception()
