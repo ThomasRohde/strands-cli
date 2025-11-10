@@ -89,6 +89,22 @@ strands run workflow.yaml --debug --verbose --trace
 strands run workflow.yaml --format json
 ```
 
+**Session Output**:
+
+When session saving is enabled (default), the CLI displays the session ID in the output:
+
+```
+Session ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+Running workflow: my-workflow
+Step 1/3: researcher - COMPLETE
+Step 2/3: analyst - COMPLETE
+Step 3/3: writer - COMPLETE
+✓ Workflow completed successfully
+
+Artifacts written:
+  • ./output/result.md
+```
+
 **Exit Codes**:
 
 - `0` - Success

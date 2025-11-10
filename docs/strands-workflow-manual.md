@@ -83,8 +83,14 @@ outputs:
 Your CLI (`strands-cli`) should support:
 
 ```bash
-# Run with variables
+# Run with variables (session saving enabled by default)
 strands-cli run flow.yaml --var topic="L3 credit risk" --var audience=exec
+
+# Disable session saving
+strands-cli run flow.yaml --no-save-session
+
+# Resume from saved session (durable execution)
+strands-cli run --resume <session-id>
 
 # Validate against the JSON Schema
 strands-cli validate flow.yaml --schema strands-workflow.schema.json
@@ -95,8 +101,10 @@ strands-cli plan flow.yaml
 # Inspect / export OTEL trace
 strands-cli trace <session-id>
 
-# Resume a previous session (from artifacts/ state)
-strands-cli resume <session-id>
+# Session management
+strands-cli sessions list [--status running|completed|failed]
+strands-cli sessions show <session-id>
+strands-cli sessions delete <session-id> [--force]
 ```
 
 **Variable precedence:** `--var` > environment > `inputs.optional.default` (if present).
@@ -1216,7 +1224,278 @@ Strands CLI uses standard OTLP protocol - compatible with all major APM vendors:
 
 ---
 
-## 21) Migration & Extensibility
+## 21) Durable Session Management (Resume Workflows)
+
+**New in v0.12.0**: Strands CLI now supports **durable session persistence** for crash recovery and long-running workflows. When enabled (default), workflows automatically checkpoint their state to disk, allowing you to resume from the last completed step.
+
+### Basic Workflow
+
+```bash
+# 1. Run workflow with session saving (enabled by default)
+strands run my-workflow.yaml --var topic="AI agents"
+# Output includes: "Session ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+# 2. Workflow crashes or is interrupted (Ctrl+C)
+
+# 3. Resume from last checkpoint
+strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Skips completed steps, continues from interruption point
+```
+
+### How It Works
+
+**Automatic Checkpointing:**
+- After each step/task/branch/node completion, session state is saved to `~/.strands/sessions/`
+- Includes: workflow metadata, variables, runtime config, pattern state, token usage, artifacts written
+- Agent conversation history saved via Strands SDK FileSessionManager
+
+**Resume Logic:**
+- Load session metadata and pattern state
+- Restore agent conversation history from disk
+- Skip completed steps/tasks/branches
+- Continue execution from next incomplete work
+- Accumulate token usage across resume sessions
+
+**Spec Change Detection:**
+- Original workflow spec stored in `spec_snapshot.yaml`
+- CLI computes SHA256 hash of spec on save
+- On resume, compares current spec hash with saved hash
+- Warns if spec changed, but allows execution (useful for bug fixes)
+
+### Session Storage Structure
+
+```
+~/.strands/sessions/  (configurable via STRANDS_SESSION_DIR)
+└── session_a1b2c3d4-e5f6-7890-abcd-ef1234567890/
+    ├── session.json              # Metadata, variables, runtime, token usage
+    ├── pattern_state.json        # Execution state (step history, current position)
+    ├── spec_snapshot.yaml        # Original workflow spec for change detection
+    └── agents/                   # Strands SDK agent sessions
+        └── a1b2c3d4...._researcher/
+            ├── agent.json        # Agent state
+            └── messages/         # Full conversation history
+                ├── message_0.json
+                ├── message_1.json
+                └── ...
+```
+
+**session.json example:**
+```json
+{
+  "metadata": {
+    "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "workflow_name": "research-workflow",
+    "spec_hash": "7f8a9b0c...",
+    "pattern_type": "chain",
+    "status": "running",
+    "created_at": "2025-11-10T14:30:00Z",
+    "updated_at": "2025-11-10T14:45:23Z"
+  },
+  "variables": {"topic": "AI agents"},
+  "runtime_config": {"provider": "ollama", "model_id": "llama2"},
+  "token_usage": {
+    "total_input_tokens": 5000,
+    "total_output_tokens": 3000,
+    "by_agent": {"researcher": 2000, "analyst": 3000}
+  },
+  "artifacts_written": ["./output/step1.md"]
+}
+```
+
+**pattern_state.json example (chain):**
+```json
+{
+  "current_step": 2,
+  "step_history": [
+    {
+      "index": 0,
+      "agent_id": "researcher",
+      "response": "Research findings...",
+      "tokens": 2000
+    },
+    {
+      "index": 1,
+      "agent_id": "analyst",
+      "response": "Analysis results...",
+      "tokens": 3000
+    }
+  ]
+}
+```
+
+### Session Management CLI
+
+```bash
+# List all sessions
+strands sessions list
+# Output:
+# Sessions:
+# 1. a1b2c3d4... (research-workflow, chain, running)
+# 2. b2c3d4e5... (parallel-analysis, parallel, completed)
+
+# Filter by status
+strands sessions list --status running
+strands sessions list --status completed
+strands sessions list --status failed
+
+# Show detailed session info
+strands sessions show a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Output:
+# Session: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Workflow: research-workflow
+# Pattern: chain
+# Status: running
+# Created: 2025-11-10T14:30:00Z
+# Updated: 2025-11-10T14:45:23Z
+# Progress: 2/3 steps completed
+# Tokens: 5000 input, 3000 output
+
+# Delete session
+strands sessions delete a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Prompts for confirmation unless --force flag used
+
+# Delete without confirmation
+strands sessions delete a1b2c3d4-e5f6-7890-abcd-ef1234567890 --force
+```
+
+### Supported Patterns (v0.12.0)
+
+**Phase 2 (Current):**
+- ✅ **Chain**: Full resume support with step skipping
+  - Resume from any step (0 to N-1)
+  - Agent conversation history restored
+  - Token usage accumulates across sessions
+  - Spec change detection warnings
+
+**Phase 3 (Planned):**
+- 🔜 **Workflow**: DAG task completion tracking with dependency restoration
+- 🔜 **Parallel**: Branch completion tracking with partial failure handling
+- 🔜 **Routing**: Router decision preservation
+- 🔜 **Evaluator-Optimizer**: Iteration state and feedback loop restoration
+- 🔜 **Orchestrator-Workers**: Round state and task delegation tracking
+- 🔜 **Graph**: Node history, cycle detection, conditional transitions
+
+### CLI Flags
+
+```yaml
+strands run workflow.yaml [options]
+
+Session Options:
+  --save-session        Save session for resume (default: true)
+  --no-save-session     Disable session saving
+  --resume <session-id> Resume from saved session ID
+
+Example:
+  # Normal run with session saving
+  strands run workflow.yaml
+
+  # Disable session saving (ephemeral execution)
+  strands run workflow.yaml --no-save-session
+
+  # Resume from checkpoint
+  strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+### Cost Optimization
+
+**Problem**: Long workflows with expensive LLM calls fail midway, requiring full re-execution.
+
+**Solution**: Durable sessions skip completed work on resume:
+
+```bash
+# 3-step chain workflow: Research → Analyze → Write
+# Each step costs ~$0.50 in LLM tokens
+
+# First run: completes steps 0-1, crashes on step 2
+strands run research.yaml --var topic="AI"
+# Cost: $1.00 (steps 0-1)
+# Session saved: a1b2c3d4...
+
+# Resume: skips steps 0-1, executes only step 2
+strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Cost: $0.50 (step 2 only)
+# Total cost: $1.50 vs $3.00 (3x re-execution)
+# Savings: 50%
+```
+
+### Agent Conversation Restoration
+
+Sessions preserve full agent conversation history via Strands SDK FileSessionManager:
+
+```python
+# On resume, agents restore conversation context:
+# - All previous messages (user/assistant)
+# - Tool use history
+# - Agent internal state (key-value store)
+
+# Example: 3-step chain
+# Step 0: Researcher agent researches topic
+# Step 1: Analyst agent analyzes research (needs context from step 0)
+# Step 2: Writer agent writes report (needs context from steps 0-1)
+
+# On resume after step 1:
+# - Researcher agent: full conversation restored (step 0)
+# - Analyst agent: full conversation restored (step 1)
+# - Writer agent: starts fresh (step 2 not executed yet)
+```
+
+### Best Practices
+
+1. **Enable sessions for long workflows**: Default is enabled; only disable for ephemeral testing
+2. **Note session IDs**: Copy session ID from output for manual resume
+3. **Clean up old sessions**: Use `sessions delete` or implement auto-cleanup (Phase 4)
+4. **Monitor session storage**: Sessions accumulate in `~/.strands/sessions/`; clean periodically
+5. **Spec changes**: Resume works with modified specs but warns; useful for bug fixes mid-workflow
+
+### Troubleshooting
+
+**Session not found:**
+```bash
+strands run --resume invalid-id
+# Error: Session not found: invalid-id
+# Solution: Use `sessions list` to find valid session IDs
+```
+
+**Session already completed:**
+```bash
+strands run --resume a1b2c3d4...
+# Error: Session already completed: a1b2c3d4...
+# Solution: Start new session with `strands run workflow.yaml`
+```
+
+**Spec changed warning:**
+```bash
+strands run --resume a1b2c3d4...
+# Warning: Workflow spec has changed since session creation
+#   Original hash: 7f8a9b0c...
+#   Current hash:  8g9b0c1d...
+# Proceeding with resume using current spec...
+```
+
+### Future Enhancements (Phase 3+)
+
+**Phase 3: Multi-Pattern Resume**
+- Support all 7 workflow patterns
+- DAG dependency tracking for workflow pattern
+- Branch completion for parallel pattern
+- Node history for graph pattern
+
+**Phase 4: Production Hardening**
+- File locking for concurrent safety
+- Automatic session cleanup (configurable retention)
+- Session compression (gzip for large sessions)
+- S3/cloud storage backends (beyond local filesystem)
+
+**Phase 12: Human-in-the-Loop**
+- Manual approval gates (Slack/Jira integration)
+- Session pause points for review
+- Resume with modified variables
+
+See [DURABLE.md](DURABLE.md) for complete architecture details and roadmap.
+
+---
+
+## 22) Migration & Extensibility
 
 - Add new pattern types by extending the schema and the CLI’s runner registry.
 - Keep `version` to gate breaking changes (introduce `1` when you add incompatible keys).
@@ -1224,7 +1503,7 @@ Strands CLI uses standard OTLP protocol - compatible with all major APM vendors:
 
 ---
 
-## 22) Appendix: Schema Fields (At-a-Glance)
+## 23) Appendix: Schema Fields (At-a-Glance)
 
 **Required top-level fields**: `version`, `name`, `runtime`, `agents` (min 1), `pattern`
 
@@ -1253,7 +1532,7 @@ Strands CLI uses standard OTLP protocol - compatible with all major APM vendors:
 
 ---
 
-## 23) Files
+## 24) Files
 
 - **Schema**: `strands-workflow.schema.json`
 - **Manual (this doc)**: `strands-workflow-manual.md`

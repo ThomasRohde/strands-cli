@@ -372,13 +372,14 @@ uv run strands run workflow.yaml
 
 ---
 
-## Limitations (Phase 2)
+## Limitations (v0.12.0 - Phase 2)
 
-- **Single Pattern Support**: Only chain pattern supports resume (Phase 3 adds others)
-- **File Storage Only**: Sessions stored locally in `~/.strands/sessions/` (S3 in Phase 4)
+- **Single Pattern Support**: Only chain pattern supports resume (Phase 3 adds other patterns)
+- **File Storage Only**: Sessions stored locally in `~/.strands/sessions/` (cloud storage in Phase 4)
 - **No Concurrent Safety**: File locking not implemented yet (Phase 4)
 - **Manual Cleanup**: No automatic session expiration (Phase 4)
 - **No Auto-Resume**: Must manually specify `--resume` flag (Phase 4 adds `--auto-resume`)
+- **No Variable Override on Resume**: Resume uses original session variables (Phase 3+)
 
 ---
 

@@ -6,7 +6,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.11.0-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.0-brightgreen.svg)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-795+-success.svg)](#development)
 [![Coverage](https://img.shields.io/badge/coverage-82%25-yellow.svg)](#development)
 
@@ -32,6 +32,13 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 - **Evaluator-Optimizer**: Iterative refinement with quality gates
 - **Orchestrator-Workers**: Dynamic task delegation to worker pools
 - **Graph**: Explicit control flow with conditionals, loops, and cycle protection
+
+💾 **Durable Session Management**
+- Automatic session persistence with crash recovery
+- Resume workflows from any checkpoint
+- Agent conversation history restoration via Strands SDK
+- Session management CLI (list, show, delete)
+- Cost optimization by skipping completed steps
 
 🔌 **Multi-Provider Support**
 - **AWS Bedrock** (Anthropic Claude, Amazon Titan)
@@ -228,13 +235,22 @@ uv run strands sessions delete <session-id> --force  # Skip confirmation
 
 ### Supported Patterns
 
-- ✅ **Chain**: Resume from any step (Phase 2 - **COMPLETED**)
-- 🔜 **Workflow**: Multi-task DAG resume (Phase 3)
-- 🔜 **Parallel**: Branch completion tracking (Phase 3)
-- 🔜 **Routing**: Router decision preservation (Phase 3)
-- 🔜 **Evaluator-Optimizer**: Iteration state restoration (Phase 3)
-- 🔜 **Orchestrator-Workers**: Round state tracking (Phase 3)
-- 🔜 **Graph**: Node history and cycle detection (Phase 3)
+**Current Status (Phase 2 - Chain Pattern):**
+
+- ✅ **Chain**: Full resume support with step skipping and conversation restoration
+  - Resumes from any step (0 to N-1)
+  - Agent conversation history preserved via FileSessionManager
+  - Token usage accumulates across resume sessions
+  - Spec change detection with warnings
+
+**Planned Support (Phase 3 - Multi-Pattern):**
+
+- 🔜 **Workflow**: Multi-task DAG resume with dependency tracking
+- 🔜 **Parallel**: Branch completion tracking with partial failures
+- 🔜 **Routing**: Router decision preservation
+- 🔜 **Evaluator-Optimizer**: Iteration state and feedback loop restoration
+- 🔜 **Orchestrator-Workers**: Round state and task delegation tracking
+- 🔜 **Graph**: Node history, cycle detection, and conditional transitions
 
 ### Example: Resume After Crash
 
@@ -253,16 +269,18 @@ uv run strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ### Session Storage Structure
 
 ```
-~/.strands/sessions/
+~/.strands/sessions/  (or %USERPROFILE%\.strands\sessions\ on Windows)
 └── session_<uuid>/
     ├── session.json              # Metadata, variables, token usage
     ├── pattern_state.json        # Execution state (step history, current position)
-    ├── spec_snapshot.yaml        # Original workflow spec
+    ├── spec_snapshot.yaml        # Original workflow spec (for change detection)
     └── agents/                   # Strands SDK agent conversation sessions
-        ├── <agent_id>/
-        │   ├── agent.json
-        │   └── messages/
-        │       └── message_*.json
+        └── <session-id>_<agent-id>/
+            ├── agent.json        # Agent state and configuration
+            └── messages/         # Full conversation history
+                ├── message_0.json
+                ├── message_1.json
+                └── ...
 ```
 
 **See [DURABLE.md](DURABLE.md) for complete architecture details and Phase 3+ roadmap.**
@@ -505,11 +523,17 @@ runtime:
 Execute a workflow from a YAML/JSON specification.
 
 ```bash
-# Basic execution
+# Basic execution (with session saving enabled by default)
 uv run strands run workflow.yaml
 
 # Override variables
 uv run strands run workflow.yaml --var topic="AI" --var format="markdown"
+
+# Resume from saved session
+uv run strands run --resume <session-id>
+
+# Disable session saving
+uv run strands run workflow.yaml --no-save-session
 
 # Custom output directory
 uv run strands run workflow.yaml --out ./results
@@ -639,6 +663,48 @@ uv run strands version
 # Output: strands-cli version 0.2.0
 ```
 
+### `strands sessions`
+
+Manage saved workflow sessions for resume capabilities.
+
+```bash
+# List all sessions
+uv run strands sessions list
+
+# Filter by status
+uv run strands sessions list --status running
+uv run strands sessions list --status completed
+uv run strands sessions list --status failed
+
+# Show detailed session information
+uv run strands sessions show <session-id>
+
+# Delete a session
+uv run strands sessions delete <session-id>
+
+# Delete without confirmation prompt
+uv run strands sessions delete <session-id> --force
+```
+
+**Session list output:**
+```
+Sessions:
+
+1. a1b2c3d4-e5f6-7890-abcd-ef1234567890
+   Workflow: chain-3-step-research
+   Pattern: chain
+   Status: completed
+   Created: 2025-11-09T10:00:00Z
+   Updated: 2025-11-09T10:15:23Z
+
+2. b2c3d4e5-f6a7-8901-bcde-f12345678901
+   Workflow: parallel-analysis
+   Pattern: parallel
+   Status: running
+   Created: 2025-11-09T11:30:00Z
+   Updated: 2025-11-09T11:45:12Z
+```
+
 ---
 
 ## Configuration
@@ -655,6 +721,7 @@ Configure Strands CLI behavior with environment variables (prefix: `STRANDS_`):
 | `STRANDS_DEBUG` | Enable debug logging | `false` |
 | `STRANDS_CONFIG_DIR` | Config directory path | `~/.config/strands` (Linux/macOS)<br>`%APPDATA%\strands` (Windows) |
 | `STRANDS_MAX_TRACE_SPANS` | Max spans in trace collector | `1000` |
+| `STRANDS_SESSION_DIR` | Session storage directory | `~/.strands/sessions` (Linux/macOS)<br>`%USERPROFILE%\.strands\sessions` (Windows) |
 | `OPENAI_API_KEY` | OpenAI API key | *(required for OpenAI provider)* |
 
 **Example:**
@@ -971,6 +1038,11 @@ strands-cli/
 │   ├── types.py              # Pydantic models
 │   ├── config.py             # Settings
 │   ├── exit_codes.py         # Exit code constants
+│   ├── session/              # Durable session management
+│   │   ├── __init__.py       # Session models
+│   │   ├── file_repository.py # File-based persistence
+│   │   ├── utils.py          # Session utilities
+│   │   └── resume.py         # Resume logic
 │   ├── schema/               # JSON Schema validation
 │   │   ├── strands-workflow.schema.json
 │   │   └── validator.py
@@ -1001,13 +1073,15 @@ strands-cli/
 │   └── tools/                # Native tool registry
 │       ├── registry.py
 │       └── python_exec.py
-├── tests/                    # Test suite (795+ tests, 82% coverage)
+├── tests/                    # Test suite (805+ tests, 80% coverage)
 │   ├── conftest.py           # Shared fixtures
 │   ├── test_schema.py
 │   ├── test_loader.py
 │   ├── test_capability.py
 │   ├── test_runtime.py
+│   ├── test_session.py       # Session persistence tests
 │   ├── test_chain.py
+│   ├── test_chain_resume.py  # Chain resume integration tests
 │   ├── test_workflow.py
 │   ├── test_routing.py
 │   ├── test_parallel.py
@@ -1092,6 +1166,7 @@ See [`docs/TOOL_DEVELOPMENT.md`](docs/TOOL_DEVELOPMENT.md) for comprehensive gui
 ### Core Documentation
 
 - **[Workflow Manual](docs/strands-workflow-manual.md)** - Comprehensive spec reference for all 7 patterns
+- **[Durable Execution](docs/DURABLE.md)** - Session management architecture and resume capabilities
 - **[Security Guide](docs/security.md)** - Threat model, attack examples, configuration
 - **[Tool Development](docs/TOOL_DEVELOPMENT.md)** - Native tool creation guide
 - **[Contributing](CONTRIBUTING.md)** - Development workflow and code conventions
@@ -1190,7 +1265,7 @@ uv run strands doctor
 
 ## Roadmap
 
-### Current Version (v0.2.0)
+### Current Version (v0.12.0)
 
 ✅ All 7 workflow patterns (chain, workflow, routing, parallel, evaluator-optimizer, orchestrator-workers, graph)  
 ✅ Full OpenTelemetry tracing with OTLP export  
@@ -1198,9 +1273,13 @@ uv run strands doctor
 ✅ Multi-provider support (Bedrock, Ollama, OpenAI)  
 ✅ Native tool registry with auto-discovery  
 ✅ Comprehensive security controls  
+✅ Durable session management (Phase 2 - Chain pattern)  
+✅ Session save/resume with crash recovery  
+✅ Agent conversation restoration via Strands SDK  
 
 ### In Progress
 
+🚧 Multi-pattern session resume (workflow, parallel, routing, graph, etc.)  
 🚧 MCP (Model Context Protocol) tools integration  
 🚧 Context management presets  
 🚧 JIT tools for dynamic codebase access  

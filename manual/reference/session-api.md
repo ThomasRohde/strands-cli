@@ -4,9 +4,16 @@ Technical reference for session management data structures and repository API.
 
 ## Overview
 
-The session management system provides persistence for workflow execution state through Pydantic models and repository abstractions.
+The session management system provides persistence for workflow execution state through Pydantic models and repository abstractions. Session persistence enables crash recovery, workflow resume, and cost optimization by skipping completed work.
 
 **Module:** `strands_cli.session`
+
+**Key Features:**
+- Automatic checkpointing after each step/task/branch completion
+- Agent conversation history restoration via Strands SDK FileSessionManager
+- Token usage tracking across resume sessions
+- Spec change detection with SHA256 hash validation
+- Pattern-specific execution state serialization
 
 ---
 
