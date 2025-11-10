@@ -11,8 +11,6 @@
     - README.md
     - manual/reference/cli.md
     - manual/howto/tools.md
-    - docs/DEPLOYMENT.md
-    - DURABLE.md
 
 .PARAMETER Version
     The new version number (semantic version: X.Y.Z)
@@ -108,16 +106,6 @@ $filesToUpdate = @(
         Path = "manual\reference\cli.md"
         Pattern = '\(e\.g\., `\d+\.\d+\.\d+`\)'
         Replacement = "(e.g., ``$Version``)"
-    },
-    @{
-        Path = "manual\howto\tools.md"
-        Pattern = 'User-Agent: Strands-CLI/\d+\.\d+\.\d+'
-        Replacement = "User-Agent: Strands-CLI/$Version"
-    },
-    @{
-        Path = "DURABLE.md"
-        Pattern = '\*\*Target Version:\*\* v\d+\.\d+\.\d+'
-        Replacement = "**Target Version:** v$Version"
     }
 )
 
