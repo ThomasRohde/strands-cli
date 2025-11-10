@@ -29,7 +29,7 @@ Enumeration of session execution states.
 class SessionStatus(str, Enum):
     """Session execution status."""
     RUNNING = "running"      # Workflow currently executing
-    PAUSED = "paused"        # Workflow paused (future: Phase 12 HITL)
+    PAUSED = "paused"        # Workflow paused for HITL (human-in-the-loop)
     COMPLETED = "completed"  # Workflow finished successfully
     FAILED = "failed"        # Workflow terminated with error
 ```

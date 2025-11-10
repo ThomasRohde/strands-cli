@@ -10,6 +10,7 @@
 - [Validate Workflows](howto/validate-workflows.md)
 - [Run Workflows](howto/run-workflows.md)
 - [Session Management](howto/session-management.md)
+- [Human-in-the-Loop (HITL)](howto/hitl.md)
 - [Context Management](howto/context-management.md)
 - [Tool Development](howto/develop-tools.md)
 - [Telemetry & Debugging](howto/telemetry.md)

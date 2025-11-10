@@ -16,6 +16,7 @@ Strands CLI allows you to define and execute complex agentic workflows using YAM
 
 - **Multiple Execution Patterns**: Chain, Workflow (DAG), Routing, Parallel, Evaluator-Optimizer, Graph, and Orchestrator-Workers
 - **Durable Session Management**: Automatic crash recovery, workflow resume, and agent conversation restoration
+- **Human-in-the-Loop (HITL)**: Pause workflows for human approval, quality control, and interactive decision-making
 - **Multi-Provider Support**: Works with Ollama, AWS Bedrock, and OpenAI
 - **Strong Observability**: Built-in OpenTelemetry instrumentation with trace exports
 - **Schema Validation**: JSON Schema Draft 2020-12 validation for workflow specifications

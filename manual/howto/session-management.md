@@ -387,7 +387,7 @@ uv run strands run workflow.yaml
 
 - **Phase 3**: Multi-pattern resume for all 7 workflow patterns
 - **Phase 4**: S3 storage, file locking, auto-cleanup, auto-resume on failure
-- **Phase 12**: Human-in-the-loop with approval gates using pause/resume
+- **Phase 11**: ✅ **COMPLETE** - Human-in-the-loop with approval gates (See [HITL Guide](./hitl.md))
 
 ---
 

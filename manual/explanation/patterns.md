@@ -558,7 +558,10 @@ All 7 patterns are fully implemented and tested:
 - **Map-Reduce**: Simplified orchestrator-workers for homogeneous tasks
 - **State Machine**: Enhanced graph pattern with explicit state management
 - **Event-Driven**: Trigger-based workflows with event subscriptions
-- **Human-in-the-Loop**: Manual approval gates and interactive steps
+
+### Implemented Features
+
+- ✅ **Human-in-the-Loop (HITL)**: Manual approval gates and interactive steps in chain pattern (See [HITL Guide](../howto/hitl.md))
 
 ## Best Practices
 

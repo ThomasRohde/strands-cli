@@ -40,6 +40,12 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 - Session management CLI (list, show, delete)
 - Cost optimization by skipping completed steps
 
+🤝 **Human-in-the-Loop (HITL)**
+- Pause workflows for human approval or input
+- Review agent outputs before proceeding
+- Quality control gates with resume capability
+- Built-in session integration for seamless pause/resume
+
 🔌 **Multi-Provider Support**
 - **AWS Bedrock** (Anthropic Claude, Amazon Titan)
 - **Ollama** (local models: llama2, mistral, mixtral, etc.)
@@ -187,6 +193,76 @@ Duration: 1.23s
 Artifacts written:
   • ./greeting.txt
 ```
+
+---
+
+## Human-in-the-Loop (HITL) Workflows
+
+Strands CLI supports human-in-the-loop steps for approval gates, quality control, and interactive workflows. HITL steps pause execution, save the session automatically, and wait for user input before continuing.
+
+### Basic Usage
+
+Add a HITL step in your chain workflow:
+
+```yaml
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research topic: {{ topic }}"
+
+      # HITL approval gate
+      - type: hitl
+        prompt: "Review the research findings. Approve to proceed?"
+        context_display: "{{ steps[0].response }}"
+        default: "approved"
+        timeout_seconds: 3600  # 1 hour
+
+      - agent: analyst
+        input: |
+          User decision: {{ steps[1].response }}
+          Analyze: {{ steps[0].response }}
+```
+
+### CLI Workflow
+
+```bash
+# Run workflow (pauses at HITL step)
+uv run strands run workflow.yaml --var topic="AI Safety"
+
+# Output:
+# 🤝 HUMAN INPUT REQUIRED
+# Review the research findings. Approve to proceed?
+#
+# [Context displayed here]
+#
+# Session ID: abc-123-def
+# Resume with: strands run --resume abc-123-def --hitl-response 'your response'
+
+# Resume with user response
+uv run strands run --resume abc-123-def --hitl-response "approved"
+```
+
+### Features
+
+- **Automatic Pause**: Workflow saves state and exits with code 19 (EX_HITL_PAUSE)
+- **Context Display**: Show users what to review using template variables
+- **Default Responses**: Optional fallback if timeout expires (not enforced in Phase 1)
+- **Session Integration**: Leverages durable session management for seamless resume
+- **Template Access**: Access HITL responses via `{{ steps[n].response }}` in subsequent steps
+
+### Example Workflow
+
+See [`examples/chain-hitl-approval-demo.yaml`](examples/chain-hitl-approval-demo.yaml) for a complete working example.
+
+### Current Limitations (Phase 1)
+
+- **Chain pattern only**: HITL support currently limited to chain workflows (other patterns in Phase 2)
+- **CLI-based only**: Must use `--resume` and `--hitl-response` flags (interactive mode and API in Phase 3)
+- **Timeout not enforced**: `timeout_seconds` parsed but not enforced yet (Phase 2)
+
+**See [HITL.md](HITL.md) for complete implementation plan and future roadmap.**
 
 ---
 
@@ -532,6 +608,9 @@ uv run strands run workflow.yaml --var topic="AI" --var format="markdown"
 # Resume from saved session
 uv run strands run --resume <session-id>
 
+# Resume from HITL pause with user response
+uv run strands run --resume <session-id> --hitl-response "approved"
+
 # Disable session saving
 uv run strands run workflow.yaml --no-save-session
 
@@ -560,6 +639,8 @@ uv run strands run workflow.yaml --var topic="ML" --trace --debug --force
 - `10` - Runtime error (provider/model/tool)
 - `12` - I/O error (artifact write)
 - `18` - Unsupported features detected
+- `19` - HITL pause (workflow waiting for human input)
+- `20` - Session error (load/save failure)
 - `70` - Unexpected error
 
 ### `strands validate`
@@ -925,6 +1006,7 @@ The [`examples/`](examples/) directory contains 50+ workflow specifications demo
 - [`single-agent-chain-ollama.yaml`](examples/single-agent-chain-ollama.yaml) - Basic sequential workflow
 - [`chain-3-step-research-openai.yaml`](examples/chain-3-step-research-openai.yaml) - Research → Write → Edit pipeline
 - [`chain-calculator-openai.yaml`](examples/chain-calculator-openai.yaml) - Multi-step math with calculator tool
+- [`chain-hitl-approval-demo.yaml`](examples/chain-hitl-approval-demo.yaml) - Human-in-the-loop approval gate
 
 ### Workflow Pattern Examples
 
