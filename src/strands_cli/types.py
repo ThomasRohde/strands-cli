@@ -357,14 +357,14 @@ class HITLState(BaseModel):
     """
 
     active: bool = Field(..., description="Whether HITL is currently waiting")
-    
+
     # Chain pattern fields
     step_index: int | None = Field(None, description="Index of HITL step (chain pattern)")
-    
+
     # Workflow pattern fields
     task_id: str | None = Field(None, description="ID of HITL task (workflow pattern)")
     layer_index: int | None = Field(None, description="Execution layer index (workflow pattern)")
-    
+
     # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
     context_display: str | None = Field(None, description="Context shown to user")
@@ -379,14 +379,17 @@ class HITLState(BaseModel):
         has_workflow_fields = self.task_id is not None or self.layer_index is not None
 
         if has_chain_fields and has_workflow_fields:
-            raise ValueError("HITLState cannot have both chain (step_index) and workflow (task_id/layer_index) fields")
+            raise ValueError(
+                "HITLState cannot have both chain (step_index) and workflow (task_id/layer_index) fields"
+            )
         if not has_chain_fields and not has_workflow_fields:
-            raise ValueError("HITLState must have either step_index (chain) or task_id+layer_index (workflow)")
+            raise ValueError(
+                "HITLState must have either step_index (chain) or task_id+layer_index (workflow)"
+            )
 
         # Workflow pattern requires both task_id and layer_index
-        if has_workflow_fields:
-            if self.task_id is None or self.layer_index is None:
-                raise ValueError("Workflow HITL requires both task_id and layer_index")
+        if has_workflow_fields and (self.task_id is None or self.layer_index is None):
+            raise ValueError("Workflow HITL requires both task_id and layer_index")
 
         return self
 
@@ -474,7 +477,8 @@ class HITLTask(BaseModel):
     deps: list[str] | None = None  # Task dependencies
     prompt: str = Field(..., description="Message to display to user")
     context_display: str | None = Field(
-        None, description="Context to show user (supports templates like {{ tasks.task_id.response }})"
+        None,
+        description="Context to show user (supports templates like {{ tasks.task_id.response }})",
     )
     default: str | None = Field(
         None, description="Default response if empty (enforcement in Phase 2)"
@@ -507,19 +511,19 @@ class WorkflowTask(BaseModel):
     """
 
     id: str  # Unique task identifier (required for all task types)
-    
+
     # Agent task fields
     agent: str | None = None  # Agent ID (agent task, required if not HITL)
     description: str | None = None  # Human-readable description (agent task)
     input: str | None = None  # Prompt template (agent task, optional)
-    
+
     # HITL task fields
     type: str | None = None  # "hitl" for HITL tasks
     prompt: str | None = None  # HITL prompt
     context_display: str | None = None  # HITL context
     default: str | None = None  # HITL default (Phase 2)
     timeout_seconds: int | None = None  # HITL timeout (Phase 2)
-    
+
     # Common fields
     deps: list[str] | None = None  # Task dependencies (both task types)
 
@@ -544,9 +548,13 @@ class WorkflowTask(BaseModel):
             if self.agent is not None:
                 raise ValueError("HITL task cannot have 'agent' field")
             if self.description is not None:
-                raise ValueError("HITL task cannot have 'description' field (reserved for agent tasks)")
+                raise ValueError(
+                    "HITL task cannot have 'description' field (reserved for agent tasks)"
+                )
             if self.input is not None:
-                raise ValueError("HITL task cannot have 'input' field (use 'context_display' instead)")
+                raise ValueError(
+                    "HITL task cannot have 'input' field (use 'context_display' instead)"
+                )
 
         # Validate agent-specific requirements
         if has_agent:

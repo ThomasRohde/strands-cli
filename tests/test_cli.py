@@ -16,12 +16,13 @@ from unittest.mock import Mock
 from typer.testing import CliRunner
 
 from strands_cli import __version__
-from strands_cli.__main__ import app
+from strands_cli.__main__ import _spec_has_hitl_steps, app
 from strands_cli.exit_codes import (
     EX_OK,
     EX_RUNTIME,
     EX_SCHEMA,
 )
+from strands_cli.types import PatternType, Spec
 
 runner = CliRunner()
 
@@ -36,6 +37,80 @@ class TestVersionCommand:
         assert result.exit_code == EX_OK
         assert __version__ in result.stdout
         assert "strands-cli" in result.stdout
+
+
+class TestHITLDetection:
+    """Tests for HITL detection helper function."""
+
+    def test_spec_has_hitl_steps_detects_chain_hitl(self) -> None:
+        """Test _spec_has_hitl_steps detects HITL in chain pattern."""
+        spec_dict = {
+            "name": "test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "test"},
+            "agents": {"test": {"prompt": "Test"}},
+            "pattern": {
+                "type": "chain",
+                "config": {
+                    "steps": [
+                        {"agent": "test", "input": "Test"},
+                        {"type": "hitl", "prompt": "Approve?"},
+                    ]
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+        assert _spec_has_hitl_steps(spec) is True
+
+    def test_spec_has_hitl_steps_detects_workflow_hitl(self) -> None:
+        """Test _spec_has_hitl_steps detects HITL in workflow pattern."""
+        spec_dict = {
+            "name": "test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "test"},
+            "agents": {"test": {"prompt": "Test"}},
+            "pattern": {
+                "type": "workflow",
+                "config": {
+                    "tasks": [
+                        {"id": "t1", "agent": "test", "input": "Test"},
+                        {"id": "t2", "type": "hitl", "prompt": "Approve?"},
+                    ]
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+        assert _spec_has_hitl_steps(spec) is True
+
+    def test_spec_has_hitl_steps_returns_false_for_chain_without_hitl(self) -> None:
+        """Test _spec_has_hitl_steps returns False for chain without HITL."""
+        spec_dict = {
+            "name": "test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "test"},
+            "agents": {"test": {"prompt": "Test"}},
+            "pattern": {
+                "type": "chain",
+                "config": {"steps": [{"agent": "test", "input": "Test"}]},
+            },
+        }
+        spec = Spec(**spec_dict)
+        assert _spec_has_hitl_steps(spec) is False
+
+    def test_spec_has_hitl_steps_returns_false_for_workflow_without_hitl(self) -> None:
+        """Test _spec_has_hitl_steps returns False for workflow without HITL."""
+        spec_dict = {
+            "name": "test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "test"},
+            "agents": {"test": {"prompt": "Test"}},
+            "pattern": {
+                "type": "workflow",
+                "config": {"tasks": [{"id": "t1", "agent": "test", "input": "Test"}]},
+            },
+        }
+        spec = Spec(**spec_dict)
+        assert _spec_has_hitl_steps(spec) is False
 
 
 class TestValidateCommand:
@@ -451,6 +526,127 @@ outputs:
             ],
         )
         assert result2.exit_code == EX_OK
+
+    def test_run_workflow_hitl_requires_session_persistence(
+        self,
+        tmp_path: Path,
+        temp_artifacts_dir: Path,
+    ) -> None:
+        """Test run command with workflow HITL tasks requires session persistence."""
+        # Create workflow spec with HITL task
+        workflow_hitl_spec = tmp_path / "workflow-hitl.yaml"
+        workflow_hitl_spec.write_text(
+            """
+version: 0
+name: workflow-hitl-test
+runtime:
+  provider: ollama
+  model_id: llama2
+  host: http://localhost:11434
+agents:
+  researcher:
+    prompt: "Research the topic"
+  analyst:
+    prompt: "Analyze findings"
+pattern:
+  type: workflow
+  config:
+    tasks:
+      - id: research
+        agent: researcher
+        input: "Research {{ topic }}"
+      - id: review
+        type: hitl
+        deps: [research]
+        prompt: "Review research findings. Approve?"
+        context_display: "{{ tasks.research.response }}"
+      - id: analysis
+        agent: analyst
+        deps: [review]
+        input: "Analyze: {{ tasks.review.response }}"
+outputs:
+  artifacts:
+    - path: "./out.txt"
+      from: "{{ last_response }}"
+"""
+        )
+
+        # Run with --no-save-session should fail with usage error
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(workflow_hitl_spec),
+                "--no-save-session",
+                "--out",
+                str(temp_artifacts_dir),
+            ],
+        )
+
+        # Assert - Should exit with usage error and show helpful message
+        from strands_cli.exit_codes import EX_USAGE
+
+        assert result.exit_code == EX_USAGE
+        # Check for key terms in error message (case-insensitive due to ANSI codes)
+        stdout_lower = result.stdout.lower()
+        assert "hitl" in stdout_lower or "human-in-the-loop" in stdout_lower
+        assert "session" in stdout_lower
+        assert "no-save-session" in stdout_lower or "remove" in stdout_lower
+
+    def test_run_chain_hitl_requires_session_persistence(
+        self,
+        tmp_path: Path,
+        temp_artifacts_dir: Path,
+    ) -> None:
+        """Test run command with chain HITL steps requires session persistence."""
+        # Create chain spec with HITL step
+        chain_hitl_spec = tmp_path / "chain-hitl.yaml"
+        chain_hitl_spec.write_text(
+            """
+version: 0
+name: chain-hitl-test
+runtime:
+  provider: ollama
+  model_id: llama2
+  host: http://localhost:11434
+agents:
+  researcher:
+    prompt: "Research the topic"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research {{ topic }}"
+      - type: hitl
+        prompt: "Review research. Approve?"
+      - agent: researcher
+        input: "Continue with: {{ hitl_response }}"
+outputs:
+  artifacts:
+    - path: "./out.txt"
+      from: "{{ last_response }}"
+"""
+        )
+
+        # Run with --no-save-session should fail with usage error
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(chain_hitl_spec),
+                "--no-save-session",
+                "--out",
+                str(temp_artifacts_dir),
+            ],
+        )
+
+        # Assert - Should exit with usage error
+        from strands_cli.exit_codes import EX_USAGE
+
+        assert result.exit_code == EX_USAGE
+        stdout_lower = result.stdout.lower()
+        assert "hitl" in stdout_lower or "human-in-the-loop" in stdout_lower
 
 
 class TestCLIErrorHandling:

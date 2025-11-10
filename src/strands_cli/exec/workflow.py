@@ -165,7 +165,7 @@ def _build_task_context(
 
     # Add hitl_response convenience variable (most recent HITL task response)
     # Walk task_results to find most recent HITL task
-    for task_id, result in task_results.items():
+    for _task_id, result in task_results.items():
         if result.get("type") == "hitl":
             context["hitl_response"] = result.get("response", "")
             # Continue walking to find the LAST hitl task (most recent)
@@ -645,7 +645,7 @@ async def run_workflow(  # noqa: C901
             current_layer = session_state.pattern_state.get("current_layer", 0)
             cumulative_tokens = get_cumulative_tokens(session_state)
             started_at = session_state.metadata.created_at
-            
+
             # HITL: Check if resuming from HITL pause
             hitl_state_dict = session_state.pattern_state.get("hitl_state")
             if hitl_state_dict:
@@ -672,6 +672,7 @@ async def run_workflow(  # noqa: C901
                         "response": hitl_response,
                         "status": "success",
                         "tokens_estimated": 0,
+                        "agent": "hitl",  # BLOCKER 3 FIX: Prevent KeyError on workflow completion
                     }
                     completed_tasks.add(hitl_state.task_id)
 
@@ -684,6 +685,8 @@ async def run_workflow(  # noqa: C901
                     session_state.pattern_state["task_results"] = task_results
                     session_state.pattern_state["completed_tasks"] = list(completed_tasks)
                     # Note: current_layer stays same (resume from same layer)
+                    # Mypy: session_repo is guaranteed non-None in resume mode
+                    assert session_repo is not None
                     await session_repo.save(session_state, "")
 
                     logger.info(
@@ -692,7 +695,7 @@ async def run_workflow(  # noqa: C901
                         task_id=hitl_state.task_id,
                         response=hitl_response[:100],
                     )
-            
+
             logger.info(
                 "workflow_resume",
                 session_id=session_state.metadata.session_id,
@@ -788,29 +791,33 @@ async def run_workflow(  # noqa: C901
 
                 # HITL: Check if layer contains HITL task (MVP: only one HITL per layer)
                 hitl_task_id = _check_layer_for_hitl(layer_task_ids, task_map, completed_tasks)
-                
+
                 if hitl_task_id:
                     # HITL task detected - ensure session persistence is enabled
                     if not session_state or not session_repo:
                         # Auto-enable sessions for HITL support
                         from pathlib import Path
+
                         from platformdirs import user_cache_dir
+
                         from strands_cli.session import SessionMetadata
-                        
+                        from strands_cli.session.utils import generate_session_id
+
                         cache_dir = Path(user_cache_dir("strands-cli")) / "sessions"
                         cache_dir.mkdir(parents=True, exist_ok=True)
-                        
+
                         session_repo = FileSessionRepository(storage_dir=cache_dir)
-                        
-                        # Create new session state
-                        session_id = f"{spec.name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+                        # BLOCKER 1 FIX: Use generate_session_id() to ensure valid session IDs
+                        session_id = generate_session_id()
                         # Simple hash for auto-created HITL sessions (MVP)
                         import hashlib
                         import json
 
-                        spec_hash = hashlib.sha256(
-                            json.dumps(spec.model_dump(), sort_keys=True).encode()
-                        ).hexdigest()
+                        # Generate spec snapshot content (with consistent formatting)
+                        spec_content = json.dumps(spec.model_dump(), sort_keys=True, indent=2)
+                        # Compute hash from the SAME formatted content we'll save
+                        spec_hash = hashlib.sha256(spec_content.encode()).hexdigest()
 
                         session_metadata = SessionMetadata(
                             session_id=session_id,
@@ -832,21 +839,24 @@ async def run_workflow(  # noqa: C901
                             variables=variables or {},
                             token_usage=TokenUsage(),
                         )
-                        
+
+                        # BLOCKER 2 FIX: Save spec snapshot for resume compatibility
+                        await session_repo.save(session_state, spec_content)
+
                         logger.info(
                             "hitl_auto_enabled_sessions",
                             session_id=session_id,
                             storage_dir=str(cache_dir),
                             task_id=hitl_task_id,
                         )
-                    
+
                     # Execute tasks before HITL sequentially
                     pre_hitl_tasks = []
                     for tid in pending_tasks:
                         if tid == hitl_task_id:
                             break
                         pre_hitl_tasks.append(tid)
-                    
+
                     # Execute pre-HITL tasks if any
                     if pre_hitl_tasks:
                         logger.info(
@@ -873,7 +883,7 @@ async def run_workflow(  # noqa: C901
                             raise WorkflowExecutionError(
                                 f"Pre-HITL tasks in layer {layer_index} failed: {e}"
                             ) from e
-                        
+
                         # Store pre-HITL results
                         for task_id, (response_text, estimated_tokens) in zip(
                             pre_hitl_tasks, pre_hitl_results, strict=True
@@ -886,7 +896,7 @@ async def run_workflow(  # noqa: C901
                                 "agent": task_map[task_id].agent,
                             }
                             completed_tasks.add(task_id)
-                    
+
                     # Execute HITL pause
                     hitl_task = task_map[hitl_task_id]
                     return await _execute_hitl_pause(

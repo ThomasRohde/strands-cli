@@ -615,9 +615,7 @@ class TestWorkflowHITLMultipleTasks:
     """Test suite for workflows with multiple HITL tasks in different layers."""
 
     @pytest.mark.asyncio
-    async def test_multiple_hitl_tasks_sequential_layers(
-        self, tmp_path: Path, mocker: Any
-    ) -> None:
+    async def test_multiple_hitl_tasks_sequential_layers(self, tmp_path: Path, mocker: Any) -> None:
         """Test workflow with HITL tasks in sequential layers (dependency chain)."""
         # Arrange
         spec_dict = {
@@ -680,9 +678,7 @@ class TestWorkflowHITLSessionCheckpoint:
     """Test suite for session checkpointing after HITL response injection."""
 
     @pytest.mark.asyncio
-    async def test_session_checkpoint_after_hitl_resume(
-        self, tmp_path: Path, mocker: Any
-    ) -> None:
+    async def test_session_checkpoint_after_hitl_resume(self, tmp_path: Path, mocker: Any) -> None:
         """Test session is checkpointed after injecting HITL response before continuing."""
         # Arrange
         spec_dict = {
@@ -797,3 +793,180 @@ def workflow_with_hitl_spec_dict() -> dict[str, Any]:
             },
         },
     }
+
+
+class TestWorkflowHITLBlockerRegressions:
+    """Regression tests for HITL blocker fixes."""
+
+    @pytest.mark.asyncio
+    async def test_auto_session_can_be_resumed(self, tmp_path: Path, mocker: Any) -> None:
+        """BLOCKER 2 REGRESSION: Test auto-created HITL sessions can be resumed.
+
+        Verifies that spec_snapshot.yaml is persisted when sessions are auto-created,
+        preventing SessionNotFoundError during resume.
+        """
+        # Arrange
+        spec_dict = {
+            "name": "auto-session-resume-test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "llama2"},
+            "agents": {"agent1": {"prompt": "Test"}},
+            "pattern": {
+                "type": "workflow",
+                "config": {
+                    "tasks": [
+                        {"id": "task1", "agent": "agent1", "input": "Task 1"},
+                        {"id": "review", "type": "hitl", "deps": ["task1"], "prompt": "Approve?"},
+                    ]
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+
+        # Mock agent
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Task 1 complete")
+
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent = AsyncMock(return_value=mock_agent)
+        mock_cache.close = AsyncMock()
+        mocker.patch("strands_cli.exec.workflow.AgentCache", return_value=mock_cache)
+
+        # Mock user_cache_dir to use tmp_path
+        mocker.patch("platformdirs.user_cache_dir", return_value=str(tmp_path))
+
+        # Act - Run workflow (should auto-create session and pause at HITL)
+        result = await run_workflow(spec=spec, variables={})
+
+        # Assert - Session created
+        assert result.exit_code == EX_HITL_PAUSE
+        assert result.session_id is not None
+
+        # Assert - Spec snapshot exists
+        from strands_cli.session.file_repository import FileSessionRepository
+
+        repo = FileSessionRepository(storage_dir=tmp_path / "sessions")
+        spec_snapshot_path = await repo.get_spec_snapshot_path(result.session_id)
+        assert spec_snapshot_path.exists(), "Spec snapshot must exist for resume compatibility"
+
+        # Assert - Can load session and resume (should not raise SessionNotFoundError)
+        loaded_state = await repo.load(result.session_id)
+        assert loaded_state is not None
+
+    @pytest.mark.asyncio
+    async def test_spec_name_with_spaces_creates_valid_session(
+        self, tmp_path: Path, mocker: Any
+    ) -> None:
+        """BLOCKER 1 REGRESSION: Test workflow names with spaces create valid session IDs.
+
+        Verifies that generate_session_id() is used instead of concatenating spec.name,
+        preventing SessionCorruptedError from invalid characters.
+        """
+        # Arrange - Spec with spaces in name
+        spec_dict = {
+            "name": "workflow with many spaces",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "llama2"},
+            "agents": {"agent1": {"prompt": "Test"}},
+            "pattern": {
+                "type": "workflow",
+                "config": {
+                    "tasks": [
+                        {"id": "task1", "agent": "agent1", "input": "Task 1"},
+                        {"id": "review", "type": "hitl", "deps": ["task1"], "prompt": "Approve?"},
+                    ]
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+
+        # Mock agent
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Task 1 complete")
+
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent = AsyncMock(return_value=mock_agent)
+        mock_cache.close = AsyncMock()
+        mocker.patch("strands_cli.exec.workflow.AgentCache", return_value=mock_cache)
+
+        mocker.patch("platformdirs.user_cache_dir", return_value=str(tmp_path))
+
+        # Act - Should not raise SessionCorruptedError
+        result = await run_workflow(spec=spec, variables={})
+
+        # Assert - Session created with valid ID
+        assert result.exit_code == EX_HITL_PAUSE
+        assert result.session_id is not None
+        # Verify session ID matches FileSessionRepository validation pattern
+        import re
+
+        assert re.fullmatch(r"[A-Za-z0-9_-]+", result.session_id), (
+            f"Session ID '{result.session_id}' contains invalid characters"
+        )
+
+    @pytest.mark.asyncio
+    async def test_workflow_ending_with_hitl_completes_successfully(
+        self, tmp_path: Path, mocker: Any
+    ) -> None:
+        """BLOCKER 3 REGRESSION: Test workflows ending with HITL task complete without KeyError.
+
+        Verifies that HITL task results include 'agent': 'hitl' field to prevent
+        KeyError when accessing task_results[last_task_id]['agent'] on completion.
+        """
+        # Arrange - Workflow ending with HITL task
+        spec_dict = {
+            "name": "hitl-final-test",
+            "version": 0,
+            "runtime": {"provider": "ollama", "model_id": "llama2"},
+            "agents": {"agent1": {"prompt": "Test"}},
+            "pattern": {
+                "type": "workflow",
+                "config": {
+                    "tasks": [
+                        {"id": "task1", "agent": "agent1", "input": "Task 1"},
+                        {
+                            "id": "final_review",
+                            "type": "hitl",
+                            "deps": ["task1"],
+                            "prompt": "Final approval?",
+                        },
+                    ]
+                },
+            },
+        }
+        spec = Spec(**spec_dict)
+
+        # Mock agent
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(return_value="Task 1 complete")
+
+        mock_cache = mocker.AsyncMock()
+        mock_cache.get_or_build_agent = AsyncMock(return_value=mock_agent)
+        mock_cache.close = AsyncMock()
+        mocker.patch("strands_cli.exec.workflow.AgentCache", return_value=mock_cache)
+
+        mocker.patch("platformdirs.user_cache_dir", return_value=str(tmp_path))
+
+        # Act - First run pauses at HITL
+        result1 = await run_workflow(spec=spec, variables={})
+        assert result1.exit_code == EX_HITL_PAUSE
+
+        # Resume with HITL response (workflow should complete, not raise KeyError)
+        from strands_cli.session.file_repository import FileSessionRepository
+
+        repo = FileSessionRepository(storage_dir=tmp_path / "sessions")
+        state = await repo.load(result1.session_id)
+
+        # Act - Resume should complete without KeyError
+        result2 = await run_workflow(
+            spec=spec,
+            variables={},
+            session_state=state,
+            session_repo=repo,
+            hitl_response="approved",
+        )
+
+        # Assert - Workflow completed successfully
+        assert result2.success is True
+        assert result2.exit_code != EX_HITL_PAUSE
+        assert result2.agent_id == "hitl"  # Final task was HITL

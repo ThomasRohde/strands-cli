@@ -252,10 +252,10 @@ async def run_resume(
         - Implement node history restoration for graph
     """
     logger.info(
-        "resume_requested", 
-        session_id=session_id, 
+        "resume_requested",
+        session_id=session_id,
         has_hitl_response=hitl_response is not None,
-        hitl_response_value=repr(hitl_response)
+        hitl_response_value=repr(hitl_response),
     )
 
     if verbose:
