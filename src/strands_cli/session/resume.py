@@ -127,6 +127,7 @@ async def _dispatch_pattern_executor(
     variables: dict[str, Any],
     session_state: SessionState,
     session_repo: FileSessionRepository,
+    hitl_response: str | None = None,
 ) -> RunResult:
     """Dispatch to pattern-specific executor with session resume support.
 
@@ -136,6 +137,7 @@ async def _dispatch_pattern_executor(
         variables: User variables
         session_state: Session state for resume
         session_repo: Session repository for checkpointing
+        hitl_response: User response when resuming from HITL pause (Phase 1)
 
     Returns:
         RunResult from executor
@@ -144,7 +146,7 @@ async def _dispatch_pattern_executor(
         NotImplementedError: If pattern doesn't support resume yet
 
     Phase 3.2 Implementation:
-        - Chain: ✅ Phase 2 complete
+        - Chain: ✅ Phase 2 complete + Phase 1 HITL support
         - Routing: ✅ Phase 3.1 complete
         - Workflow: ✅ Phase 3.1 complete
         - Parallel: ✅ Phase 3.2 complete
@@ -156,7 +158,7 @@ async def _dispatch_pattern_executor(
     if pattern_type == PatternType.CHAIN:
         from strands_cli.exec.chain import run_chain
 
-        return await run_chain(spec, variables, session_state, session_repo)
+        return await run_chain(spec, variables, session_state, session_repo, hitl_response)
 
     elif pattern_type == PatternType.ROUTING:
         from strands_cli.exec.routing import run_routing
@@ -197,18 +199,24 @@ async def _dispatch_pattern_executor(
 
 async def run_resume(
     session_id: str,
+    hitl_response: str | None = None,
     debug: bool = False,
     verbose: bool = False,
     trace: bool = False,
 ) -> RunResult:
-    """Resume workflow execution from saved session.
+    """Resume workflow execution from saved session with optional HITL response.
 
     Phase 2 Implementation:
     Loads session state, validates resumability, loads spec from snapshot,
     and dispatches to pattern-specific executor with resume state.
 
+    Phase 1 HITL Support:
+    When resuming from HITL pause, pass hitl_response to executor for injection
+    into workflow context. The executor validates HITL state and continues execution.
+
     Args:
         session_id: Session ID to resume
+        hitl_response: User response when resuming from HITL pause (optional)
         debug: Enable debug logging
         verbose: Enable verbose output
         trace: Enable trace export
@@ -226,6 +234,8 @@ async def run_resume(
         >>> result = await run_resume("abc-123", debug=True)
         >>> if result.success:
         ...     print("Resume successful")
+        >>> # HITL resume:
+        >>> result = await run_resume("abc-123", hitl_response="approved")
 
     Phase 2 Implementation:
         - ✅ Load session from FileSessionRepository
@@ -241,7 +251,9 @@ async def run_resume(
         - Implement branch completion tracking for parallel
         - Implement node history restoration for graph
     """
-    logger.info("resume_requested", session_id=session_id)
+    logger.info(
+        "resume_requested", session_id=session_id, has_hitl_response=hitl_response is not None
+    )
 
     if verbose:
         console.print(f"[dim]Loading session: {session_id}[/dim]")
@@ -264,7 +276,9 @@ async def run_resume(
 
     # Dispatch to pattern executor
     pattern_type = PatternType(state.metadata.pattern_type)
-    result = await _dispatch_pattern_executor(pattern_type, spec, state.variables, state, repo)
+    result = await _dispatch_pattern_executor(
+        pattern_type, spec, state.variables, state, repo, hitl_response
+    )
 
     # Attach spec and variables to result for artifact writing
     result.spec = spec

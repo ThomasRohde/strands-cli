@@ -1,0 +1,83 @@
+version: 0
+name: "hitl-approval-demo"
+description: "Chain workflow demonstrating human-in-the-loop approval gates"
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  budgets:
+    max_tokens: 10000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant. Research the given topic thoroughly and provide
+      comprehensive findings in a structured format.
+
+  analyst:
+    prompt: |
+      You are an analyst. Analyze the provided research findings and create
+      actionable recommendations.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      # Step 1: Research the topic
+      - agent: researcher
+        input: "Research the topic: {{ topic }}"
+
+      # Step 2: HITL approval gate - review research before analysis
+      - type: hitl
+        prompt: |
+          Review the research findings below and approve proceeding to analysis.
+          
+          Respond with 'approved' to continue, or provide specific feedback for revisions.
+        context_display: |
+          ### Research Findings
+
+          {{ steps[0].response }}
+        default: "approved"
+        timeout_seconds: 3600  # 1 hour timeout (not enforced in Phase 1)
+
+      # Step 3: Analysis (uses user's review decision)
+      - agent: analyst
+        input: |
+          User review: {{ steps[1].response }}
+
+          {% if steps[1].response == 'approved' %}
+          Analyze these research findings and provide recommendations:
+          {{ steps[0].response }}
+          {% else %}
+          The user provided this feedback on the research:
+          {{ steps[1].response }}
+
+          Please address their concerns in your analysis.
+          Original research:
+          {{ steps[0].response }}
+          {% endif %}
+
+outputs:
+  artifacts:
+    - path: "./hitl-demo-output.md"
+      from: |
+        # HITL Approval Demo Results
+        
+        ## Research Findings
+        {{ steps[0].response }}
+        
+        ## User Review
+        {{ steps[1].response }}
+        
+        ## Analysis
+        {{ steps[2].response }}
+
+# Usage:
+# 1. Run workflow (will pause at HITL step):
+#    strands run examples/chain-hitl-approval-demo.yaml --var topic="AI Safety"
+#
+# 2. Resume with approval:
+#    strands run --resume <session-id> --hitl-response "approved"
+#
+# 3. Or resume with feedback:
+#    strands run --resume <session-id> --hitl-response "Please focus more on recent developments"

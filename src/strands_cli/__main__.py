@@ -523,6 +523,13 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
             help="Auto-resume from most recent failed/paused session if spec matches",
         ),
     ] = False,
+    hitl_response: Annotated[
+        str | None,
+        typer.Option(
+            "--hitl-response",
+            help="User response when resuming from HITL pause (requires --resume)",
+        ),
+    ] = None,
 ) -> None:
     """Run a workflow from a YAML/JSON file or resume from saved session.
 
@@ -547,6 +554,11 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
         3. If match found, automatically resume that session
         4. If no match found, execute normally with new session
 
+    Execution flow (HITL resume):
+        1. Resume session with --resume <session-id>
+        2. Provide user response with --hitl-response "your response"
+        3. Workflow continues from next step after HITL pause
+
     Args:
         spec_file: Path to workflow specification file (.yaml, .yml, or .json) - required unless --resume
         var: CLI variable overrides in key=value format, merged into inputs.values
@@ -559,6 +571,7 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
         resume: Resume from session ID (mutually exclusive with spec_file)
         save_session: Save session for resume capability (default: true)
         auto_resume: Auto-resume from most recent failed/paused session if spec matches
+        hitl_response: User response when resuming from HITL pause (requires --resume)
 
     Exit Codes:
         EX_OK (0): Successful execution
@@ -568,6 +581,7 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
         EX_IO (12): Artifact write failure
         EX_SESSION (17): Session not found or already completed
         EX_UNSUPPORTED (18): Unsupported features detected (report written)
+        EX_HITL_PAUSE (19): Workflow paused for human input
         EX_UNKNOWN (70): Unexpected exception
     """
     import os
@@ -579,6 +593,14 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
             sys.exit(EX_USAGE)
         if not resume and not spec_file:
             console.print("[red]Error:[/red] Must specify either spec_file or --resume")
+            sys.exit(EX_USAGE)
+
+        # Validate --hitl-response requires --resume
+        if hitl_response and not resume:
+            console.print(
+                "[red]Error:[/red] --hitl-response requires --resume <session-id>\n"
+                "Use --hitl-response only when resuming from a HITL pause."
+            )
             sys.exit(EX_USAGE)
 
         # Configure debug logging level
@@ -638,6 +660,7 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
                 result = asyncio.run(
                     run_resume(
                         session_id=resume,
+                        hitl_response=hitl_response,
                         debug=debug,
                         verbose=verbose,
                         trace=trace,

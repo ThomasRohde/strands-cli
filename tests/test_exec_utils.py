@@ -780,4 +780,3 @@ async def test_agent_cache_none_session_manager_separate_from_session() -> None:
         assert len(cache._agents) == 2
 
         await cache.close()
-

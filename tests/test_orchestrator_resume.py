@@ -62,7 +62,9 @@ def orchestrator_with_reduce_writeup_spec(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_session_parameter_validation(orchestrator_with_reduce_writeup_spec: Path) -> None:
+async def test_orchestrator_session_parameter_validation(
+    orchestrator_with_reduce_writeup_spec: Path,
+) -> None:
     """Test session parameter validation (both or neither)."""
     spec = load_spec(orchestrator_with_reduce_writeup_spec, {})
 
@@ -178,8 +180,18 @@ async def test_orchestrator_resume_after_workers_before_reduce(
         pattern_state={
             "workers_executed": True,
             "worker_results": [
-                {"response": "Worker 1 result", "status": "success", "tokens": 600, "task": "Task 1"},
-                {"response": "Worker 2 result", "status": "success", "tokens": 700, "task": "Task 2"},
+                {
+                    "response": "Worker 1 result",
+                    "status": "success",
+                    "tokens": 600,
+                    "task": "Task 1",
+                },
+                {
+                    "response": "Worker 2 result",
+                    "status": "success",
+                    "tokens": 700,
+                    "task": "Task 2",
+                },
             ],
             "reduce_executed": False,
             "writeup_executed": False,

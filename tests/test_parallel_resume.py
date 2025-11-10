@@ -175,20 +175,39 @@ async def test_parallel_resume_after_branches_before_reduce(
                     "response": "Web result",
                     "status": "success",
                     "tokens_estimated": 1000,
-                    "step_history": [{"index": 0, "agent": "web", "response": "Web result", "tokens_estimated": 1000}],
+                    "step_history": [
+                        {
+                            "index": 0,
+                            "agent": "web",
+                            "response": "Web result",
+                            "tokens_estimated": 1000,
+                        }
+                    ],
                 },
                 "docs": {
                     "response": "Docs result",
                     "status": "success",
                     "tokens_estimated": 1100,
-                    "step_history": [{"index": 0, "agent": "docs", "response": "Docs result", "tokens_estimated": 1100}],
+                    "step_history": [
+                        {
+                            "index": 0,
+                            "agent": "docs",
+                            "response": "Docs result",
+                            "tokens_estimated": 1100,
+                        }
+                    ],
                 },
                 "academic": {
                     "response": "Academic result",
                     "status": "success",
                     "tokens_estimated": 1200,
                     "step_history": [
-                        {"index": 0, "agent": "academic", "response": "Academic result", "tokens_estimated": 1200}
+                        {
+                            "index": 0,
+                            "agent": "academic",
+                            "response": "Academic result",
+                            "tokens_estimated": 1200,
+                        }
                     ],
                 },
             },
@@ -252,13 +271,27 @@ async def test_parallel_resume_with_partial_branches(
                     "response": "Web result",
                     "status": "success",
                     "tokens_estimated": 1000,
-                    "step_history": [{"index": 0, "agent": "web", "response": "Web result", "tokens_estimated": 1000}],
+                    "step_history": [
+                        {
+                            "index": 0,
+                            "agent": "web",
+                            "response": "Web result",
+                            "tokens_estimated": 1000,
+                        }
+                    ],
                 },
                 "docs": {
                     "response": "Docs result",
                     "status": "success",
                     "tokens_estimated": 1100,
-                    "step_history": [{"index": 0, "agent": "docs", "response": "Docs result", "tokens_estimated": 1100}],
+                    "step_history": [
+                        {
+                            "index": 0,
+                            "agent": "docs",
+                            "response": "Docs result",
+                            "tokens_estimated": 1100,
+                        }
+                    ],
                 },
             },
             "reduce_executed": False,
@@ -317,8 +350,18 @@ async def test_parallel_resume_with_reduce_already_executed(
         pattern_state={
             "completed_branches": ["web", "docs", "academic"],
             "branch_results": {
-                "web": {"response": "Web result", "status": "success", "tokens_estimated": 1000, "step_history": []},
-                "docs": {"response": "Docs result", "status": "success", "tokens_estimated": 1100, "step_history": []},
+                "web": {
+                    "response": "Web result",
+                    "status": "success",
+                    "tokens_estimated": 1000,
+                    "step_history": [],
+                },
+                "docs": {
+                    "response": "Docs result",
+                    "status": "success",
+                    "tokens_estimated": 1100,
+                    "step_history": [],
+                },
                 "academic": {
                     "response": "Academic result",
                     "status": "success",
@@ -382,8 +425,18 @@ async def test_parallel_token_accumulation(
         pattern_state={
             "completed_branches": ["web", "docs"],
             "branch_results": {
-                "web": {"response": "Web", "status": "success", "tokens_estimated": 1000, "step_history": []},
-                "docs": {"response": "Docs", "status": "success", "tokens_estimated": 1100, "step_history": []},
+                "web": {
+                    "response": "Web",
+                    "status": "success",
+                    "tokens_estimated": 1000,
+                    "step_history": [],
+                },
+                "docs": {
+                    "response": "Docs",
+                    "status": "success",
+                    "tokens_estimated": 1100,
+                    "step_history": [],
+                },
             },
             "reduce_executed": False,
         },
@@ -467,8 +520,18 @@ async def test_parallel_without_reduce(
         pattern_state={
             "completed_branches": ["branch1", "branch2"],
             "branch_results": {
-                "branch1": {"response": "Result 1", "status": "success", "tokens_estimated": 500, "step_history": []},
-                "branch2": {"response": "Result 2", "status": "success", "tokens_estimated": 600, "step_history": []},
+                "branch1": {
+                    "response": "Result 1",
+                    "status": "success",
+                    "tokens_estimated": 500,
+                    "step_history": [],
+                },
+                "branch2": {
+                    "response": "Result 2",
+                    "status": "success",
+                    "tokens_estimated": 600,
+                    "step_history": [],
+                },
             },
             "reduce_executed": False,
         },
@@ -492,5 +555,3 @@ async def test_parallel_without_reduce(
 
     # No invocations
     assert mock_invoke.call_count == 0
-
-

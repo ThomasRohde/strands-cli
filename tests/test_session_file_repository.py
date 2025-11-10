@@ -451,7 +451,9 @@ async def test_save_preserves_spec_snapshot(tmp_path: Path):
     session_id = generate_session_id()
 
     # Original spec content
-    original_spec = "version: 0\nname: test-workflow\npattern:\n  type: chain\nsteps:\n  - agent: test"
+    original_spec = (
+        "version: 0\nname: test-workflow\npattern:\n  type: chain\nsteps:\n  - agent: test"
+    )
 
     # Create initial session state
     state = SessionState(

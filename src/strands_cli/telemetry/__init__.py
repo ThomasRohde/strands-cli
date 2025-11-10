@@ -27,4 +27,3 @@ __all__ = [
     "get_tracer",
     "shutdown_telemetry",
 ]
-

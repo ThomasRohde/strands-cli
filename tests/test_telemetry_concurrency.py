@@ -18,9 +18,7 @@ async def test_concurrent_configure_telemetry() -> None:
     Ensures no race conditions when multiple concurrent workflows
     attempt to configure telemetry simultaneously.
     """
-    configs = [
-        {"otel": {"service_name": f"service-{i}", "sample_ratio": 1.0}} for i in range(20)
-    ]
+    configs = [{"otel": {"service_name": f"service-{i}", "sample_ratio": 1.0}} for i in range(20)]
 
     async def configure(cfg: dict) -> bool:
         configure_telemetry(cfg)
@@ -71,4 +69,3 @@ def test_configure_telemetry_none_config() -> None:
 
     # Should remain in no-op state - just ensuring no crash occurs
     # (collector may or may not be None depending on previous tests)
-

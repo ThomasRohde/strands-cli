@@ -186,7 +186,9 @@ class TestTraceCollector:
         assert "span-5" in span_names  # First kept span
         assert "span-14" in span_names  # Most recent preserved
 
-    def test_span_limit_from_env_var(self, mock_span: ReadableSpan, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_span_limit_from_env_var(
+        self, mock_span: ReadableSpan, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify max_spans can be set via environment variable."""
         monkeypatch.setenv("STRANDS_MAX_TRACE_SPANS", "5")
 
@@ -742,4 +744,3 @@ class TestConcurrentSpanCollection:
         # Verify all span IDs are present (no data corruption)
         span_ids = {span["attributes"]["span.id"] for span in trace_data["spans"]}
         assert span_ids == set(range(100))
-

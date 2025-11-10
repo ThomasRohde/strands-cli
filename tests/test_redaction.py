@@ -484,9 +484,7 @@ class TestNestedRedaction:
             },
         }
 
-        redacted, was_redacted = engine.redact_span_attributes(
-            attrs, redact_tool_inputs=True
-        )
+        redacted, was_redacted = engine.redact_span_attributes(attrs, redact_tool_inputs=True)
 
         # Check nested redaction occurred
         assert was_redacted
@@ -520,9 +518,7 @@ class TestNestedRedaction:
             }
         }
 
-        redacted, was_redacted = engine.redact_span_attributes(
-            attrs, redact_tool_outputs=True
-        )
+        redacted, was_redacted = engine.redact_span_attributes(attrs, redact_tool_outputs=True)
 
         assert was_redacted
 
@@ -556,9 +552,7 @@ class TestNestedRedaction:
             }
         }
 
-        redacted, was_redacted = engine.redact_span_attributes(
-            attrs, redact_tool_inputs=True
-        )
+        redacted, was_redacted = engine.redact_span_attributes(attrs, redact_tool_inputs=True)
 
         assert was_redacted
 
@@ -566,4 +560,3 @@ class TestNestedRedaction:
         assert "***REDACTED***" in level3["email"]
         assert "***REDACTED***" in level3["credit_card"]
         assert level3["normal"] == "data"
-

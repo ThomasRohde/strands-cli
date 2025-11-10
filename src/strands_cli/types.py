@@ -308,20 +308,118 @@ class Agent(BaseModel):
     model_id: str | None = None  # Override runtime model
 
 
+class HITLStep(BaseModel):
+    """Human-in-the-loop pause point.
+
+    Pauses workflow execution to request user input or approval.
+    Session is automatically saved and execution exits with EX_HITL_PAUSE.
+    User resumes with --hitl-response flag.
+
+    Attributes:
+        type: Must be "hitl" to identify this as a HITL step
+        prompt: Message displayed to user requesting input
+        context_display: Context to show user (supports templates)
+        default: Default response if user provides empty input (Phase 2)
+        timeout_seconds: Seconds before timeout (0=no timeout, Phase 2)
+    """
+
+    type: str = Field(default="hitl", pattern="^hitl$")  # Must be "hitl"
+    prompt: str = Field(..., description="Message to display to user")
+    context_display: str | None = Field(
+        None, description="Context to show user (supports templates like {{ steps[0].response }})"
+    )
+    default: str | None = Field(
+        None, description="Default response if empty (enforcement in Phase 2)"
+    )
+    timeout_seconds: int = Field(
+        default=0, ge=0, description="Seconds before timeout (0=no timeout, enforcement in Phase 2)"
+    )
+
+
+class HITLState(BaseModel):
+    """HITL execution state stored in pattern_state.
+
+    Tracks the state of an active HITL pause, including the prompt shown
+    to the user and the response (when provided).
+
+    Attributes:
+        active: Whether HITL is currently waiting for user input
+        step_index: Index of the HITL step in the workflow
+        prompt: Prompt displayed to user
+        context_display: Rendered context shown to user
+        default_response: Default if empty (Phase 2)
+        timeout_at: ISO 8601 timeout timestamp (Phase 2)
+        user_response: User's response when resumed
+    """
+
+    active: bool = Field(..., description="Whether HITL is currently waiting")
+    step_index: int = Field(..., description="Index of HITL step")
+    prompt: str = Field(..., description="Prompt displayed to user")
+    context_display: str | None = Field(None, description="Context shown to user")
+    default_response: str | None = Field(None, description="Default if empty")
+    timeout_at: str | None = Field(None, description="ISO 8601 timeout timestamp")
+    user_response: str | None = Field(None, description="User's response when resumed")
+
+
 class ChainStep(BaseModel):
     """Single step in a chain pattern.
 
+    Supports two step types:
+    1. Agent step: Executes an agent with optional input template
+    2. HITL step: Pauses for human input/approval
+
+    Exactly one of (agent) or (type="hitl") must be present.
+
     Attributes:
-        agent: Reference to an agent key in the agents map
-        input: Prompt supplement or instruction (template allowed)
-        vars: Per-step variable overrides for template rendering
-        tool_overrides: Override agent's default tools for this step
+        agent: Reference to an agent key in the agents map (agent step)
+        input: Prompt supplement or instruction (template allowed, agent step)
+        vars: Per-step variable overrides for template rendering (agent step)
+        tool_overrides: Override agent's default tools for this step (agent step)
+        type: Must be "hitl" for HITL steps
+        prompt: Message to display to user (HITL step)
+        context_display: Context to show user (HITL step)
+        default: Default response if empty (HITL step)
+        timeout_seconds: Timeout in seconds (HITL step)
     """
 
-    agent: str  # Agent ID
-    input: str | None = None  # Prompt template (optional)
-    vars: dict[str, str | int | bool] | None = None  # Per-step variables
-    tool_overrides: list[str] | None = None  # Tool ID overrides
+    # Agent step fields
+    agent: str | None = None  # Agent ID (agent step)
+    input: str | None = None  # Prompt template (agent step, optional)
+    vars: dict[str, str | int | bool] | None = None  # Per-step variables (agent step)
+    tool_overrides: list[str] | None = None  # Tool ID overrides (agent step)
+
+    # HITL step fields
+    type: str | None = None  # "hitl" for HITL steps
+    prompt: str | None = None  # HITL prompt
+    context_display: str | None = None  # HITL context
+    default: str | None = None  # HITL default (Phase 2)
+    timeout_seconds: int | None = None  # HITL timeout (Phase 2)
+
+    @model_validator(mode="after")
+    def validate_step_type(self) -> "ChainStep":
+        """Validate exactly one of agent or HITL type is present."""
+        is_agent_step = self.agent is not None
+        is_hitl_step = self.type == "hitl"
+
+        if not is_agent_step and not is_hitl_step:
+            raise ValueError(
+                "ChainStep must have either 'agent' (agent step) or 'type: hitl' (HITL step)"
+            )
+
+        if is_agent_step and is_hitl_step:
+            raise ValueError(
+                "ChainStep cannot have both 'agent' and 'type: hitl'. "
+                "Use separate steps for agent execution and HITL pauses."
+            )
+
+        # HITL step validation
+        if is_hitl_step:
+            if not self.prompt:
+                raise ValueError("HITL step must have 'prompt' field")
+            if self.timeout_seconds is not None and self.timeout_seconds < 0:
+                raise ValueError("HITL timeout_seconds must be >= 0")
+
+        return self
 
 
 class WorkflowTask(BaseModel):

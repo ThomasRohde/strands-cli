@@ -294,6 +294,7 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[tuple[st
                     endpoint: str = url, custom_headers: dict[str, str] | None = headers
                 ) -> Callable[..., Any]:
                     from typing import cast
+
                     result: Any = streamablehttp_client(endpoint, headers=custom_headers)
                     return cast(Callable[..., Any], result)
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate schema documentation from JSON Schema."""
+
 import json
 from pathlib import Path
 
@@ -63,7 +64,9 @@ def generate_property_docs(schema: dict, level: int = 3) -> str:
 def main():
     """Generate schema documentation."""
     # Load schema
-    schema_path = Path(__file__).parent.parent / "src/strands_cli/schema/strands-workflow.schema.json"
+    schema_path = (
+        Path(__file__).parent.parent / "src/strands_cli/schema/strands-workflow.schema.json"
+    )
     with open(schema_path) as f:
         schema = json.load(f)
 

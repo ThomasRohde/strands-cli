@@ -95,9 +95,9 @@ async def test_chain_executor_marks_session_failed_on_exception(
     # Verify session was marked as FAILED
     loaded = await repo.load(session_id)
     assert loaded is not None, "Session should still exist"
-    assert (
-        loaded.metadata.status == SessionStatus.FAILED
-    ), f"Session should be FAILED, got {loaded.metadata.status}"
+    assert loaded.metadata.status == SessionStatus.FAILED, (
+        f"Session should be FAILED, got {loaded.metadata.status}"
+    )
     # Verify error message was captured
     assert loaded.metadata.error is not None, "Error should be set"
     assert "RuntimeError: Simulated agent failure" in loaded.metadata.error

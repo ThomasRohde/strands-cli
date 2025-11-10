@@ -49,6 +49,7 @@ Returned when session persistence operations fail:
 - Session data corrupted or invalid JSON
 - Attempting to resume an already-completed session
 - Session spec hash mismatch (spec changed since session creation)
+- HITL resume attempted without --hitl-response flag
 
 Distinct from EX_IO: Session errors indicate logical failures in the session
 lifecycle, not general filesystem I/O problems. Use EX_IO for file permission
@@ -59,6 +60,7 @@ To resolve:
 - Check session directory for corruption
 - Use 'strands sessions show <id>' to inspect session state
 - Delete corrupted sessions via 'strands sessions delete <id>'
+- For HITL sessions, provide --hitl-response flag when resuming
 """
 
 EX_UNSUPPORTED = 18
@@ -75,7 +77,28 @@ This allows graceful degradation: parse the full schema but reject unsupported
 features with actionable guidance rather than silently ignoring them.
 """
 
-EX_BUDGET_EXCEEDED = 19
+EX_HITL_PAUSE = 19
+"""Workflow paused for human-in-the-loop input.
+
+The workflow has reached a HITL (Human-in-the-Loop) step that requires user
+input or approval before continuing. Session state has been saved automatically.
+
+To resume the workflow:
+  strands run --resume <session-id> --hitl-response 'your response'
+
+The session ID is displayed when the workflow pauses. Use 'strands sessions list'
+to find paused sessions.
+
+HITL steps are defined in the workflow spec with `type: hitl` and include:
+- prompt: Message requesting user input
+- context_display: Context to help user make decision (optional)
+- default: Default response if user provides empty input (optional)
+- timeout_seconds: Time limit before timeout (optional, Phase 2)
+
+This exit code indicates normal workflow pause, not an error condition.
+"""
+
+EX_BUDGET_EXCEEDED = 20
 """Token budget exhausted during workflow execution.
 
 The workflow exceeded the configured `budgets.max_tokens` limit and was aborted

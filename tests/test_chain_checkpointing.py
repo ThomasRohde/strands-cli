@@ -620,9 +620,7 @@ class TestChainAgentSessionRestoration:
         # Capture FileSessionManager call to verify session_id format
         captured_session_id = None
 
-        def mock_file_session_manager_init(
-            self: Any, *, session_id: str, storage_dir: str
-        ) -> None:
+        def mock_file_session_manager_init(self: Any, *, session_id: str, storage_dir: str) -> None:
             nonlocal captured_session_id
             captured_session_id = session_id
             # Don't actually initialize (avoid file I/O)
@@ -660,4 +658,3 @@ class TestChainAgentSessionRestoration:
         # Session ID should be formatted as {base_session_id}_{agent_id}
         expected_format = f"{session_id}_test-agent"
         assert agent_session_id == expected_format
-

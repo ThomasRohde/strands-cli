@@ -652,9 +652,7 @@ class TestSessionsCommand:
 
         assert result.exit_code == EX_OK
         # Either shows sessions table or "No sessions found" message
-        assert (
-            "Workflow Sessions" in result.stdout or "No sessions found" in result.stdout
-        )
+        assert "Workflow Sessions" in result.stdout or "No sessions found" in result.stdout
 
     def test_sessions_list_with_invalid_status_filter(self) -> None:
         """Test sessions list with invalid status filter."""

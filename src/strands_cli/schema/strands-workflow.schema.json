@@ -685,36 +685,72 @@
     },
     "step": {
       "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "agent"
-      ],
-      "properties": {
-        "agent": {
-          "type": "string",
-          "description": "Reference to an agent key in `agents`."
-        },
-        "input": {
-          "type": "string",
-          "description": "Prompt supplement or instruction; templates allowed (e.g., {{topic}})."
-        },
-        "vars": {
-          "type": "object",
-          "additionalProperties": {
-            "type": [
-              "string",
-              "number",
-              "boolean"
-            ]
+      "oneOf": [
+        {
+          "description": "Agent execution step",
+          "additionalProperties": false,
+          "required": [
+            "agent"
+          ],
+          "properties": {
+            "agent": {
+              "type": "string",
+              "description": "Reference to an agent key in `agents`."
+            },
+            "input": {
+              "type": "string",
+              "description": "Prompt supplement or instruction; templates allowed (e.g., {{topic}})."
+            },
+            "vars": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            },
+            "tool_overrides": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         },
-        "tool_overrides": {
-          "type": "array",
-          "items": {
-            "type": "string"
+        {
+          "description": "Human-in-the-loop pause point",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "prompt"
+          ],
+          "properties": {
+            "type": {
+              "const": "hitl",
+              "description": "Step type identifier for HITL (human-in-the-loop) steps"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Message displayed to user requesting input or approval"
+            },
+            "context_display": {
+              "type": "string",
+              "description": "Context to display for user review (supports templates like {{ steps[0].response }})"
+            },
+            "default": {
+              "type": "string",
+              "description": "Default response if user provides empty input (enforcement in Phase 2)"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Time in seconds before HITL expires (0 = no timeout, enforcement in Phase 2)"
+            }
           }
         }
-      }
+      ]
     },
     "pattern": {
       "type": "object",

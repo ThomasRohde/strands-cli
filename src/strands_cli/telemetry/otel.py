@@ -569,10 +569,7 @@ def add_session_attributes(
     Example:
         >>> from strands_cli.telemetry import add_session_attributes
         >>> add_session_attributes(
-        ...     session_id="abc-123",
-        ...     resumed=True,
-        ...     steps_skipped=5,
-        ...     checkpoint_count=3
+        ...     session_id="abc-123", resumed=True, steps_skipped=5, checkpoint_count=3
         ... )
     """
     span = trace.get_current_span()
@@ -592,4 +589,3 @@ def add_session_attributes(
             steps_skipped=steps_skipped,
             checkpoint_count=checkpoint_count,
         )
-

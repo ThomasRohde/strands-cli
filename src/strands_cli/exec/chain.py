@@ -26,10 +26,12 @@ Budget Enforcement:
     - Hard stop at 100% (if configured)
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
+from rich.console import Console
+from rich.panel import Panel
 
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -38,6 +40,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
+from strands_cli.exit_codes import EX_HITL_PAUSE
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
@@ -46,7 +49,7 @@ from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
-from strands_cli.types import PatternType, RunResult, Spec
+from strands_cli.types import HITLState, PatternType, RunResult, Spec
 
 
 class ChainExecutionError(Exception):
@@ -56,6 +59,7 @@ class ChainExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+console = Console()
 
 
 def _build_step_context(
@@ -103,11 +107,18 @@ async def run_chain(  # noqa: C901
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
 ) -> RunResult:
-    """Execute a multi-step chain workflow with optional session persistence.
+    """Execute a multi-step chain workflow with optional session persistence and HITL support.
 
     Executes steps sequentially with context passing. Each step receives
     all prior step responses via {{ steps[n].response }} template variables.
+
+    Phase 1 HITL Support:
+        - Detects HITL steps (type: hitl) and pauses execution
+        - Saves session state before displaying HITL prompt
+        - Exits with EX_HITL_PAUSE for user to provide response
+        - Resumes with hitl_response and injects into step_history
 
     Phase 4 Performance Optimizations:
         - Agent caching: Reuses agents across steps with same (agent_id, tools)
@@ -124,6 +135,7 @@ async def run_chain(  # noqa: C901
         variables: Optional CLI --var overrides
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
+        hitl_response: User response when resuming from HITL pause (None = not HITL resume)
 
     Returns:
         RunResult with final step response and execution metadata
@@ -189,6 +201,54 @@ async def run_chain(  # noqa: C901
             cumulative_tokens = 0
             started_at = datetime.now(UTC).isoformat()
 
+        # Phase 1 HITL: Handle resume from HITL pause
+        if session_state:
+            hitl_state_dict = session_state.pattern_state.get("hitl_state")
+            if hitl_state_dict:
+                hitl_state = HITLState(**hitl_state_dict)
+                if hitl_state.active:
+                    # Session is paused for HITL - validate response provided
+                    if not hitl_response:
+                        raise ChainExecutionError(
+                            f"Session {session_state.metadata.session_id} is waiting for HITL response. "
+                            f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                            f"--hitl-response 'your response'"
+                        )
+
+                    # Inject user response into step history (same pattern as agent steps)
+                    hitl_step_record = {
+                        "index": hitl_state.step_index,
+                        "type": "hitl",
+                        "prompt": hitl_state.prompt,
+                        "response": hitl_response,  # Store in 'response' field like agent steps
+                        "tokens_estimated": 0,  # No tokens for HITL steps
+                    }
+                    step_history.append(hitl_step_record)
+
+                    # Mark HITL as no longer active
+                    hitl_state.active = False
+                    hitl_state.user_response = hitl_response
+                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                    # Continue from next step after HITL
+                    start_step = hitl_state.step_index + 1
+
+                    logger.info(
+                        "hitl_response_received",
+                        session_id=session_state.metadata.session_id,
+                        step=hitl_state.step_index,
+                        response_preview=hitl_response[:100]
+                        if len(hitl_response) > 100
+                        else hitl_response,
+                    )
+                    span.add_event(
+                        "hitl_resume",
+                        {
+                            "step_index": hitl_state.step_index,
+                            "response_length": len(hitl_response),
+                        },
+                    )
+
         # Track execution state
         max_tokens = None
         if spec.runtime.budgets:
@@ -243,6 +303,133 @@ async def run_chain(  # noqa: C901
             # Execute steps starting from start_step (skip completed steps on resume)
             for step_index in range(start_step, len(spec.pattern.config.steps)):
                 step = spec.pattern.config.steps[step_index]
+
+                # Phase 1 HITL: Check if this is a HITL step
+                if hasattr(step, "type") and step.type == "hitl":
+                    # HITL pause point
+                    logger.info(
+                        "hitl_step_detected",
+                        step=step_index,
+                        total_steps=len(spec.pattern.config.steps),
+                    )
+                    span.add_event(
+                        "hitl_pause",
+                        {
+                            "step_index": step_index,
+                            "prompt_preview": step.prompt[:100]
+                            if step.prompt and len(step.prompt) > 100
+                            else (step.prompt or ""),
+                        },
+                    )
+
+                    # Build context for displaying to user
+                    template_context = _build_step_context(
+                        spec, step_index, step_history, variables
+                    )
+
+                    # Render context_display template if provided
+                    context_text = ""
+                    if step.context_display:
+                        context_text = render_template(step.context_display, template_context)
+
+                    # Calculate timeout (Phase 2: not enforced yet)
+                    timeout_at = None
+                    if step.timeout_seconds and step.timeout_seconds > 0:
+                        timeout_dt = datetime.now(UTC) + timedelta(seconds=step.timeout_seconds)
+                        timeout_at = timeout_dt.isoformat()
+
+                    # Create HITL state for session
+                    new_hitl_state = HITLState(
+                        active=True,
+                        step_index=step_index,
+                        prompt=step.prompt,
+                        context_display=context_text,
+                        default_response=step.default,
+                        timeout_at=timeout_at,
+                        user_response=None,
+                    )
+
+                    # Save session with HITL state BEFORE displaying to user
+                    # (This ensures resume works even if CLI crashes during display)
+                    if session_repo and session_state:
+                        session_state.pattern_state["current_step"] = step_index
+                        session_state.pattern_state["step_history"] = step_history
+                        session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
+                        session_state.metadata.status = SessionStatus.PAUSED
+                        session_state.metadata.updated_at = now_iso8601()
+
+                        try:
+                            spec_content = ""  # Spec snapshot already saved
+                            await session_repo.save(session_state, spec_content)
+                            logger.info(
+                                "hitl_pause_saved",
+                                session_id=session_state.metadata.session_id,
+                                step=step_index,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "hitl_pause_save_failed",
+                                session_id=session_state.metadata.session_id,
+                                step=step_index,
+                                error=str(e),
+                            )
+                            raise ChainExecutionError(
+                                f"Failed to save HITL pause state: {e}"
+                            ) from e
+
+                    # Display HITL prompt to user
+                    console.print()
+                    console.print(
+                        Panel(
+                            f"[bold yellow]🤝 HUMAN INPUT REQUIRED[/bold yellow]\n\n{step.prompt}",
+                            border_style="yellow",
+                            padding=(1, 2),
+                            title="HITL Pause",
+                        )
+                    )
+
+                    if context_text:
+                        console.print(
+                            Panel(
+                                f"[bold]Context for Review:[/bold]\n\n{context_text}",
+                                border_style="dim",
+                                padding=(1, 2),
+                            )
+                        )
+
+                    if session_state:
+                        console.print(
+                            f"\n[dim]Session ID:[/dim] {session_state.metadata.session_id}"
+                        )
+                        console.print(
+                            f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+                            f"--hitl-response 'your response'"
+                        )
+                    console.print()
+
+                    # Exit with HITL pause code
+                    hitl_pause_completed_at = datetime.now(UTC).isoformat()
+                    hitl_pause_started_dt = datetime.fromisoformat(started_at)
+                    hitl_pause_completed_dt = datetime.fromisoformat(hitl_pause_completed_at)
+                    hitl_pause_duration = (
+                        hitl_pause_completed_dt - hitl_pause_started_dt
+                    ).total_seconds()
+
+                    return RunResult(
+                        success=True,
+                        message="Workflow paused for human input",
+                        exit_code=EX_HITL_PAUSE,
+                        pattern_type=PatternType.CHAIN,
+                        session_id=session_state.metadata.session_id if session_state else None,
+                        started_at=started_at,
+                        completed_at=hitl_pause_completed_at,
+                        duration_seconds=hitl_pause_duration,
+                        agent_id=None,  # No agent for HITL steps
+                        response=f"HITL pause at step {step_index}: {step.prompt}",
+                        step_history=step_history,
+                    )
+
+                # Regular agent step execution
                 logger.info(
                     "chain_step_start",
                     step=step_index,
@@ -253,7 +440,7 @@ async def run_chain(  # noqa: C901
                     "step_start",
                     {
                         "step_index": step_index,
-                        "agent_id": step.agent,
+                        "agent_id": step.agent or "",
                         "total_steps": len(spec.pattern.config.steps),
                     },
                 )

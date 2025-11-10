@@ -533,7 +533,9 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                 last_executed_node = current_node_id
 
                 # Track execution path
-                if not (session_state and session_repo) and ("execution_path" not in locals() or not isinstance(execution_path, list)):
+                if not (session_state and session_repo) and (
+                    "execution_path" not in locals() or not isinstance(execution_path, list)
+                ):
                     # Fresh execution - initialize execution_path if not done
                     execution_path = []
 
