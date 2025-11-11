@@ -18,6 +18,7 @@
 - [Budget Management](howto/budgets.md)
 
 ## Reference
+- [Python API](reference/api/python-api.md)
 - [CLI Commands](reference/cli.md)
 - [Workflow Spec](reference/spec.md)
 - [Session API](reference/session-api.md)

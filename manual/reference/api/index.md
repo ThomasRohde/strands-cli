@@ -2,6 +2,10 @@
 
 Complete Python API documentation for Strands CLI.
 
+## User-Facing API
+
+- **[Python API](python-api.md)** - High-level workflow execution API with interactive HITL support (v0.14.0-alpha)
+
 ## Module Overview
 
 Strands CLI is organized into several key modules:
@@ -30,7 +34,25 @@ Strands CLI is organized into several key modules:
 
 ## Usage
 
-All public APIs are importable from their respective modules:
+### High-Level API (Recommended)
+
+For most use cases, use the high-level `Workflow` API:
+
+```python
+from strands import Workflow
+
+# Load and run workflow interactively
+workflow = Workflow.from_file("workflow.yaml")
+result = workflow.run_interactive(topic="AI")
+
+print(result.last_response)
+```
+
+See [Python API Guide](python-api.md) for complete documentation.
+
+### Low-Level API (Advanced)
+
+For advanced use cases, import from individual modules:
 
 ```python
 from strands_cli.types import Spec, Runtime, Agent

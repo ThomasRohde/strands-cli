@@ -41,6 +41,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
+from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
@@ -372,6 +373,31 @@ async def run_chain(  # noqa: C901
                             "Remove --no-save-session flag or remove HITL steps from workflow."
                         )
 
+                    # Check if HITL was already handled (active=False in session state)
+                    existing_hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                    if existing_hitl_state_dict:
+                        existing_hitl_state = HITLState(**existing_hitl_state_dict)
+                        if (
+                            not existing_hitl_state.active
+                            and existing_hitl_state.step_index == step_index
+                        ):
+                            # HITL was already handled - treat as completed HITL step
+                            # Add the user response to step history and continue
+                            hitl_step_record = {
+                                "index": step_index,
+                                "type": "hitl",
+                                "prompt": step.prompt,
+                                "response": existing_hitl_state.user_response or "",
+                                "tokens_estimated": 0,
+                            }
+                            step_history.append(hitl_step_record)
+                            logger.info(
+                                "hitl_step_completed",
+                                step=step_index,
+                                response_length=len(existing_hitl_state.user_response or ""),
+                            )
+                            continue  # Skip to next step
+
                     # HITL pause point
                     logger.info(
                         "hitl_step_detected",
@@ -489,6 +515,7 @@ async def run_chain(  # noqa: C901
                         completed_at=hitl_pause_completed_at,
                         duration_seconds=hitl_pause_duration,
                         agent_id="hitl",  # Special marker for HITL steps
+                        exit_code=EX_HITL_PAUSE,  # Signal to API layer to continue HITL loop
                         execution_context={"steps": step_history},
                     )
 
@@ -675,7 +702,8 @@ async def run_chain(  # noqa: C901
         # Final response is from last step
         final_response = step_history[-1]["response"]
         # Agent ID is from the last step that produced the final response
-        final_agent_id = step_history[-1]["agent"]
+        # HITL steps don't have 'agent' field, use 'type' field instead
+        final_agent_id = step_history[-1].get("agent", step_history[-1].get("type", "unknown"))
 
         logger.info(
             "chain_execution_complete",
@@ -723,4 +751,5 @@ async def run_chain(  # noqa: C901
             artifacts_written=[],
             execution_context={"steps": step_history},
             variables=variables,  # Pass through for artifact rendering
+            exit_code=EX_OK,  # Success exit code
         )
