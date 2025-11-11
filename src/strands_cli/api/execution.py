@@ -101,6 +101,7 @@ class WorkflowExecutor:
                     session_repo,
                     hitl_response,
                 )
+                result.session_id = session_state.metadata.session_id
 
                 # Check if paused for HITL input
                 if result.agent_id == "hitl" and result.exit_code == EX_HITL_PAUSE:
@@ -214,8 +215,10 @@ class WorkflowExecutor:
                 session_repo,
                 None,
             )
+            result.session_id = session_state.metadata.session_id
 
             # Update session status
+            session_state.metadata.updated_at = now_iso8601()
             if result.agent_id == "hitl":
                 session_state.metadata.status = SessionStatus.PAUSED
             else:
@@ -224,9 +227,11 @@ class WorkflowExecutor:
             await session_repo.save(session_state, spec_content)
             return result
 
-        except Exception:
+        except Exception as exc:
             # Mark session as failed
             session_state.metadata.status = SessionStatus.FAILED
+            session_state.metadata.updated_at = now_iso8601()
+            session_state.metadata.error = f"{type(exc).__name__}: {exc}"
             await session_repo.save(session_state, spec_content)
             raise
 

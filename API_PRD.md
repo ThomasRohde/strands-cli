@@ -430,7 +430,7 @@ async def run_chain(
 ### Fluent Builder API
 
 ```python
-from strands import Workflow, Agent
+from strands_cli import Workflow
 
 # Build complex workflow in Python
 workflow = (
@@ -720,7 +720,7 @@ class WorkflowBuilder:
 ### Event System
 
 ```python
-from strands import Workflow
+from strands_cli import Workflow
 
 workflow = Workflow.from_file("workflow.yaml")
 
@@ -740,7 +740,7 @@ result = workflow.run_interactive(topic="AI")
 ### Session Management API
 
 ```python
-from strands import SessionManager
+from strands_cli import SessionManager
 
 manager = SessionManager()
 
@@ -757,7 +757,7 @@ result = manager.resume(sessions[0].id, hitl_response="approved")
 
 ```python
 import asyncio
-from strands import Workflow
+from strands_cli import Workflow
 
 workflow = Workflow.from_file("workflow.yaml")
 
@@ -774,8 +774,8 @@ asyncio.run(main())
 
 ```python
 from fastapi import FastAPI
-from strands import Workflow
-from strands.integrations.fastapi import create_workflow_router
+from strands_cli import Workflow
+from strands_cli.integrations.fastapi import create_workflow_router
 
 app = FastAPI()
 workflow = Workflow.from_file("workflow.yaml")
@@ -944,17 +944,16 @@ app.include_router(router)
 
 **Good:**
 ```python
-from strands import Workflow
+from strands_cli import Workflow    
 workflow = Workflow.from_file("spec.yaml")
 result = workflow.run_interactive(topic="AI")
 ```
 
 **Avoid:**
 ```python
-from strands.api.workflow import WorkflowClient
-from strands.api.execution import ExecutionEngine
-from strands.api.config import RuntimeConfiguration
-
+from strands_cli.api.workflow import WorkflowClient
+from strands_cli.api.execution import ExecutionEngine
+from strands_cli.api.config import RuntimeConfiguration
 client = WorkflowClient()
 config = RuntimeConfiguration(provider="openai", model="gpt-4o")
 engine = ExecutionEngine(client, config)
@@ -1045,7 +1044,7 @@ def run(spec_file: str, ...):
 
 ### API Reference
 
-**Location:** `docs/API.md`
+**Location:** `manual/reference/api/*`
 
 ```markdown
 # Strands Python API
@@ -1053,7 +1052,7 @@ def run(spec_file: str, ...):
 ## Quickstart
 
 ```python
-from strands import Workflow
+from strands_cli import Workflow
 workflow = Workflow.from_file("workflow.yaml")
 result = workflow.run_interactive(topic="AI")
 ```
@@ -1174,7 +1173,7 @@ async for chunk in workflow.stream(topic="AI"):
 ### GraphQL API
 
 ```python
-from strands.integrations.graphql import create_schema
+from strands_cli.integrations.graphql import create_schema
 schema = create_schema(workflow)
 # Query workflow state, subscribe to events
 ```
@@ -1182,7 +1181,7 @@ schema = create_schema(workflow)
 ### Workflow Marketplace
 
 ```python
-from strands import WorkflowMarketplace
+from strands_cli import WorkflowMarketplace
 marketplace = WorkflowMarketplace()
 workflow = marketplace.download("research-pipeline")
 result = workflow.run_interactive(topic="AI")
@@ -1191,7 +1190,7 @@ result = workflow.run_interactive(topic="AI")
 ### Multi-Agent Orchestration
 
 ```python
-from strands import AgentTeam
+from strands_cli import AgentTeam
 team = AgentTeam()
     .add_agent("researcher", role="researcher")
     .add_agent("analyst", role="analyst")
@@ -1218,7 +1217,7 @@ Demonstrates:
 - Accessing execution results
 """
 
-from strands import Workflow
+from strands_cli import Workflow
 
 def main():
     # Load workflow with HITL steps
@@ -1254,7 +1253,7 @@ if __name__ == "__main__":
 #!/usr/bin/env python3
 """Build workflow using fluent API (no YAML required)."""
 
-from strands import Workflow
+from strands_cli import Workflow
 
 def main():
     # Build workflow in Python
@@ -1300,7 +1299,7 @@ if __name__ == "__main__":
 #!/usr/bin/env python3
 """Event-driven workflow with callbacks."""
 
-from strands import Workflow
+from strands_cli import Workflow
 import structlog
 
 logger = structlog.get_logger()

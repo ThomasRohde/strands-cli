@@ -18,7 +18,7 @@ import pytest
 
 from strands_cli.api.execution import WorkflowExecutor
 from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
-from strands_cli.session import SessionStatus
+from strands_cli.session import SessionState, SessionStatus
 from strands_cli.types import (
     Agent,
     ChainStep,
@@ -73,6 +73,7 @@ async def test_run_interactive_sets_spec_hash(minimal_chain_spec: Spec, mocker) 
 
     mock_repo.save.side_effect = capture_save
     mocker.patch("strands_cli.api.execution.FileSessionRepository", return_value=mock_repo)
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-123")
 
     # Mock executor path to return successful completion
     now_ts = datetime.now(UTC).isoformat()
@@ -95,6 +96,7 @@ async def test_run_interactive_sets_spec_hash(minimal_chain_spec: Spec, mocker) 
     result = await executor.run_interactive(variables={})
 
     assert result.exit_code == EX_OK
+    assert result.session_id == "session-123"
     assert saved_states, "Session repository save should be invoked"
 
     spec_dict = minimal_chain_spec.model_dump(mode="json")
@@ -193,6 +195,8 @@ async def test_single_hitl_pause_handled(minimal_chain_spec: Spec, mocker) -> No
         assert state.active is True
         return "approved"
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-hitl")
+
     # Run interactive execution
     result = await executor.run_interactive(
         variables={"topic": "test"},
@@ -203,6 +207,7 @@ async def test_single_hitl_pause_handled(minimal_chain_spec: Spec, mocker) -> No
     assert result.success is True
     assert result.last_response == "Final output"
     assert result.exit_code == EX_OK
+    assert result.session_id == "session-hitl"
 
     # Verify session saved 4 times (initial snapshot, pause checkpoint, executor resume, final completion)
     assert mock_repo.save.call_count == 4
@@ -278,6 +283,8 @@ async def test_multiple_hitl_pauses_handled(minimal_chain_spec: Spec, mocker) ->
         side_effect=mock_execute_pattern,
     )
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-multi")
+
     # Track HITL handler calls
     handler_calls = []
 
@@ -300,6 +307,7 @@ async def test_multiple_hitl_pauses_handled(minimal_chain_spec: Spec, mocker) ->
     # Verify final result
     assert result.success is True
     assert result.last_response == "All steps completed"
+    assert result.session_id == "session-multi"
 
     # Verify session saved: initial + per-pause checkpoints + final completion = 6 times
     assert mock_repo.save.call_count == 6
@@ -394,6 +402,8 @@ async def test_session_state_updated_after_hitl(minimal_chain_spec: Spec, mocker
         side_effect=mock_execute_pattern,
     )
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-update")
+
     # Run with simple handler
     await executor.run_interactive(
         variables={},
@@ -477,6 +487,8 @@ async def test_keyboard_interrupt_marks_session_paused(minimal_chain_spec: Spec,
     def interrupt_handler(state: HITLState) -> str:
         raise KeyboardInterrupt("User pressed Ctrl+C")
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-interrupt")
+
     # Verify KeyboardInterrupt is raised
     with pytest.raises(KeyboardInterrupt):
         await executor.run_interactive(
@@ -526,6 +538,8 @@ async def test_exception_marks_session_failed(minimal_chain_spec: Spec, mocker) 
         "_execute_pattern",
         side_effect=mock_execute_pattern,
     )
+
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-error")
 
     # Verify exception is raised
     with pytest.raises(RuntimeError, match="Test error during execution"):
@@ -593,6 +607,8 @@ async def test_safety_limit_prevents_infinite_loop(minimal_chain_spec: Spec, moc
     def mock_handler(state: HITLState) -> str:
         return "response"
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-loop")
+
     # Verify RuntimeError raised with helpful message
     with pytest.raises(RuntimeError, match="exceeded maximum iterations"):
         await executor.run_interactive(
@@ -642,6 +658,8 @@ async def test_missing_hitl_state_raises_error(minimal_chain_spec: Spec, mocker)
         side_effect=mock_execute_pattern,
     )
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-missing")
+
     # Verify RuntimeError raised
     with pytest.raises(RuntimeError, match="no hitl_state in session"):
         await executor.run_interactive(variables={})
@@ -690,6 +708,114 @@ async def test_inactive_hitl_state_raises_error(minimal_chain_spec: Spec, mocker
         side_effect=mock_execute_pattern,
     )
 
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-inactive")
+
     # Verify RuntimeError raised
     with pytest.raises(RuntimeError, match=r"hitl_state\.active is False"):
         await executor.run_interactive(variables={})
+
+
+@pytest.mark.asyncio
+async def test_run_sets_session_id(minimal_chain_spec: Spec, mocker) -> None:
+    """Ensure non-interactive run attaches session identifier to result."""
+    executor = WorkflowExecutor(minimal_chain_spec)
+
+    mock_repo = AsyncMock()
+    mocker.patch("strands_cli.api.execution.FileSessionRepository", return_value=mock_repo)
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-run")
+
+    now_ts = datetime.now(UTC).isoformat()
+    success_result = RunResult(
+        success=True,
+        last_response="done",
+        pattern_type=PatternType.CHAIN,
+        started_at=now_ts,
+        completed_at=now_ts,
+        duration_seconds=0.1,
+        agent_id="agent1",
+        exit_code=EX_OK,
+    )
+
+    async def mock_execute_pattern(variables, session_state, session_repo, hitl_response):
+        return success_result
+
+    mocker.patch.object(executor, "_execute_pattern", side_effect=mock_execute_pattern)
+
+    result = await executor.run(variables={})
+
+    assert result.session_id == "session-run"
+    assert result.exit_code == EX_OK
+
+
+@pytest.mark.asyncio
+async def test_run_updates_session_metadata(minimal_chain_spec: Spec, mocker) -> None:
+    """Run should refresh updated_at and mark session completed on success."""
+    executor = WorkflowExecutor(minimal_chain_spec)
+
+    saved_states: list[SessionState] = []
+
+    async def capture_save(state, spec_content):
+        saved_states.append(state.model_copy(deep=True))
+
+    mock_repo = AsyncMock()
+    mock_repo.save.side_effect = capture_save
+
+    mocker.patch("strands_cli.api.execution.FileSessionRepository", return_value=mock_repo)
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-meta")
+
+    now_ts = datetime.now(UTC).isoformat()
+    success_result = RunResult(
+        success=True,
+        last_response="done",
+        pattern_type=PatternType.CHAIN,
+        started_at=now_ts,
+        completed_at=now_ts,
+        duration_seconds=0.1,
+        agent_id="agent1",
+        exit_code=EX_OK,
+    )
+
+    async def mock_execute_pattern(variables, session_state, session_repo, hitl_response):
+        return success_result
+
+    mocker.patch.object(executor, "_execute_pattern", side_effect=mock_execute_pattern)
+
+    await executor.run(variables={})
+
+    assert len(saved_states) >= 2  # initial + final save
+    initial_state, final_state = saved_states[0], saved_states[-1]
+    assert final_state.metadata.status == SessionStatus.COMPLETED
+    assert final_state.metadata.updated_at != initial_state.metadata.updated_at
+    assert final_state.metadata.error is None
+
+
+@pytest.mark.asyncio
+async def test_run_failure_updates_session_metadata(minimal_chain_spec: Spec, mocker) -> None:
+    """Failures should mark session failed with updated timestamp and error."""
+    executor = WorkflowExecutor(minimal_chain_spec)
+
+    saved_states: list[SessionState] = []
+
+    async def capture_save(state, spec_content):
+        saved_states.append(state.model_copy(deep=True))
+
+    mock_repo = AsyncMock()
+    mock_repo.save.side_effect = capture_save
+
+    mocker.patch("strands_cli.api.execution.FileSessionRepository", return_value=mock_repo)
+    mocker.patch("strands_cli.api.execution.generate_session_id", return_value="session-fail")
+
+    async def mock_execute_pattern(variables, session_state, session_repo, hitl_response):
+        raise RuntimeError("boom")
+
+    mocker.patch.object(executor, "_execute_pattern", side_effect=mock_execute_pattern)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await executor.run(variables={})
+
+    assert len(saved_states) >= 2
+    initial_state, final_state = saved_states[0], saved_states[-1]
+    assert final_state.metadata.status == SessionStatus.FAILED
+    assert final_state.metadata.updated_at != initial_state.metadata.updated_at
+    assert final_state.metadata.error is not None
+    assert "RuntimeError" in final_state.metadata.error
