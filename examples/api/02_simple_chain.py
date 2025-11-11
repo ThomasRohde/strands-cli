@@ -19,7 +19,7 @@ Requirements:
     - examples/chain-hitl-approval-demo.yaml workflow file
 """
 
-from strands import Workflow
+from strands_cli import Workflow
 
 
 def main():

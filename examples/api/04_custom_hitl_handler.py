@@ -24,8 +24,7 @@ Requirements:
 
 import asyncio
 
-from strands import Workflow
-
+from strands_cli import Workflow
 from strands_cli.types import HITLState
 
 

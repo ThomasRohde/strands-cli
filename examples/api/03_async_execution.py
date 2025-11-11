@@ -19,7 +19,7 @@ Requirements:
 
 import asyncio
 
-from strands import Workflow
+from strands_cli import Workflow
 
 
 async def run_workflow(topic: str) -> None:

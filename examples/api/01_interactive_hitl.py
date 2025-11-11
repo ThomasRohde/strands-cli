@@ -19,7 +19,7 @@ Requirements:
     - examples/chain-hitl-business-proposal-openai.yaml workflow file
 """
 
-from strands import Workflow
+from strands_cli import Workflow
 
 
 def main():
