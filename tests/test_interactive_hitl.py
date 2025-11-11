@@ -277,7 +277,6 @@ def test_interactive_hitl_sync_wrapper(
     assert result.success is True
 
 
-@pytest.mark.skip(reason="Workflow HITL needs correct schema - uses 'deps' not 'depends_on'")
 @pytest.mark.asyncio
 async def test_interactive_hitl_workflow_pattern(
     tmp_path: Path,
@@ -307,11 +306,11 @@ pattern:
       - id: task2
         type: hitl
         prompt: "Review draft?"
-        depends_on: [task1]
+        deps: [task1]
       - id: task3
         agent: agent1
         input: "Finalize with: {{tasks.task2.response}}"
-        depends_on: [task2]
+        deps: [task2]
 """)
 
     # Mock LLM responses
@@ -384,7 +383,6 @@ pattern:
     assert result.exit_code == EX_OK
 
 
-@pytest.mark.skip(reason="Graph HITL needs full edges/conditions implementation")
 @pytest.mark.asyncio
 async def test_interactive_hitl_graph_pattern(
     tmp_path: Path,
@@ -408,20 +406,20 @@ pattern:
   type: graph
   config:
     nodes:
-      - id: node1
+      node1:
         agent: agent1
         input: "Initial work"
-      - id: hitl1
+      hitl1:
         type: hitl
         prompt: "Continue to next step?"
-      - id: node2
+      node2:
         agent: agent1
         input: "Final work: {{nodes.hitl1.response}}"
     edges:
       - from: node1
-        to: hitl1
+        to: [hitl1]
       - from: hitl1
-        to: node2
+        to: [node2]
     max_iterations: 10
 """)
 

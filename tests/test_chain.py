@@ -177,9 +177,6 @@ class TestRunChain:
 
         assert result.success is True
 
-    @pytest.mark.skip(
-        reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py"
-    )
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     async def test_run_chain_budget_exceeded(
@@ -187,18 +184,27 @@ class TestRunChain:
     ) -> None:
         """Test chain stops when budget exceeded."""
         from strands_cli.exec.chain import ChainExecutionError
+        from strands_cli.runtime.budget_enforcer import BudgetExceededError
 
         chain_spec_3_steps.runtime.budgets = {"max_tokens": 5}
 
-        mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(
-            return_value="Response with many tokens that exceeds budget"
+        budget_error = BudgetExceededError(
+            "Token budget exhausted",
+            cumulative_tokens=10,
+            max_tokens=5,
         )
+
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(side_effect=budget_error)
         mock_get_agent.return_value = mock_agent
 
-        # Budget exceeded error is now wrapped in ChainExecutionError
-        with pytest.raises(ChainExecutionError, match="budget exceeded"):
+        # BudgetExceededError should propagate as the cause of ChainExecutionError
+        with pytest.raises(ChainExecutionError) as exc_info:
             await run_chain(chain_spec_3_steps, variables=None)
+
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, BudgetExceededError)
+        assert "Token budget exhausted" in str(cause)
 
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")

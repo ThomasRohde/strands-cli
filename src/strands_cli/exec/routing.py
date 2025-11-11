@@ -26,7 +26,7 @@ Error Handling:
 import json
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 
 import structlog
 from pydantic import ValidationError
@@ -58,6 +58,14 @@ class RoutingExecutionError(Exception):
     """Raised when routing execution fails."""
 
     pass
+
+
+class RouterReviewPauseError(Exception):
+    """Raised to signal a router review HITL pause."""
+
+    def __init__(self, result: RunResult) -> None:
+        self.result = result
+        super().__init__("Router review HITL pause")
 
 
 logger = structlog.get_logger(__name__)
@@ -300,7 +308,7 @@ async def _handle_router_review_hitl(
     session_repo: FileSessionRepository,
     variables: dict[str, str] | None,
     started_at: str,
-) -> tuple[str, bool]:
+) -> NoReturn:
     """Handle HITL review of router decision with approval/override capability.
 
     Four-phase execution:
@@ -318,13 +326,9 @@ async def _handle_router_review_hitl(
         variables: Template variables
         started_at: Execution start timestamp
 
-    Returns:
-        Tuple of (final_route, hitl_occurred)
-            - final_route: Approved route or user override
-            - hitl_occurred: True if HITL pause happened, False if resumed
-
     Raises:
         RoutingExecutionError: If session not available or invalid override format
+        RouterReviewPauseError: Always raised to signal HITL pause
     """
     console = Console()
     router_config = spec.pattern.config.router
@@ -434,10 +438,45 @@ async def _handle_router_review_hitl(
     )
     console.print()
 
-    # Exit with HITL pause code
-    import sys
+    logger.info(
+        "router_review_hitl_pause",
+        session_id=session_state.metadata.session_id,
+        chosen_route=chosen_route,
+    )
 
-    sys.exit(EX_HITL_PAUSE)
+    pause_time = datetime.now(UTC)
+    completed_at = pause_time.isoformat()
+    try:
+        started_dt = datetime.fromisoformat(started_at)
+        duration = (pause_time - started_dt).total_seconds()
+    except ValueError:
+        duration = 0.0
+
+    router_context = {
+        "chosen_route": chosen_route,
+        "response": router_response,
+    }
+
+    result = RunResult(
+        success=True,
+        last_response=f"Router review required for route '{chosen_route}'",
+        error=None,
+        agent_id="hitl",
+        pattern_type=PatternType.ROUTING,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_seconds=duration,
+        artifacts_written=[],
+        execution_context={
+            "router": router_context,
+            "status": "waiting_for_router_review",
+        },
+        exit_code=EX_HITL_PAUSE,
+        session_id=session_state.metadata.session_id,
+        variables={"router": router_context},
+    )
+
+    raise RouterReviewPauseError(result)
 
 
 def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
@@ -908,6 +947,13 @@ async def run_routing(  # noqa: C901
             )
 
             return result
+        except RouterReviewPauseError as pause:
+            logger.info(
+                "routing_paused_for_hitl",
+                session_id=pause.result.session_id,
+                exit_code=EX_HITL_PAUSE,
+            )
+            return pause.result
         except Exception as e:
             # Mark session as failed before re-raising
             if session_state and session_repo:

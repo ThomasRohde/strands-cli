@@ -337,47 +337,33 @@ class TestBudgetIntegration:
         # Verify result
         assert result.success is True
 
-    @pytest.mark.skip(reason="Integration test requires complex mocking - covered by unit tests")
     @pytest.mark.asyncio
     async def test_budget_exceeded_raises_error(self, spec_with_budget: Spec, mocker: Any) -> None:
         """Test that exceeding budget raises BudgetExceededError."""
         from strands_cli.exec.chain import run_chain
+        from strands_cli.exec.chain import ChainExecutionError
 
         # Set very low budget
         spec_with_budget.runtime.budgets = {"max_tokens": 10, "warn_threshold": 0.8}
 
-        # Mock build_agent to return an agent that reports high token usage
-        # but still has hooks attached (via real AgentCache.get_or_build_agent logic)
-        mock_build = mocker.patch("strands_cli.runtime.strands_adapter.build_agent")
-
-        # Create mock agent that returns high token usage
+        # Mock AgentCache to return an agent whose invocation raises BudgetExceededError
+        mock_cache = mocker.patch("strands_cli.exec.chain.AgentCache")
         mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(return_value="Response")
-        # Hook will read this and exceed budget
-        mock_agent.accumulated_usage = {"totalTokens": 500}
+        budget_error = BudgetExceededError(
+            "Token budget exhausted",
+            cumulative_tokens=25,
+            max_tokens=10,
+        )
+        mock_agent.invoke_async = AsyncMock(side_effect=budget_error)
+        mock_cache.return_value.get_or_build_agent = AsyncMock(return_value=mock_agent)
+        mock_cache.return_value.close = AsyncMock()
 
-        # build_agent should attach hooks to agent and return it
-        def build_with_hooks(*args: Any, **kwargs: Any) -> MagicMock:
-            # Get hooks from kwargs
-            hooks = kwargs.get("hooks", [])
-            # Attach hooks to agent by wrapping invoke_async
-            original_invoke = mock_agent.invoke_async
-
-            async def invoke_with_hooks(input_text: str) -> Any:
-                result = await original_invoke(input_text)
-                # Call all after_cycle hooks
-                for hook in hooks:
-                    hook(mock_agent, result)  # This will trigger BudgetEnforcerHook.__call__
-                return result
-
-            mock_agent.invoke_async = invoke_with_hooks
-            return mock_agent
-
-        mock_build.side_effect = build_with_hooks
-
-        # Should raise BudgetExceededError from hook
-        with pytest.raises(BudgetExceededError):
+        with pytest.raises(ChainExecutionError) as exc_info:
             await run_chain(spec_with_budget, variables=None)
+
+        cause = exc_info.value.__cause__
+        assert isinstance(cause, BudgetExceededError)
+        assert cause.cumulative_tokens == 25
 
 
 # --- Exit Code Tests ---

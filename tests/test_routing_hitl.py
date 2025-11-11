@@ -116,16 +116,22 @@ class TestRouterReviewHITLPause:
             mock_cache.close = AsyncMock()
             mock_cache_class.return_value = mock_cache
 
-            # Act & Assert - Should exit with EX_HITL_PAUSE
-            with pytest.raises(SystemExit) as exc_info:
-                await run_routing(
-                    routing_hitl_spec,
-                    variables,
-                    routing_session_state,
-                    mock_session_repo,
-                )
+            # Act
+            result = await run_routing(
+                routing_hitl_spec,
+                variables,
+                routing_session_state,
+                mock_session_repo,
+            )
 
-            assert exc_info.value.code == EX_HITL_PAUSE
+            # Assert - Should return RunResult with EX_HITL_PAUSE
+            assert result.exit_code == EX_HITL_PAUSE
+            assert result.success is True
+            assert result.agent_id == "hitl"
+            assert result.execution_context["status"] == "waiting_for_router_review"
+
+            router_context = result.variables.get("router", {}) if result.variables else {}
+            assert router_context.get("chosen_route") == "billing"
 
             # Verify session was saved with HITL state
             assert mock_session_repo.save.called

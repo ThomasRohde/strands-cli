@@ -254,7 +254,6 @@ pattern:
 class TestRoutingPatternIntegration:
     """Test routing pattern with interactive HITL via API."""
 
-    @pytest.mark.skip(reason="Routing HITL uses sys.exit() which isn't compatible with interactive mode - needs refactor")
     async def test_routing_with_router_review(
         self,
         tmp_path: Path,

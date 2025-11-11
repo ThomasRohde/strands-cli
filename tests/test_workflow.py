@@ -375,27 +375,31 @@ class TestRunWorkflow:
 
         assert result.success is True
 
-    @pytest.mark.skip(
-        reason="Budget enforcement now via BudgetEnforcerHook - see tests/test_token_budgets.py"
-    )
     @pytest.mark.asyncio
     @patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
     async def test_run_workflow_budget_exceeded(
         self, mock_get_agent: MagicMock, workflow_spec_parallel: Spec
     ) -> None:
         """Test workflow stops when budget exceeded."""
-        from strands_cli.exec.utils import ExecutionUtilsError
+        from strands_cli.exec.workflow import WorkflowExecutionError
+        from strands_cli.runtime.budget_enforcer import BudgetExceededError
 
         workflow_spec_parallel.runtime.budgets = {"max_tokens": 5}
 
-        mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(
-            return_value="Result with many tokens that exceeds budget"
+        budget_error = BudgetExceededError(
+            "Token budget exhausted",
+            cumulative_tokens=12,
+            max_tokens=5,
         )
+
+        mock_agent = MagicMock()
+        mock_agent.invoke_async = AsyncMock(side_effect=budget_error)
         mock_get_agent.return_value = mock_agent
 
-        with pytest.raises(ExecutionUtilsError, match="budget exceeded"):
+        with pytest.raises(WorkflowExecutionError) as exc_info:
             await run_workflow(workflow_spec_parallel, variables=None)
+
+        assert "Token budget exhausted" in str(exc_info.value)
 
 
 class TestWorkflowTemplateRendering:
