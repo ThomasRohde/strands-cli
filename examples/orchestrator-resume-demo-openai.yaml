@@ -21,10 +21,9 @@ runtime:
   budgets:
     max_tokens: 100000
     warn_threshold: 0.8
-  retries:
-    max_attempts: 3
-    wait_min: 1
-    wait_max: 10
+  failure_policy:
+    retries: 3
+    backoff: exponential
 
 inputs:
   values:
@@ -58,17 +57,10 @@ agents:
       Use clear structure with headings, bullet points, and actionable recommendations.
 
 pattern:
-  type: orchestrator-workers
+  type: orchestrator_workers
   config:
     orchestrator:
       agent: planner
-      input: |
-        Project: {{ project }}
-        
-        Break this project down into 3-5 concrete subtasks that can be executed independently.
-        Consider aspects like requirements, architecture, implementation, testing, and deployment.
-        
-        Return ONLY a JSON array of tasks.
       limits:
         max_workers: 3
         max_rounds: 1
@@ -114,7 +106,7 @@ pattern:
 outputs:
   artifacts:
     - path: orchestrator-project-plan.md
-      content: |
+      from: |
         # Project Plan: {{ project }}
         
         {{ last_response }}

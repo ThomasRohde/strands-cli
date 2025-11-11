@@ -1,6 +1,7 @@
 ---
 description: "General code review: analyze diffs and surrounding context; report findings by severity and propose safe patches. No edits."
 tools: ['search', 'usages', 'problems', 'changes', 'todos']
+model: GPT-5-Codex (Preview) (copilot)
 handoffs:
   - label: "Plan Fixes"
     agent: Plan

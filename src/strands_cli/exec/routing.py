@@ -661,6 +661,10 @@ async def run_routing(  # noqa: C901
                         # Parse router review response: "approved" or "route:<name>"
                         router_decision = session_state.pattern_state.get("router_decision", {})
                         original_route = router_decision.get("chosen_route")
+                        
+                        # CRITICAL: Restore router_response from session state
+                        # This ensures {{ router.response }} is available for artifact rendering
+                        router_response = router_decision.get("response", "")
 
                         if hitl_response.strip().lower() == "approved":
                             # User approved router decision
@@ -731,10 +735,17 @@ async def run_routing(  # noqa: C901
                 if session_state and session_state.pattern_state.get("router_executed"):
                     # Resume: router decision already made (non-HITL path)
                     chosen_route = session_state.pattern_state["chosen_route"]
+                    
+                    # CRITICAL: Restore router_response from session state
+                    # This ensures {{ router.response }} is available for artifact rendering
+                    router_decision_state = session_state.pattern_state.get("router_decision", {})
+                    router_response = router_decision_state.get("response", "")
+                    
                     logger.info(
                         "routing_router_restored",
                         route=chosen_route,
                         session_id=session_state.metadata.session_id,
+                        has_router_response=bool(router_response),
                     )
                     span.add_event(
                         "router_restored",
@@ -805,16 +816,16 @@ async def run_routing(  # noqa: C901
             # Inject router decision and response into context for route execution
             route_variables: dict[str, Any] = dict(variables) if variables else {}
 
-            # Get router response from session state if available (for resume scenarios)
-            router_response_text = ""
-            if session_state and session_state.pattern_state.get("router_decision"):
-                router_response_text = session_state.pattern_state["router_decision"].get("response", "")
-            elif "router_response" in locals():
-                router_response_text = router_response
+            # CRITICAL: Ensure router_response is always available for artifact rendering
+            # router_response is set in all execution paths:
+            # 1. Fresh execution: Set at line 603-619 after _execute_router_with_retry
+            # 2. HITL resume: Restored at line 667 from session_state.pattern_state["router_decision"]
+            # 3. Non-HITL resume: Restored at line 596 from session_state.pattern_state["router_decision"]
+            # This ensures {{ router.response }} always has the actual router reasoning
 
             route_variables["router"] = {
                 "chosen_route": chosen_route,
-                "response": router_response_text,
+                "response": router_response,  # Always available from above execution paths
             }
 
             # Build chain session state if resuming route

@@ -422,3 +422,119 @@ async def test_run_routing_preserves_user_variables(
     assert route_variables["user_id"] == "123"
     assert route_variables["router"]["chosen_route"] == "faq"
 
+
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@patch("strands_cli.exec.routing.run_chain")
+@pytest.mark.asyncio
+async def test_run_routing_router_response_in_artifacts(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
+):
+    """Test router.response is available for artifact rendering."""
+    # Router returns decision with reasoning
+    router_reasoning = "I chose the FAQ route because the query is straightforward and doesn't require deep research."
+    mock_agent.invoke_async = AsyncMock(
+        return_value=f'{{"route": "faq"}}\n\n{router_reasoning}'
+    )
+    mock_get_agent.return_value = mock_agent
+
+    chain_result = Mock()
+    chain_result.success = True
+    chain_result.last_response = "FAQ answered"
+    chain_result.duration = 1.0
+    chain_result.pattern_type = PatternType.CHAIN
+    chain_result.execution_context = {}
+    chain_result.variables = {}
+    mock_run_chain.return_value = chain_result
+
+    # Execute routing
+    result = await run_routing(minimal_routing_spec, variables={"query": "test"})
+
+    # Verify router context includes response text for artifacts
+    assert "router" in result.variables
+    assert result.variables["router"]["chosen_route"] == "faq"
+    assert result.variables["router"]["response"] != ""
+    assert "faq" in result.variables["router"]["response"]
+    
+    # Also verify route_variables passed to chain included response
+    route_variables = mock_run_chain.call_args[0][1]
+    assert "router" in route_variables
+    assert route_variables["router"]["response"] != ""
+
+
+@patch("strands_cli.exec.utils.AgentCache.get_or_build_agent")
+@patch("strands_cli.exec.routing.run_chain")
+@pytest.mark.asyncio
+async def test_run_routing_router_response_restored_from_session(
+    mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
+):
+    """Test router.response is correctly restored from session state on resume."""
+    from strands_cli.session import SessionMetadata, SessionState, SessionStatus
+    from strands_cli.session.file_repository import FileSessionRepository
+    from datetime import datetime, UTC
+
+    # Mock session state with router decision already saved
+    router_reasoning = "Selected FAQ route based on simple query pattern."
+    session_state = SessionState(
+        metadata=SessionMetadata(
+            session_id="test-session-123",
+            workflow_name="test-routing",
+            spec_hash="abc123",
+            pattern_type="routing",
+            status=SessionStatus.RUNNING,
+            created_at=datetime.now(UTC).isoformat(),
+            updated_at=datetime.now(UTC).isoformat(),
+        ),
+        variables={},
+        runtime_config={},
+        pattern_state={
+            "router_executed": True,
+            "chosen_route": "faq",
+            "router_decision": {
+                "chosen_route": "faq",
+                "response": router_reasoning,  # Router response saved in session
+            },
+            "route_state": {"current_step": 0, "step_history": []},
+        },
+        token_usage={},
+        artifacts_written=[],
+    )
+
+    # Mock session repository
+    session_repo = Mock(spec=FileSessionRepository)
+    session_repo.save = AsyncMock()
+
+    # Mock chain execution
+    chain_result = Mock()
+    chain_result.success = True
+    chain_result.last_response = "FAQ answered"
+    chain_result.duration = 1.0
+    chain_result.pattern_type = PatternType.CHAIN
+    chain_result.execution_context = {"steps": []}
+    chain_result.variables = {}
+    mock_run_chain.return_value = chain_result
+
+    mock_agent.invoke_async = AsyncMock()  # Router should NOT be called on resume
+    mock_get_agent.return_value = mock_agent
+
+    # Execute routing with resume
+    result = await run_routing(
+        minimal_routing_spec,
+        variables={"query": "test"},
+        session_state=session_state,
+        session_repo=session_repo,
+    )
+
+    # Verify router was NOT called (resumed from checkpoint)
+    assert not mock_agent.invoke_async.called
+
+    # Verify router context includes restored response
+    assert "router" in result.variables
+    assert result.variables["router"]["chosen_route"] == "faq"
+    assert result.variables["router"]["response"] == router_reasoning
+    
+    # Verify route_variables passed to chain included restored response
+    route_variables = mock_run_chain.call_args[0][1]
+    assert "router" in route_variables
+    assert route_variables["router"]["response"] == router_reasoning
+
+
