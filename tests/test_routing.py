@@ -178,6 +178,7 @@ async def test_run_routing_success(
     chain_result.duration = 1.5
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
+    chain_result.variables = {}
     mock_run_chain.return_value = chain_result
 
     # Execute routing
@@ -240,6 +241,7 @@ async def test_run_routing_retry_on_malformed_json(
     chain_result.duration = 2.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
+    chain_result.variables = {}
     mock_run_chain.return_value = chain_result
 
     # Execute routing
@@ -286,6 +288,7 @@ async def test_run_routing_multi_step_route(
     chain_result.duration = 3.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
+    chain_result.variables = {}
     mock_run_chain.return_value = chain_result
 
     result = await run_routing(minimal_routing_spec, variables={"query": "test"})
@@ -317,6 +320,7 @@ async def test_run_routing_template_context(
     chain_result.duration = 1.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
+    chain_result.variables = {}
     mock_run_chain.return_value = chain_result
 
     # Execute routing
@@ -406,6 +410,7 @@ async def test_run_routing_preserves_user_variables(
     chain_result.duration = 1.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
+    chain_result.variables = {}
     mock_run_chain.return_value = chain_result
 
     # Execute with custom variables
@@ -416,3 +421,4 @@ async def test_run_routing_preserves_user_variables(
     assert route_variables["query"] == "test"
     assert route_variables["user_id"] == "123"
     assert route_variables["router"]["chosen_route"] == "faq"
+

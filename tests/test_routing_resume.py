@@ -62,6 +62,7 @@ async def test_routing_fresh_execution_with_session(
     mock_result.execution_context = {"current_step": 1, "step_history": []}
     mock_result.pattern_type = "chain"
     mock_result.duration_seconds = 1.5
+    mock_result.variables = {}
     mock_chain.return_value = mock_result
 
     # Create session
@@ -155,6 +156,7 @@ async def test_routing_resume_after_router_decision(
     mock_result.execution_context = {"current_step": 2, "step_history": []}
     mock_result.pattern_type = "chain"
     mock_result.duration_seconds = 1.5
+    mock_result.variables = {}
     mock_chain.return_value = mock_result
 
     # Resume
@@ -211,6 +213,7 @@ async def test_routing_session_finalized_on_completion(
     mock_result.execution_context = {"current_step": 1, "step_history": []}
     mock_result.pattern_type = "chain"
     mock_result.duration_seconds = 1.5
+    mock_result.variables = {}
     mock_chain.return_value = mock_result
 
     # Execute
@@ -265,6 +268,7 @@ async def test_routing_token_accumulation(
     mock_result.execution_context = {"current_step": 1, "step_history": []}
     mock_result.pattern_type = "chain"
     mock_result.duration_seconds = 1.5
+    mock_result.variables = {}
     mock_chain.return_value = mock_result
 
     # Execute
@@ -309,3 +313,4 @@ async def test_routing_without_session_works(
     assert result.success is True
     assert mock_router.call_count == 1
     assert mock_chain.call_count == 1
+

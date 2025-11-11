@@ -168,7 +168,7 @@ class TestRouterReviewHITLResume:
         }
         routing_session_state.metadata.status = SessionStatus.PAUSED
 
-        variables = {"inquiry": "Test inquiry", "hitl_response": "approved"}
+        variables = {"inquiry": "Test inquiry"}
 
         # Mock route execution
         mock_chain_result = MagicMock()
@@ -176,6 +176,7 @@ class TestRouterReviewHITLResume:
         mock_chain_result.last_response = "Billing support response"
         mock_chain_result.execution_context = {"steps": []}
         mock_chain_result.duration_seconds = 1.5
+        mock_chain_result.variables = {}
 
         with (
             patch("strands_cli.exec.routing.run_chain", return_value=mock_chain_result),
@@ -191,6 +192,7 @@ class TestRouterReviewHITLResume:
                 variables,
                 routing_session_state,
                 mock_session_repo,
+                hitl_response="approved",
             )
 
             # Assert
@@ -224,7 +226,7 @@ class TestRouterReviewHITLResume:
         }
         routing_session_state.metadata.status = SessionStatus.PAUSED
 
-        variables = {"inquiry": "Test inquiry", "hitl_response": "route:technical"}
+        variables = {"inquiry": "Test inquiry"}
 
         # Mock route execution
         mock_chain_result = MagicMock()
@@ -232,6 +234,7 @@ class TestRouterReviewHITLResume:
         mock_chain_result.last_response = "Technical support response"
         mock_chain_result.execution_context = {"steps": []}
         mock_chain_result.duration_seconds = 1.5
+        mock_chain_result.variables = {}
 
         with (
             patch("strands_cli.exec.routing.run_chain", return_value=mock_chain_result),
@@ -247,6 +250,7 @@ class TestRouterReviewHITLResume:
                 variables,
                 routing_session_state,
                 mock_session_repo,
+                hitl_response="route:technical",
             )
 
             # Assert - Route should be overridden to 'technical'
@@ -276,7 +280,7 @@ class TestRouterReviewHITLResume:
         }
         routing_session_state.metadata.status = SessionStatus.PAUSED
 
-        variables = {"inquiry": "Test", "hitl_response": "invalid format"}
+        variables = {"inquiry": "Test"}
 
         with patch("strands_cli.exec.routing.AgentCache") as mock_cache_class:
             mock_cache = AsyncMock()
@@ -290,6 +294,7 @@ class TestRouterReviewHITLResume:
                     variables,
                     routing_session_state,
                     mock_session_repo,
+                    hitl_response="invalid format",
                 )
 
             assert "Invalid router review response" in str(exc_info.value)
@@ -315,7 +320,7 @@ class TestRouterReviewHITLResume:
         }
         routing_session_state.metadata.status = SessionStatus.PAUSED
 
-        variables = {"inquiry": "Test", "hitl_response": "route:nonexistent"}
+        variables = {"inquiry": "Test"}
 
         with patch("strands_cli.exec.routing.AgentCache") as mock_cache_class:
             mock_cache = AsyncMock()
@@ -329,6 +334,7 @@ class TestRouterReviewHITLResume:
                     variables,
                     routing_session_state,
                     mock_session_repo,
+                    hitl_response="route:nonexistent",
                 )
 
             assert "Invalid route" in str(exc_info.value)
@@ -432,7 +438,7 @@ class TestRouterContextInjection:
         }
         routing_session_state.metadata.status = SessionStatus.PAUSED
 
-        variables = {"inquiry": "Test", "hitl_response": "approved"}
+        variables = {"inquiry": "Test"}
 
         # Mock route execution to capture variables passed
         captured_variables = {}
@@ -444,6 +450,7 @@ class TestRouterContextInjection:
             result.last_response = "Response"
             result.execution_context = {"steps": []}
             result.duration_seconds = 1.0
+            result.variables = {}
             return result
 
         with (
@@ -460,9 +467,11 @@ class TestRouterContextInjection:
                 variables,
                 routing_session_state,
                 mock_session_repo,
+                hitl_response="approved",
             )
 
             # Assert - Router context should be in variables passed to route
             assert "router" in captured_variables
             assert captured_variables["router"]["chosen_route"] == "billing"
             assert "Payment issue" in captured_variables["router"]["response"]
+

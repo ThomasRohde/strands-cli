@@ -414,6 +414,7 @@ outputs:
         chain_result.duration_seconds = 1.0  # Fix: use duration_seconds, not duration
         chain_result.pattern_type = "CHAIN"
         chain_result.execution_context = {}
+        chain_result.variables = {}
         mock_run_chain.return_value = chain_result
 
         output_dir = tmp_path / "output"
