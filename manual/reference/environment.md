@@ -301,7 +301,7 @@ strands run workflow.yaml --trace
 
 ### `STRANDS_DEBUG`
 
-**Type**: `boolean`
+**Type**: `boolean` (runtime environment variable)
 **Default**: `false`
 **Description**: Enable debug mode (equivalent to `--debug` flag)
 
@@ -313,11 +313,13 @@ strands run workflow.yaml
 
 **Impact**: Enables verbose logging and additional diagnostics.
 
+**Note**: This variable is checked at runtime in `__main__.py` and is **not** part of the Pydantic Settings configuration. It's primarily used for CLI debugging rather than application configuration.
+
 ---
 
 ### `STRANDS_VERBOSE`
 
-**Type**: `boolean`
+**Type**: `boolean` (runtime environment variable)
 **Default**: `false`
 **Description**: Enable verbose output (equivalent to `--verbose` flag)
 
@@ -326,6 +328,8 @@ strands run workflow.yaml
 export STRANDS_VERBOSE=true
 strands run workflow.yaml
 ```
+
+**Note**: This variable is checked at runtime in `__main__.py` and is **not** part of the Pydantic Settings configuration. Use the `--verbose` CLI flag for most use cases.
 
 ---
 

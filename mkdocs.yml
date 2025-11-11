@@ -42,6 +42,7 @@ nav:
       - Quickstart (Bedrock): tutorials/quickstart-bedrock.md
       - Quickstart (OpenAI): tutorials/quickstart-openai.md
       - First Multi-Step Workflow: tutorials/first-multi-step.md
+      - Building Workflows with Code: tutorials/builder-api.md
   - Examples: reference/examples.md
   - Patterns:
       - Overview: explanation/patterns.md
@@ -80,6 +81,8 @@ nav:
       - Security: reference/security.md
       - API:
           - Overview: reference/api/index.md
+          - Python API: reference/api/python-api.md
+          - Builder API: reference/api/builders.md
           - Runtime: reference/api/runtime.md
           - Execution: reference/api/exec.md
           - Loader: reference/api/loader.md

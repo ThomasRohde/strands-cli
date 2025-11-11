@@ -270,6 +270,116 @@ Example workflows:
 
 ---
 
+## Builder API (Code-First Workflows)
+
+**New in v0.14.0-alpha**: Build workflows programmatically in Python without YAML!
+
+The **fluent builder API** provides type-safe, fail-fast workflow construction with full IDE autocomplete. Perfect for developers who prefer code over configuration.
+
+### Quick Example
+
+```python
+from strands_cli.api import FluentBuilder
+
+# Build workflow programmatically
+workflow = (
+    FluentBuilder("research-workflow")
+    .description("Three-step research with approval gates")
+    .runtime("openai", model="gpt-4o-mini", temperature=0.7)
+    .agent("researcher", "You are a thorough research assistant")
+    .agent("writer", "You are a technical writer")
+    .chain()
+    .step("researcher", "Research {{topic}} thoroughly")
+    .hitl("Review research. Type 'continue' to proceed.",
+          show="{{ steps[0].response }}")
+    .step("writer", "Write report based on: {{ steps[0].response }}")
+    .artifact("{{topic}}-report.md", "# {{topic}}\n\n{{ last_response }}")
+    .build()
+)
+
+# Execute workflow
+result = workflow.run_interactive(topic="AI safety")
+
+if result.success:
+    print(f"✓ Completed in {result.duration_seconds:.2f}s")
+    print(f"Output: {result.last_response}")
+```
+
+### Key Features
+
+✅ **Type-safe** - Full IDE autocomplete and type checking  
+✅ **Fail-fast** - Errors caught at build time with actionable messages  
+✅ **All 7 patterns** - Chain, Workflow, Parallel, Graph, Routing, Evaluator-Optimizer, Orchestrator-Workers  
+✅ **HITL integration** - Pattern-specific human-in-the-loop methods  
+✅ **Same execution** - Uses identical runtime as YAML workflows  
+
+### Supported Patterns
+
+```python
+# Chain pattern
+.chain().step("agent", "input").hitl("prompt").build()
+
+# Workflow pattern (DAG)
+.workflow().task("id", "agent", "input", depends_on=["task1"]).build()
+
+# Parallel pattern
+.parallel().branch("id").step("agent", "input").done().reduce("agent", "input").build()
+
+# Graph pattern
+.graph().node("id", "agent", "input").edge("from", "to").build()
+
+# Routing pattern
+.routing().router("agent", "input").route("id").step("agent", "input").done().build()
+
+# Evaluator-Optimizer pattern
+.evaluator_optimizer().producer("agent", "input").evaluator("agent", "input").accept(min_score=8).build()
+
+# Orchestrator-Workers pattern
+.orchestrator_workers().orchestrator("agent", "input").worker_template("agent").reduce_step("agent", "input").build()
+```
+
+### Migration from YAML
+
+**YAML:**
+```yaml
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+agents:
+  researcher:
+    prompt: "You are a researcher"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: "Research {{topic}}"
+```
+
+**Builder API:**
+```python
+workflow = (
+    FluentBuilder("research")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("researcher", "You are a researcher")
+    .chain()
+    .step("researcher", "Research {{topic}}")
+    .build()
+)
+```
+
+### Examples
+
+See `examples/api/` directory:
+- `01_interactive_hitl.py` - Basic interactive workflow
+- `02_chain_builder.py` - Chain pattern with builder API
+- `03_async_execution.py` - Async workflow execution
+- `04_custom_hitl_handler.py` - Custom HITL logic
+
+**📖 See [Builder API Tutorial](manual/tutorials/builder-api.md) and [API Reference](manual/reference/api/builders.md) for complete documentation.**
+
+---
+
 ## Durable Execution (Session Resume)
 
 Strands CLI supports **session persistence** for crash recovery and long-running workflows. When enabled (default), workflows automatically checkpoint their state, allowing you to resume from the last completed step.

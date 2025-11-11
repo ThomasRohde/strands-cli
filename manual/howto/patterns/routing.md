@@ -20,65 +20,106 @@ Use the Routing pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-router
-description: Route tasks to appropriate specialists
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
+    ```yaml
+    version: 0
+    name: simple-router
+    description: Route tasks to appropriate specialists
 
-inputs:
-  task:
-    type: string
-    description: "Task description"
-    default: "Write a Python function to sort a list"
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
 
-agents:
-  - id: classifier
-    system: |
-      You are a task classifier. Analyze tasks and determine their type.
-      Respond with ONLY valid JSON: {"route": "<route_name>"}
+    inputs:
+      task:
+        type: string
+        description: "Task description"
+        default: "Write a Python function to sort a list"
 
-  - id: coder
-    system: "You are an expert programmer. Write clean, documented code."
+    agents:
+      - id: classifier
+        system: |
+          You are a task classifier. Analyze tasks and determine their type.
+          Respond with ONLY valid JSON: {"route": "<route_name>"}
 
-  - id: writer
-    system: "You are a technical writer. Create clear documentation."
+      - id: coder
+        system: "You are an expert programmer. Write clean, documented code."
 
-  - id: researcher
-    system: "You are a researcher. Provide comprehensive information."
+      - id: writer
+        system: "You are a technical writer. Create clear documentation."
 
-pattern:
-  type: routing
-  config:
-    router:
-      agent: classifier
-      input: |
-        Task: {{ task }}
+      - id: researcher
+        system: "You are a researcher. Provide comprehensive information."
 
-        Classify as: coding, writing, or research
-      max_retries: 3
+    pattern:
+      type: routing
+      config:
+        router:
+          agent: classifier
+          input: |
+            Task: {{ task }}
 
-    routes:
-      coding:
-        then:
-          - agent: coder
-            input: |
-              Task: {{ task }}
+            Classify as: coding, writing, or research
+          max_retries: 3
 
-              Implement with code examples and explanations.
+        routes:
+          coding:
+            then:
+              - agent: coder
+                input: |
+                  Task: {{ task }}
 
-      writing:
-        then:
-          - agent: writer
-            input: |
-              Task: {{ task }}
+                  Implement with code examples and explanations.
 
-              Create well-structured content.
+          writing:
+            then:
+              - agent: writer
+                input: |
+                  Task: {{ task }}
 
-      research:
+                  Create well-structured content.
+
+          research:
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-router")
+        .description("Route tasks to appropriate specialists")
+        .runtime("bedrock",
+                 model="anthropic.claude-3-sonnet-20240229-v1:0")
+        .agent("classifier",
+               """You are a task classifier. Analyze tasks and determine their type.
+               Respond with ONLY valid JSON: {"route": "<route_name>"}""")
+        .agent("coder",
+               "You are an expert programmer. Write clean, documented code.")
+        .agent("writer",
+               "You are a technical writer. Create clear documentation.")
+        .agent("researcher",
+               "You are a researcher. Provide comprehensive information.")
+        .routing()
+        .router("classifier",
+                """Task: {{ task }}
+                
+                Classify as: coding, writing, or research""")
+        .route("coding")
+            .step("coder",
+                  """Task: {{ task }}
+                  
+                  Implement with code examples and explanations.""")
+            .done()
+        .route("writing")
+            .step("writer",
+                  """Task: {{ task }}
+                  
+                  Create well-structured content.""")
+            .done()
+        .route("research")
         then:
           - agent: researcher
             input: |

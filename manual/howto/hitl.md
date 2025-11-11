@@ -769,26 +769,25 @@ uv run strands run --resume abc123 --hitl-response ""
 
 ---
 
-## Phase 2 Status
+## Implementation Status
 
-✅ **Implemented:**
-- HITL step type in chain, workflow, parallel, and graph patterns
+✅ **Fully Implemented (All Patterns):**
+- HITL step type in **all 7 patterns**: chain, workflow, parallel, routing, evaluator-optimizer, orchestrator-workers, and graph
+- HITL review gates for orchestrator-workers (decomposition_review, reduce_review)
 - Automatic session pause on HITL step
 - Exit code 19 (EX_HITL_PAUSE)
-- CLI flags: `--hitl-response`
-- Template access: Pattern-specific (`{{ steps[n].response }}`, `{{ nodes.<id>.response }}`, etc.)
-- Context display with templates
+- Timeout enforcement with auto-resume using default response
+- CLI flags: `--hitl-response`, `--auto-resume`
+- Template access: Pattern-specific (`{{ steps[n].response }}`, `{{ nodes.<id>.response }}`, `{{ workers }}`, etc.)
+- Context display with Jinja2 templates
 - Session integration (save/resume)
 - Multi-pattern support with conditional routing (graph)
 - Example workflows for all supported patterns
 
-🔜 **Coming in Phase 3:**
-- Timeout enforcement
+🔜 **Coming in Future Releases:**
 - Response validation with regex patterns
-- Conditional HITL skipping
-- Interactive CLI mode (inline prompts)
-
-🔜 **Coming in Phase 4:**
+- Conditional HITL skipping based on criteria
+- Interactive CLI mode (inline prompts without resume)
 - Programmatic API for custom handlers
 - Multi-user approval workflows
 - HITL history and audit trails

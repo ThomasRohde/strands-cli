@@ -20,46 +20,80 @@ Use the Chain pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-chain
-description: Three-step research workflow
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
+    ```yaml
+    version: 0
+    name: simple-chain
+    description: Three-step research workflow
 
-agents:
-  - id: researcher
-    system: "You are a research assistant providing factual information."
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
 
-pattern:
-  type: chain
-  config:
-    steps:
-      - agent_id: researcher
-        prompt: "Research the topic: {{ topic }}. List 3-5 key points."
+    agents:
+      - id: researcher
+        system: "You are a research assistant providing factual information."
 
-      - agent_id: researcher
-        prompt: |
-          Based on this research:
-          {{ steps[0].response }}
+    pattern:
+      type: chain
+      config:
+        steps:
+          - agent_id: researcher
+            prompt: "Research the topic: {{ topic }}. List 3-5 key points."
 
-          Analyze the most important point in detail.
+          - agent_id: researcher
+            prompt: |
+              Based on this research:
+              {{ steps[0].response }}
 
-      - agent_id: researcher
-        prompt: |
-          Previous research: {{ steps[0].response }}
-          Analysis: {{ steps[1].response }}
+              Analyze the most important point in detail.
 
-          Write a 2-paragraph summary combining both insights.
+          - agent_id: researcher
+            prompt: |
+              Previous research: {{ steps[0].response }}
+              Analysis: {{ steps[1].response }}
 
-inputs:
-  topic:
-    type: string
-    description: "Research topic"
-    default: "artificial intelligence"
-```
+              Write a 2-paragraph summary combining both insights.
+
+    inputs:
+      topic:
+        type: string
+        description: "Research topic"
+        default: "artificial intelligence"
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-chain")
+        .description("Three-step research workflow")
+        .runtime("bedrock", 
+                 model="anthropic.claude-3-sonnet-20240229-v1:0")
+        .agent("researcher", 
+               "You are a research assistant providing factual information.")
+        .chain()
+        .step("researcher", "Research the topic: {{ topic }}. List 3-5 key points.")
+        .step("researcher", 
+              """Based on this research:
+              {{ steps[0].response }}
+              
+              Analyze the most important point in detail.""")
+        .step("researcher",
+              """Previous research: {{ steps[0].response }}
+              Analysis: {{ steps[1].response }}
+              
+              Write a 2-paragraph summary combining both insights.""")
+        .build()
+    )
+
+    # Execute with topic variable
+    result = workflow.run_interactive(topic="artificial intelligence")
+    print(result.last_response)
+    ```
 
 ## Accessing Step Results
 
@@ -136,29 +170,104 @@ pattern:
 
 You can use different agents for different steps:
 
-```yaml
-agents:
-  - id: researcher
-    system: "You research topics thoroughly and cite sources."
+=== "YAML"
 
-  - id: analyst
-    system: "You analyze data and identify patterns."
+    ```yaml
+    agents:
+      - id: researcher
+        system: "You research topics thoroughly and cite sources."
 
-  - id: writer
-    system: "You write clear, engaging content."
+      - id: analyst
+        system: "You analyze data and identify patterns."
 
-pattern:
-  type: chain
-  config:
-    steps:
-      - agent_id: researcher
-        prompt: "Research {{ topic }}"
+      - id: writer
+        system: "You write clear, engaging content."
 
-      - agent_id: analyst
-        prompt: "Analyze: {{ last_response }}"
+    pattern:
+      type: chain
+      config:
+        steps:
+          - agent_id: researcher
+            prompt: "Research {{ topic }}"
 
-      - agent_id: writer
-        prompt: "Write a report based on: {{ last_response }}"
+          - agent_id: analyst
+            prompt: "Analyze: {{ last_response }}"
+
+          - agent_id: writer
+            prompt: "Write a report based on: {{ last_response }}"
+    ```
+
+=== "Builder API"
+
+    ```python
+    workflow = (
+        FluentBuilder("multi-agent-chain")
+        .runtime("openai", model="gpt-4o-mini")
+        .agent("researcher", "You research topics thoroughly and cite sources.")
+        .agent("analyst", "You analyze data and identify patterns.")
+        .agent("writer", "You write clear, engaging content.")
+        .chain()
+        .step("researcher", "Research {{ topic }}")
+        .step("analyst", "Analyze: {{ last_response }}")
+        .step("writer", "Write a report based on: {{ last_response }}")
+        .build()
+    )
+    ```
+
+## Human-in-the-Loop (HITL)
+
+Add approval gates or manual review steps in your chain:
+
+=== "YAML"
+
+    ```yaml
+    pattern:
+      type: chain
+      config:
+        steps:
+          - agent_id: researcher
+            prompt: "Research {{ topic }}"
+          
+          - type: hitl
+            prompt: "Review the research above. Type 'continue' to proceed."
+            show: "{{ steps[0].response }}"
+          
+          - agent_id: writer
+            prompt: "Write article based on: {{ steps[0].response }}"
+    ```
+
+=== "Builder API"
+
+    ```python
+    workflow = (
+        FluentBuilder("chain-with-approval")
+        .runtime("openai", model="gpt-4o-mini")
+        .agent("researcher", "You are a researcher")
+        .agent("writer", "You are a writer")
+        .chain()
+        .step("researcher", "Research {{ topic }}")
+        .hitl("Review the research above. Type 'continue' to proceed.",
+              show="{{ steps[0].response }}")
+        .step("writer", "Write article based on: {{ steps[0].response }}")
+        .build()
+    )
+    
+    # Run interactively (prompts in terminal)
+    result = workflow.run_interactive(topic="AI")
+    ```
+
+**HITL Methods:**
+
+- `.hitl(prompt, show=None, default=None)` - Add approval gate
+- `show` - Context to display to user (template)
+- `default` - Default response if user just presses Enter
+
+**Example with default:**
+
+```python
+.hitl("Approve research to continue?", 
+      show="{{ steps[0].response }}",
+      default="approved")
 ```
 
 ## Advanced Features
@@ -485,6 +594,45 @@ Complete examples in the repository:
 - `examples/single-agent-chain-bedrock.yaml` - Bedrock provider
 - `examples/single-agent-chain-ollama.yaml` - Ollama provider
 - `examples/single-agent-chain-openai.yaml` - OpenAI provider
+- `examples/api/02_chain_builder.py` - Builder API example
+
+## Builder API Quick Reference
+
+```python
+from strands_cli.api import FluentBuilder
+
+# Create chain workflow
+workflow = (
+    FluentBuilder("workflow-name")
+    .description("Optional description")
+    .runtime("openai", model="gpt-4o-mini", temperature=0.7)
+    .agent("agent-id", "System prompt", tools=["python"])
+    .chain()
+    .step("agent-id", "Input template {{ var }}")
+    .step("agent-id", "Next step: {{ steps[0].response }}")
+    .hitl("Review step?", show="{{ last_response }}")
+    .step("agent-id", "Final step: {{ steps[1].response }}")
+    .artifact("output.md", "{{ last_response }}")
+    .build()
+)
+
+# Execute
+result = workflow.run_interactive(var="value")
+
+# Access results
+print(result.last_response)
+print(result.artifacts_written)
+```
+
+**Key Methods:**
+
+- `.chain()` - Start building chain pattern
+- `.step(agent, input, vars=None, tool_overrides=None)` - Add agent step
+- `.hitl(prompt, show=None, default=None)` - Add HITL pause point
+- `.artifact(path, template)` - Define output artifact
+- `.build()` - Validate and create workflow
+
+**See:** [Builder API Tutorial](../../tutorials/builder-api.md) for complete guide
 
 ## See Also
 
@@ -493,3 +641,5 @@ Complete examples in the repository:
 - [Graph Pattern](graph.md) - For conditional control flow
 - [Run Workflows](../run-workflows.md) - Execution guide
 - [Context Management](../context-management.md) - Managing chain context
+- [Builder API Tutorial](../../tutorials/builder-api.md) - Programmatic workflow construction
+- [Builder API Reference](../../reference/api/builders.md) - Complete API documentation

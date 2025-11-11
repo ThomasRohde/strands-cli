@@ -20,66 +20,111 @@ Use the Workflow pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-workflow
-description: DAG-based research workflow
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
-  max_parallel: 2  # Run up to 2 tasks concurrently
+    ```yaml
+    version: 0
+    name: simple-workflow
+    description: DAG-based research workflow
 
-agents:
-  - id: researcher
-    system: "You are a research assistant providing factual information."
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
+      max_parallel: 2  # Run up to 2 tasks concurrently
 
-pattern:
-  type: workflow
-  config:
-    tasks:
-      # Root task - no dependencies
-      - id: overview
-        agent: researcher
-        description: "Get high-level overview"
-        input: "Provide a brief overview of {{ topic }}"
+    agents:
+      - id: researcher
+        system: "You are a research assistant providing factual information."
 
-      # Parallel tasks - both depend on overview
-      - id: technical
-        agent: researcher
-        deps: [overview]
-        description: "Research technical aspects"
-        input: |
-          Overview: {{ tasks.overview.response }}
+    pattern:
+      type: workflow
+      config:
+        tasks:
+          # Root task - no dependencies
+          - id: overview
+            agent: researcher
+            description: "Get high-level overview"
+            input: "Provide a brief overview of {{ topic }}"
 
-          Research the technical details of {{ topic }}
+          # Parallel tasks - both depend on overview
+          - id: technical
+            agent: researcher
+            deps: [overview]
+            description: "Research technical aspects"
+            input: |
+              Overview: {{ tasks.overview.response }}
 
-      - id: business
-        agent: researcher
-        deps: [overview]
-        description: "Research business aspects"
-        input: |
-          Overview: {{ tasks.overview.response }}
+              Research the technical details of {{ topic }}
 
-          Research the business implications of {{ topic }}
+          - id: business
+            agent: researcher
+            deps: [overview]
+            description: "Research business aspects"
+            input: |
+              Overview: {{ tasks.overview.response }}
 
-      # Final task - depends on both parallel tasks
-      - id: synthesis
-        agent: researcher
-        deps: [technical, business]
-        description: "Synthesize findings"
-        input: |
-          Technical: {{ tasks.technical.response }}
-          Business: {{ tasks.business.response }}
+              Research the business implications of {{ topic }}
 
-          Write a comprehensive report.
+          # Final task - depends on both parallel tasks
+          - id: synthesis
+            agent: researcher
+            deps: [technical, business]
+            description: "Synthesize findings"
+            input: |
+              Technical: {{ tasks.technical.response }}
+              Business: {{ tasks.business.response }}
 
-inputs:
-  topic:
-    type: string
-    description: "Research topic"
-    default: "artificial intelligence"
-```
+              Write a comprehensive report.
+
+    inputs:
+      topic:
+        type: string
+        description: "Research topic"
+        default: "artificial intelligence"
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-workflow")
+        .description("DAG-based research workflow")
+        .runtime("bedrock",
+                 model="anthropic.claude-3-sonnet-20240229-v1:0",
+                 max_parallel=2)
+        .agent("researcher",
+               "You are a research assistant providing factual information.")
+        .workflow()
+        # Root task - no dependencies
+        .task("overview", "researcher",
+              "Provide a brief overview of {{ topic }}")
+        # Parallel tasks - both depend on overview
+        .task("technical", "researcher",
+              """Overview: {{ tasks.overview.response }}
+              
+              Research the technical details of {{ topic }}""",
+              depends_on=["overview"])
+        .task("business", "researcher",
+              """Overview: {{ tasks.overview.response }}
+              
+              Research the business implications of {{ topic }}""",
+              depends_on=["overview"])
+        # Final task - depends on both parallel tasks
+        .task("synthesis", "researcher",
+              """Technical: {{ tasks.technical.response }}
+              Business: {{ tasks.business.response }}
+              
+              Write a comprehensive report.""",
+              depends_on=["technical", "business"])
+        .build()
+    )
+
+    # Execute with topic variable
+    result = workflow.run_interactive(topic="artificial intelligence")
+    print(result.last_response)
+    ```
 
 ## Task Dependencies
 

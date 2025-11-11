@@ -21,55 +21,88 @@ Use the Graph pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-graph
-description: Basic graph with conditional routing
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
+    ```yaml
+    version: 0
+    name: simple-graph
+    description: Basic graph with conditional routing
 
-agents:
-  - id: classifier
-    system: "You classify input and provide category in your response."
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
 
-  - id: handler_a
-    system: "You handle category A requests."
+    agents:
+      - id: classifier
+        system: "You classify input and provide category in your response."
 
-  - id: handler_b
-    system: "You handle category B requests."
+      - id: handler_a
+        system: "You handle category A requests."
 
-pattern:
-  type: graph
-  config:
-    max_iterations: 5  # Prevent infinite loops
+      - id: handler_b
+        system: "You handle category B requests."
 
-    nodes:
-      classify:
-        agent: classifier
-        input: "Classify this request: {{ request }}"
+    pattern:
+      type: graph
+      config:
+        max_iterations: 5  # Prevent infinite loops
 
-      handle_a:
-        agent: handler_a
+        nodes:
+          classify:
+            agent: classifier
+            input: "Classify this request: {{ request }}"
 
-      handle_b:
-        agent: handler_b
+          handle_a:
+            agent: handler_a
 
-    edges:
-      - from: classify
-        choose:
-          - when: "{{ 'category a' in nodes.classify.response.lower() }}"
-            to: handle_a
-          - when: "{{ 'category b' in nodes.classify.response.lower() }}"
-            to: handle_b
+          handle_b:
+            agent: handler_b
 
-inputs:
-  request:
-    type: string
-    description: "User request"
-    default: "I need help with category A"
-```
+        edges:
+          - from: classify
+            choose:
+              - when: "{{ 'category a' in nodes.classify.response.lower() }}"
+                to: handle_a
+              - when: "{{ 'category b' in nodes.classify.response.lower() }}"
+                to: handle_b
+
+    inputs:
+      request:
+        type: string
+        description: "User request"
+        default: "I need help with category A"
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-graph")
+        .description("Basic graph with conditional routing")
+        .runtime("bedrock",
+                 model="anthropic.claude-3-sonnet-20240229-v1:0")
+        .agent("classifier",
+               "You classify input and provide category in your response.")
+        .agent("handler_a", "You handle category A requests.")
+        .agent("handler_b", "You handle category B requests.")
+        .graph()
+        .node("classify", "classifier",
+              "Classify this request: {{ request }}")
+        .node("handle_a", "handler_a", None)
+        .node("handle_b", "handler_b", None)
+        .conditional_edge("classify", "handle_a",
+                         when="{{ 'category a' in nodes.classify.response.lower() }}")
+        .conditional_edge("classify", "handle_b",
+                         when="{{ 'category b' in nodes.classify.response.lower() }}")
+        .build()
+    )
+
+    # Execute with request variable
+    result = workflow.run_interactive(request="I need help with category A")
+    print(result.last_response)
+    ```
 
 ## Graph Components
 

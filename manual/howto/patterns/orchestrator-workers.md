@@ -15,49 +15,85 @@ Use the Orchestrator-Workers pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-orchestrator
-description: Research swarm with dynamic task delegation
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
+    ```yaml
+    version: 0
+    name: simple-orchestrator
+    description: Research swarm with dynamic task delegation
 
-agents:
-  - id: orchestrator
-    system: |
-      You break down research topics into specific subtasks.
-      Respond with JSON array: [{"task": "subtask 1"}, {"task": "subtask 2"}]
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
 
-  - id: researcher
-    system: "You are a research specialist. Conduct thorough research."
+    agents:
+      - id: orchestrator
+        system: |
+          You break down research topics into specific subtasks.
+          Respond with JSON array: [{"task": "subtask 1"}, {"task": "subtask 2"}]
 
-  - id: synthesizer
-    system: "You aggregate research from multiple sources."
+      - id: researcher
+        system: "You are a research specialist. Conduct thorough research."
 
-pattern:
-  type: orchestrator_workers
-  config:
-    orchestrator:
-      agent: orchestrator
-      limits:
-        max_workers: 3
-        max_rounds: 1
+      - id: synthesizer
+        system: "You aggregate research from multiple sources."
 
-    worker_template:
-      agent: researcher
+    pattern:
+      type: orchestrator_workers
+      config:
+        orchestrator:
+          agent: orchestrator
+          limits:
+            max_workers: 3
+            max_rounds: 1
 
-    reduce:
-      agent: synthesizer
-      input: "Aggregate findings from all workers"
+        worker_template:
+          agent: researcher
 
-inputs:
-  topic:
-    type: string
-    description: "Research topic"
-    default: "artificial intelligence"
-```
+        reduce:
+          agent: synthesizer
+          input: "Aggregate findings from all workers"
+
+    inputs:
+      topic:
+        type: string
+        description: "Research topic"
+        default: "artificial intelligence"
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-orchestrator")
+        .description("Research swarm with dynamic task delegation")
+        .runtime("bedrock",
+                 model="anthropic.claude-3-sonnet-20240229-v1:0")
+        .agent("orchestrator",
+               """You break down research topics into specific subtasks.
+               Respond with JSON array: [{"task": "subtask 1"}, {"task": "subtask 2"}]""")
+        .agent("researcher",
+               "You are a research specialist. Conduct thorough research.")
+        .agent("synthesizer",
+               "You aggregate research from multiple sources.")
+        .orchestrator_workers()
+        .orchestrator("orchestrator", "Break down research on {{ topic }}")
+        .limits(max_workers=3, timeout_per_worker=300)
+        .worker_template("researcher")
+        .reduce_step("synthesizer",
+                     """Aggregate findings from all workers:
+                     {% for result in workers %}
+                     - {{ result }}
+                     {% endfor %}""")
+        .build()
+    )
+
+    # Execute with topic variable
+    result = workflow.run_interactive(topic="artificial intelligence")
+    print(result.last_response)
+    ```
 
 ## Pattern Components
 

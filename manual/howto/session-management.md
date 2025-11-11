@@ -222,44 +222,56 @@ uv run strands run --resume abc123
 
 ## Supported Patterns
 
-### Phase 2 (Current)
+All 7 workflow patterns fully support session management and crash recovery:
 
-- ✅ **Chain**: Resume from any step
-  - Skips completed steps
-  - Restores step outputs in template context: `{{ steps[n].response }}`
-  - Preserves agent conversation history
+### ✅ Chain Pattern
 
-### Phase 3 (Planned)
+- Resume from any step
+- Skips completed steps
+- Restores step outputs in template context: `{{ steps[n].response }}`
+- Preserves agent conversation history
 
-- 🔜 **Workflow**: Multi-task DAG resume
-  - Tracks completed vs pending tasks
-  - Restores task outputs: `{{ tasks.<id>.response }}`
-  - Resolves dependencies on resume
+### ✅ Workflow Pattern
 
-- 🔜 **Parallel**: Branch completion tracking
-  - Skips completed branches
-  - Re-executes failed branches
-  - Restores reduce step state
+- Multi-task DAG resume
+- Tracks completed vs pending tasks
+- Restores task outputs: `{{ tasks.<id>.response }}`
+- Resolves dependencies on resume
 
-- 🔜 **Routing**: Router decision preservation
-  - Caches router agent choice
-  - Skips router execution on resume
-  - Continues with selected agent
+### ✅ Parallel Pattern
 
-- 🔜 **Evaluator-Optimizer**: Iteration state restoration
-  - Preserves iteration history
-  - Continues from last iteration
-  - Maintains quality gate state
+- Branch completion tracking
+- Skips completed branches
+- Re-executes failed branches
+- Restores reduce step state
 
-- 🔜 **Orchestrator-Workers**: Round state tracking
-  - Tracks completed rounds
-  - Restores worker outputs
-  - Preserves orchestrator decisions
+### ✅ Routing Pattern
 
-- 🔜 **Graph**: Node history and cycle detection
-  - Restores node transition history
-  - Preserves iteration counts
-  - Continues from current node
+- Router decision preservation
+- Caches router agent choice
+- Skips router execution on resume
+- Continues with selected agent
+
+### ✅ Evaluator-Optimizer Pattern
+
+- Iteration state restoration
+- Preserves iteration history
+- Continues from last iteration
+- Maintains quality gate state
+
+### ✅ Orchestrator-Workers Pattern
+
+- Round state tracking
+- Tracks completed rounds
+- Restores worker outputs
+- Preserves orchestrator decisions
+
+### ✅ Graph Pattern
+
+- Node history and cycle detection
+- Restores node transition history
+- Preserves iteration counts
+- Continues from current node
 
 ---
 

@@ -1,15 +1,40 @@
 """Strands Python API - First-class programmatic interface.
 
-Example:
+Example (from file):
     >>> from strands import Workflow
     >>> workflow = Workflow.from_file("workflow.yaml")
     >>> result = workflow.run_interactive(topic="AI")
     >>> print(result.last_response)
+
+Example (builder API):
+    >>> from strands import FluentBuilder
+    >>> workflow = (
+    ...     FluentBuilder("research")
+    ...     .runtime("openai", model="gpt-4o-mini")
+    ...     .agent("researcher", "You are a research assistant")
+    ...     .chain()
+    ...         .step("researcher", "Research: {{topic}}")
+    ...         .step("researcher", "Analyze: {{ steps[0].response }}")
+    ...     .artifact("report.md", "{{ last_response }}")
+    ...     .build()
+    ... )
+    >>> result = workflow.run_interactive(topic="AI")
 """
 
 from pathlib import Path
 from typing import Any
 
+from strands_cli.api.builders import (
+    ChainBuilder,
+    EvaluatorOptimizerBuilder,
+    FluentBuilder,
+    GraphBuilder,
+    OrchestratorWorkersBuilder,
+    ParallelBuilder,
+    RoutingBuilder,
+    WorkflowBuilder,
+)
+from strands_cli.api.exceptions import BuildError
 from strands_cli.api.execution import WorkflowExecutor
 from strands_cli.loader import load_spec
 from strands_cli.types import RunResult, Spec
@@ -121,5 +146,16 @@ class Workflow:
         return await executor.run(variables)
 
 
-# Re-export for convenience
-__all__ = ["Workflow"]
+__all__ = [
+    "BuildError",
+    "ChainBuilder",
+    "EvaluatorOptimizerBuilder",
+    "FluentBuilder",
+    "GraphBuilder",
+    "OrchestratorWorkersBuilder",
+    "ParallelBuilder",
+    "RoutingBuilder",
+    "Workflow",
+    "WorkflowBuilder",
+]
+

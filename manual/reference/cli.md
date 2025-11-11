@@ -57,13 +57,13 @@ strands run [OPTIONS] SPEC_FILE
 - `--var KEY=VALUE` - Override template variables (can be used multiple times)
 - `--out TEXT` - Output directory for artifacts (default: `./artifacts`)
 - `--force` - Force overwrite existing artifact files
-- `--bypass-tool-consent` - Skip interactive tool confirmations (e.g., file_write prompts)
+- `--bypass-tool-consent` - Skip interactive tool confirmations (e.g., file_write prompts). Sets `BYPASS_TOOL_CONSENT=true` for the workflow execution. Useful for CI/CD automation where human approval isn't available.
 - `--trace` - Auto-generate trace artifact with OTEL spans (writes `<spec-name>-trace.json`)
 - `--debug` - Enable debug logging (variable resolution, templates, etc.)
 - `--verbose` - Enable detailed logging and error traces
 - `--resume SESSION_ID` - Resume workflow from saved session (mutually exclusive with SPEC_FILE)
 - `--save-session / --no-save-session` - Enable/disable session saving (default: enabled)
-- `--auto-resume` - Auto-resume from most recent failed/paused session if spec matches
+- `--auto-resume` - Auto-resume from most recent failed/paused session if spec matches. Automatically finds and resumes the most recent session with matching spec hash, eliminating need to manually specify session ID.
 - `--hitl-response TEXT` - User response when resuming from HITL pause (requires `--resume`)
 
 **Examples**:
@@ -74,6 +74,9 @@ strands run workflow.yaml
 
 # Resume from saved session
 strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+# Auto-resume from most recent failed/paused session
+strands run workflow.yaml --auto-resume
 
 # Disable session saving
 strands run workflow.yaml --no-save-session
@@ -87,8 +90,8 @@ strands run workflow.yaml --out ./output
 # Enable debugging and tracing
 strands run workflow.yaml --debug --verbose --trace
 
-# JSON output format
-strands run workflow.yaml --format json
+# Skip tool consent prompts for CI/CD
+strands run workflow.yaml --bypass-tool-consent
 ```
 
 **Session Output**:
@@ -400,6 +403,49 @@ strands sessions delete a1b2c3d4-e5f6-7890-abcd-ef1234567890 --force
 
 - `0` - Success (session deleted)
 - `2` - Invalid usage (session not found)
+
+---
+
+#### sessions cleanup
+
+Clean up expired workflow sessions to prevent storage bloat.
+
+```bash
+strands sessions cleanup [OPTIONS]
+```
+
+**Options**:
+
+- `--max-age-days INTEGER` - Delete sessions older than this many days (default: 7)
+- `--keep-completed / --no-keep-completed` - Keep completed sessions regardless of age (default: true)
+- `--force` - Skip confirmation prompt
+
+**Examples**:
+
+```bash
+# Delete failed/paused sessions older than 7 days (keeps completed)
+strands sessions cleanup
+
+# Delete all sessions older than 30 days
+strands sessions cleanup --max-age-days 30
+
+# Delete everything including completed sessions
+strands sessions cleanup --max-age-days 7 --no-keep-completed
+
+# Delete without confirmation
+strands sessions cleanup --force
+```
+
+**Behavior**:
+
+- By default, keeps completed sessions for audit purposes
+- Only removes failed, paused, or running sessions older than the specified age
+- Use `--no-keep-completed` to remove all old sessions regardless of status
+
+**Exit Codes**:
+
+- `0` - Success (cleanup completed)
+- `2` - Invalid usage
 
 ---
 

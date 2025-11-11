@@ -1,8 +1,8 @@
 """Workflow execution engine with HITL support."""
 
-from collections.abc import Callable
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Any
 
 from strands_cli.api.handlers import terminal_hitl_handler

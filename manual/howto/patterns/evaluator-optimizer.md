@@ -14,47 +14,86 @@ Use the Evaluator-Optimizer pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-evaluator-optimizer
-description: Iterative content refinement
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
+    ```yaml
+    version: 0
+    name: simple-evaluator-optimizer
+    description: Iterative content refinement
 
-agents:
-  - id: writer
-    system: "You are an expert writer. Create clear, engaging content."
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
 
-  - id: critic
-    system: |
-      You are a critical editor. Evaluate content quality.
-      Respond with JSON: {"score": 0-100, "issues": [...], "fixes": [...]}
+    agents:
+      - id: writer
+        system: "You are an expert writer. Create clear, engaging content."
 
-pattern:
-  type: evaluator_optimizer
-  config:
-    producer: writer
+      - id: critic
+        system: |
+          You are a critical editor. Evaluate content quality.
+          Respond with JSON: {"score": 0-100, "issues": [...], "fixes": [...]}
 
-    evaluator:
-      agent: critic
-      input: |
-        Evaluate this draft:
-        {{ draft }}
+    pattern:
+      type: evaluator_optimizer
+      config:
+        producer: writer
 
-        Return JSON with score (0-100), issues array, and fixes array.
+        evaluator:
+          agent: critic
+          input: |
+            Evaluate this draft:
+            {{ draft }}
 
-    accept:
-      min_score: 85
-      max_iters: 3
+            Return JSON with score (0-100), issues array, and fixes array.
 
-inputs:
-  topic:
-    type: string
-    description: "Content topic"
-    default: "artificial intelligence"
-```
+        accept:
+          min_score: 85
+          max_iters: 3
+
+    inputs:
+      topic:
+        type: string
+        description: "Content topic"
+        default: "artificial intelligence"
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-evaluator-optimizer")
+        .description("Iterative content refinement")
+        .runtime("bedrock",
+                 model="anthropic.claude-3-sonnet-20240229-v1:0")
+        .agent("writer",
+               "You are an expert writer. Create clear, engaging content.")
+        .agent("critic",
+               """You are a critical editor. Evaluate content quality.
+               Respond with JSON: {"score": 0-100, "issues": [...], "fixes": [...]}""")
+        .evaluator_optimizer()
+        .producer("writer", "Write about {{ topic }}")
+        .evaluator("critic",
+                   """Evaluate this draft:
+                   {{ iteration.response }}
+                   
+                   Return JSON with score (0-100), issues array, and fixes array.""")
+        .accept(min_score=85, max_iterations=3)
+        .revise_prompt(
+            """Original: {{ iteration.response }}
+            Score: {{ iteration.score }}
+            Issues: {{ iteration.evaluation }}
+            
+            Improve the content to address these issues.""")
+        .build()
+    )
+
+    # Execute with topic variable
+    result = workflow.run_interactive(topic="artificial intelligence")
+    print(result.last_response)
+    ```
 
 ## Pattern Components
 

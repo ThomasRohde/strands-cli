@@ -20,39 +20,68 @@ Use the Parallel pattern when you need to:
 
 ## Basic Example
 
-```yaml
-version: 0
-name: simple-parallel
-description: Parallel research on two aspects
+=== "YAML"
 
-runtime:
-  provider: bedrock
-  model: anthropic.claude-3-sonnet-20240229-v1:0
+    ```yaml
+    version: 0
+    name: simple-parallel
+    description: Parallel research on two aspects
 
-agents:
-  - id: researcher
-    system: "You are a research assistant providing factual information."
+    runtime:
+      provider: bedrock
+      model: anthropic.claude-3-sonnet-20240229-v1:0
 
-pattern:
-  type: parallel
-  config:
-    branches:
-      - id: technical
-        steps:
-          - agent: researcher
-            input: "Research technical aspects of {{ topic }}"
+    agents:
+      - id: researcher
+        system: "You are a research assistant providing factual information."
 
-      - id: business
-        steps:
-          - agent: researcher
-            input: "Research business aspects of {{ topic }}"
+    pattern:
+      type: parallel
+      config:
+        branches:
+          - id: technical
+            steps:
+              - agent: researcher
+                input: "Research technical aspects of {{ topic }}"
 
-inputs:
-  topic:
-    type: string
-    description: "Research topic"
-    default: "artificial intelligence"
-```
+          - id: business
+            steps:
+              - agent: researcher
+                input: "Research business aspects of {{ topic }}"
+
+    inputs:
+      topic:
+        type: string
+        description: "Research topic"
+        default: "artificial intelligence"
+    ```
+
+=== "Builder API"
+
+    ```python
+    from strands_cli.api import FluentBuilder
+
+    workflow = (
+        FluentBuilder("simple-parallel")
+        .description("Parallel research on two aspects")
+        .runtime("bedrock",
+                 model="anthropic.claude-3-sonnet-20240229-v1:0")
+        .agent("researcher",
+               "You are a research assistant providing factual information.")
+        .parallel()
+        .branch("technical")
+            .step("researcher", "Research technical aspects of {{ topic }}")
+            .done()
+        .branch("business")
+            .step("researcher", "Research business aspects of {{ topic }}")
+            .done()
+        .build()
+    )
+
+    # Execute with topic variable
+    result = workflow.run_interactive(topic="artificial intelligence")
+    print(result.last_response)
+    ```
 
 ## Branch Configuration
 

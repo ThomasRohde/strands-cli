@@ -976,3 +976,186 @@ def create_graph_spec_with_hitl(
             ),
         ),
     )
+
+
+# ============================================================================
+# Builder API Test Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def invalid_agent_reference_builder() -> Any:
+    """Return a builder with invalid agent reference for testing error messages."""
+    from strands_cli.api.builders import FluentBuilder
+
+    return (
+        FluentBuilder("test")
+        .runtime("openai", model="gpt-4o-mini")
+        .agent("researcher", "You are a researcher")
+        .chain()
+    )
+
+
+@pytest.fixture
+def circular_dependency_builder() -> Any:
+    """Return a workflow builder with circular dependencies."""
+    from strands_cli.api.builders import FluentBuilder
+
+    builder = (
+        FluentBuilder("test")
+        .runtime("openai", model="gpt-4o-mini")
+        .agent("agent1", "Agent 1")
+        .workflow()
+        .task("task1", "agent1", "Task 1")
+        .task("task2", "agent1", "Task 2", depends_on=["task1"])
+    )
+    # Manually inject circular dependency
+    builder.tasks[0]["deps"] = ["task2"]
+    return builder
+
+
+@pytest.fixture
+def missing_runtime_builder() -> Any:
+    """Return a builder without runtime configured."""
+    from strands_cli.api.builders import FluentBuilder
+
+    return FluentBuilder("test").agent("researcher", "You are a researcher").chain()
+
+
+@pytest.fixture
+def chain_spec_fixture() -> dict[str, Any]:
+    """Return a valid chain spec configuration."""
+    return {
+        "name": "test-chain",
+        "description": "Test chain workflow",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {"agent1": {"prompt": "Test agent"}},
+        "pattern": {
+            "type": "chain",
+            "config": {"steps": [{"agent": "agent1", "input": "Step 1"}]},
+        },
+    }
+
+
+@pytest.fixture
+def workflow_spec_fixture() -> dict[str, Any]:
+    """Return a valid workflow spec configuration."""
+    return {
+        "name": "test-workflow",
+        "description": "Test workflow DAG",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {"agent1": {"prompt": "Test agent"}},
+        "pattern": {
+            "type": "workflow",
+            "config": {
+                "tasks": [
+                    {"id": "task1", "agent": "agent1", "input": "Task 1"},
+                    {"id": "task2", "agent": "agent1", "input": "Task 2", "deps": ["task1"]},
+                ]
+            },
+        },
+    }
+
+
+@pytest.fixture
+def routing_spec_fixture() -> dict[str, Any]:
+    """Return a valid routing spec configuration."""
+    return {
+        "name": "test-routing",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {
+            "classifier": {"prompt": "Classify queries"},
+            "handler": {"prompt": "Handle queries"},
+        },
+        "pattern": {
+            "type": "routing",
+            "config": {
+                "router": {"agent": "classifier", "input": "Classify: {{query}}"},
+                "routes": {
+                    "default": {"steps": [{"agent": "handler", "input": "Handle: {{query}}"}]}
+                },
+            },
+        },
+    }
+
+
+@pytest.fixture
+def parallel_spec_fixture() -> dict[str, Any]:
+    """Return a valid parallel spec configuration."""
+    return {
+        "name": "test-parallel",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {"agent1": {"prompt": "Test agent"}},
+        "pattern": {
+            "type": "parallel",
+            "config": {
+                "branches": [
+                    {"id": "branch1", "steps": [{"agent": "agent1", "input": "Branch 1"}]},
+                    {"id": "branch2", "steps": [{"agent": "agent1", "input": "Branch 2"}]},
+                ]
+            },
+        },
+    }
+
+
+@pytest.fixture
+def evaluator_optimizer_spec_fixture() -> dict[str, Any]:
+    """Return a valid evaluator-optimizer spec configuration."""
+    return {
+        "name": "test-eo",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {
+            "writer": {"prompt": "Write content"},
+            "critic": {"prompt": "Evaluate content"},
+        },
+        "pattern": {
+            "type": "evaluator-optimizer",
+            "config": {
+                "producer": "writer",
+                "producer_input": "Write essay",
+                "evaluator": {"agent": "critic", "input": "Evaluate: {{current_response}}"},
+                "accept": {"min_score": 8, "max_iters": 3},
+                "revise_prompt": "Improve: {{evaluation_response}}",
+            },
+        },
+    }
+
+
+@pytest.fixture
+def orchestrator_spec_fixture() -> dict[str, Any]:
+    """Return a valid orchestrator-workers spec configuration."""
+    return {
+        "name": "test-orchestrator",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {
+            "planner": {"prompt": "Plan tasks"},
+            "worker": {"prompt": "Execute tasks"},
+        },
+        "pattern": {
+            "type": "orchestrator-workers",
+            "config": {
+                "orchestrator": {"agent": "planner", "input": "Plan: {{task}}"},
+                "worker_template": {"agent": "worker"},
+            },
+        },
+    }
+
+
+@pytest.fixture
+def graph_spec_fixture() -> dict[str, Any]:
+    """Return a valid graph spec configuration."""
+    return {
+        "name": "test-graph",
+        "runtime": {"provider": "openai", "model_id": "gpt-4o-mini"},
+        "agents": {"agent1": {"prompt": "Test agent"}},
+        "pattern": {
+            "type": "graph",
+            "config": {
+                "nodes": {
+                    "start": {"agent": "agent1", "input": "Start"},
+                    "end": {"agent": "agent1", "input": "End"},
+                },
+                "edges": [{"from": "start", "to": ["end"]}],
+            },
+        },
+    }

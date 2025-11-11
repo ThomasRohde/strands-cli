@@ -642,6 +642,12 @@ class Route(BaseModel):
 
     then: list[ChainStep] | None = None  # Steps to execute for this route
 
+    @property
+    def steps(self) -> list[ChainStep] | None:
+        """Alias for route steps to maintain backward compatibility."""
+
+        return self.then
+
 
 class RouterConfig(BaseModel):
     """Router configuration for routing pattern.
@@ -844,12 +850,23 @@ class OrchestratorLimits(BaseModel):
     Controls concurrency and iteration bounds for orchestrator-workers pattern.
 
     Attributes:
+        min_workers: Minimum concurrent workers (default: 1 when specified)
         max_workers: Maximum concurrent workers (default: unlimited)
         max_rounds: Maximum orchestrator delegation cycles (default: unlimited)
     """
 
+    min_workers: int | None = Field(None, ge=1)  # Minimum concurrent workers
     max_workers: int | None = Field(None, ge=1)  # Max concurrent workers
     max_rounds: int | None = Field(None, ge=1)  # Max delegation rounds
+
+    @model_validator(mode="after")
+    def _validate_worker_bounds(self) -> "OrchestratorLimits":
+        """Ensure min/max worker bounds are consistent."""
+
+        if self.min_workers is not None and self.max_workers is not None:
+            if self.min_workers > self.max_workers:
+                raise ValueError("min_workers cannot be greater than max_workers")
+        return self
 
 
 class OrchestratorConfig(BaseModel):
