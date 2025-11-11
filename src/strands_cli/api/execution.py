@@ -1,6 +1,8 @@
 """Workflow execution engine with HITL support."""
 
 from collections.abc import Callable
+import hashlib
+import json
 from typing import Any
 
 from strands_cli.api.handlers import terminal_hitl_handler
@@ -55,7 +57,9 @@ class WorkflowExecutor:
             hitl_handler = terminal_hitl_handler
 
         # Serialize spec for session storage
-        spec_content = self.spec.model_dump_json(indent=2)
+        spec_dict = self.spec.model_dump(mode="json")
+        spec_content = json.dumps(spec_dict, sort_keys=True, indent=2)
+        spec_hash = hashlib.sha256(spec_content.encode("utf-8")).hexdigest()
 
         # Create session for HITL tracking
         session_repo = FileSessionRepository()
@@ -64,7 +68,7 @@ class WorkflowExecutor:
             metadata=SessionMetadata(
                 session_id=session_id,
                 workflow_name=self.spec.name,
-                spec_hash="api-generated",  # API sessions don't have file hash
+                spec_hash=spec_hash,
                 pattern_type=self.spec.pattern.type.value,
                 status=SessionStatus.RUNNING,
                 created_at=now_iso8601(),
@@ -175,7 +179,9 @@ class WorkflowExecutor:
             RunResult with execution details (may indicate HITL pause)
         """
         # Serialize spec for session storage
-        spec_content = self.spec.model_dump_json(indent=2)
+        spec_dict = self.spec.model_dump(mode="json")
+        spec_content = json.dumps(spec_dict, sort_keys=True, indent=2)
+        spec_hash = hashlib.sha256(spec_content.encode("utf-8")).hexdigest()
 
         # Create session for HITL tracking
         session_repo = FileSessionRepository()
@@ -184,7 +190,7 @@ class WorkflowExecutor:
             metadata=SessionMetadata(
                 session_id=session_id,
                 workflow_name=self.spec.name,
-                spec_hash="api-generated",  # API sessions don't have file hash
+                spec_hash=spec_hash,
                 pattern_type=self.spec.pattern.type.value,
                 status=SessionStatus.RUNNING,
                 created_at=now_iso8601(),

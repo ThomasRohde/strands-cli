@@ -10,6 +10,8 @@ Tests cover:
 """
 
 from datetime import UTC, datetime
+import hashlib
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -53,6 +55,56 @@ def minimal_chain_spec() -> Spec:
             ),
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_run_interactive_sets_spec_hash(minimal_chain_spec: Spec, mocker) -> None:
+    """Ensure API sessions persist deterministic spec hash for resume."""
+    executor = WorkflowExecutor(minimal_chain_spec)
+
+    # Capture saved session states and spec snapshots
+    saved_states: list[tuple[SessionStatus, str, str]] = []
+    mock_repo = AsyncMock()
+
+    async def capture_save(state, spec_content):
+        state_copy = state.model_copy(deep=True)
+        saved_states.append((state_copy.metadata.status, state_copy.metadata.spec_hash, spec_content))
+        return None
+
+    mock_repo.save.side_effect = capture_save
+    mocker.patch("strands_cli.api.execution.FileSessionRepository", return_value=mock_repo)
+
+    # Mock executor path to return successful completion
+    now_ts = datetime.now(UTC).isoformat()
+    success_result = RunResult(
+        success=True,
+        last_response="ok",
+        pattern_type=PatternType.CHAIN,
+        started_at=now_ts,
+        completed_at=now_ts,
+        duration_seconds=0.0,
+        agent_id="agent1",
+        exit_code=EX_OK,
+    )
+
+    async def mock_execute_pattern(variables, session_state, session_repo, hitl_response):
+        return success_result
+
+    mocker.patch.object(executor, "_execute_pattern", side_effect=mock_execute_pattern)
+
+    result = await executor.run_interactive(variables={})
+
+    assert result.exit_code == EX_OK
+    assert saved_states, "Session repository save should be invoked"
+
+    spec_dict = minimal_chain_spec.model_dump(mode="json")
+    spec_snapshot = json.dumps(spec_dict, sort_keys=True, indent=2)
+    expected_hash = hashlib.sha256(spec_snapshot.encode("utf-8")).hexdigest()
+
+    for status, spec_hash, spec_content in saved_states:
+        assert spec_hash == expected_hash
+        assert spec_content == spec_snapshot
+        assert status in {SessionStatus.RUNNING, SessionStatus.COMPLETED}
 
 
 @pytest.mark.asyncio
