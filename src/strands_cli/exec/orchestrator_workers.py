@@ -880,7 +880,7 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
             execution_context = _build_execution_context(
                 worker_results, execution_params["user_variables"]
             )
-            
+
             # Inject hitl_response if resuming from HITL (for reduce/writeup templates)
             if just_resumed_from_hitl_phase and hitl_response:
                 execution_context["hitl_response"] = hitl_response

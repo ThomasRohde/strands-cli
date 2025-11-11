@@ -117,13 +117,7 @@ def _spec_has_hitl_steps(spec: Spec) -> bool:
             if any(hasattr(step, "type") and step.type == "hitl" for step in branch.steps):
                 return True
         # Check reduce step for HITL
-        if spec.pattern.config.reduce:
-            if (
-                hasattr(spec.pattern.config.reduce, "type")
-                and spec.pattern.config.reduce.type == "hitl"
-            ):
-                return True
-        return False
+        return bool(spec.pattern.config.reduce and (hasattr(spec.pattern.config.reduce, "type") and spec.pattern.config.reduce.type == "hitl"))
     if spec.pattern.type == PatternType.GRAPH:
         # Check nodes for HITL
         nodes_dict: dict[str, Any] | None = spec.pattern.config.nodes
@@ -426,6 +420,20 @@ def _write_and_report_artifacts(
         # Overlay CLI --var overrides (takes precedence over spec defaults)
         if variables:
             merged_vars.update(variables)
+        # Overlay result variables (e.g., router context from routing pattern)
+        if result.variables:
+            logger.debug(
+                "artifact_result_variables",
+                result_variables_keys=list(result.variables.keys()),
+                result_variables=result.variables,
+            )
+            merged_vars.update(result.variables)
+        
+        logger.debug(
+            "artifact_merged_variables",
+            merged_vars_keys=list(merged_vars.keys()),
+            has_router=("router" in merged_vars),
+        )
 
         return write_artifacts(
             spec.outputs.artifacts,
@@ -715,8 +723,9 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
 
                 # Write any remaining artifacts
                 if result.spec and result.spec.outputs and result.spec.outputs.artifacts:
+                    # Pass None for variables since result.variables already contains all context
                     written_files = _write_and_report_artifacts(
-                        result.spec, result, out, force, result.variables
+                        result.spec, result, out, force, None
                     )
                     result.artifacts_written.extend(written_files)
 

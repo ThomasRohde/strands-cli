@@ -660,7 +660,7 @@ async def test_evaluator_optimizer_resume_integration(
     evaluator_spec_with_review_gate, tmp_path, mocker
 ):
     """Test resuming evaluator-optimizer with hitl_response via dispatcher pattern.
-    
+
     Regression test for hitl-phase2 blocker where --hitl-response parameter
     must be forwarded from resume dispatcher to executor. Tests the integration
     path that mirrors the CLI flow: pause → load state → resume with response.

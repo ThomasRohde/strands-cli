@@ -112,7 +112,7 @@ def _build_step_context(
 
 async def run_chain(  # noqa: C901
     spec: Spec,
-    variables: dict[str, str] | None = None,
+    variables: dict[str, Any] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
@@ -269,11 +269,11 @@ async def run_chain(  # noqa: C901
                     hitl_state.active = False
                     hitl_state.user_response = hitl_response
                     session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
-                    
+
                     # Ensure step_index is set for chain pattern
                     if hitl_state.step_index is None:
                         raise ValueError("HITL step_index must be set for chain pattern")
-                    
+
                     # Advance current_step to prevent re-prompting on crash after response injection
                     session_state.pattern_state["current_step"] = hitl_state.step_index + 1
 
@@ -722,4 +722,5 @@ async def run_chain(  # noqa: C901
             duration_seconds=duration,
             artifacts_written=[],
             execution_context={"steps": step_history},
+            variables=variables,  # Pass through for artifact rendering
         )

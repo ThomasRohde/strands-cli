@@ -385,6 +385,9 @@ class HITLState(BaseModel):
     phase: str | None = Field(None, description="Orchestrator phase: 'decomposition' or 'reduce' (orchestrator-workers pattern)")
     worker_count: int | None = Field(None, ge=0, description="Number of workers (orchestrator-workers pattern)")
 
+    # Routing pattern fields
+    router_review: bool | None = Field(None, description="Router review HITL gate (routing pattern)")
+
     # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
     context_display: str | None = Field(None, description="Context shown to user")
@@ -401,6 +404,7 @@ class HITLState(BaseModel):
         has_graph_fields = self.node_id is not None
         has_evaluator_fields = self.iteration_index is not None
         has_orchestrator_fields = self.phase is not None or self.worker_count is not None
+        has_routing_fields = self.router_review is not None
 
         # Count how many pattern field sets are present
         pattern_count = sum([
@@ -409,7 +413,8 @@ class HITLState(BaseModel):
             has_parallel_fields,
             has_graph_fields,
             has_evaluator_fields,
-            has_orchestrator_fields
+            has_orchestrator_fields,
+            has_routing_fields
         ])
 
         if pattern_count == 0:
@@ -417,12 +422,13 @@ class HITLState(BaseModel):
                 "HITLState must have fields for one pattern: "
                 "step_index (chain) OR task_id+layer_index (workflow) OR "
                 "branch_id/step_type (parallel) OR node_id (graph) OR "
-                "iteration_index (evaluator-optimizer) OR phase/worker_count (orchestrator-workers)"
+                "iteration_index (evaluator-optimizer) OR phase/worker_count (orchestrator-workers) OR "
+                "router_review (routing)"
             )
         if pattern_count > 1:
             raise ValueError(
                 "HITLState cannot mix fields from multiple patterns. "
-                "Use only chain OR workflow OR parallel OR graph OR evaluator-optimizer OR orchestrator-workers fields."
+                "Use only chain OR workflow OR parallel OR graph OR evaluator-optimizer OR orchestrator-workers OR routing fields."
             )
 
         # Workflow pattern requires both task_id and layer_index
@@ -444,9 +450,8 @@ class HITLState(BaseModel):
                 raise ValueError("Parallel reduce HITL should not have branch_id")
 
         # Orchestrator pattern validation
-        if has_orchestrator_fields:
-            if self.phase not in ["decomposition", "reduce", None]:
-                raise ValueError("Orchestrator HITL phase must be 'decomposition' or 'reduce'")
+        if has_orchestrator_fields and self.phase not in ["decomposition", "reduce", None]:
+            raise ValueError("Orchestrator HITL phase must be 'decomposition' or 'reduce'")
 
         return self
 
@@ -645,11 +650,13 @@ class RouterConfig(BaseModel):
         agent: Agent ID that performs classification
         input: Prompt template for router agent
         max_retries: Maximum retry attempts for malformed JSON (default: 2)
+        review_router: Optional HITL step for router decision review/override
     """
 
     agent: str  # Agent ID for classification
     input: str | None = None  # Router prompt template
     max_retries: int = Field(default=2, ge=0)  # Retry limit for malformed responses
+    review_router: "ChainStep | None" = None  # Optional HITL review of router decision
 
 
 class RouterDecision(BaseModel):

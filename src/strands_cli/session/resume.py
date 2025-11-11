@@ -163,7 +163,7 @@ async def _dispatch_pattern_executor(
     elif pattern_type == PatternType.ROUTING:
         from strands_cli.exec.routing import run_routing
 
-        return await run_routing(spec, variables, session_state, session_repo)
+        return await run_routing(spec, variables, session_state, session_repo, hitl_response)
 
     elif pattern_type == PatternType.WORKFLOW:
         from strands_cli.exec.workflow import run_workflow
@@ -285,6 +285,10 @@ async def run_resume(
 
     # Attach spec and variables to result for artifact writing
     result.spec = spec
-    result.variables = state.variables
+    # Merge result variables with session variables (result takes precedence for pattern-specific context like router)
+    merged_variables = dict(state.variables) if state.variables else {}
+    if result.variables:
+        merged_variables.update(result.variables)
+    result.variables = merged_variables
 
     return result

@@ -209,6 +209,238 @@ outputs:
         {{ last_response }}
 ```
 
+## Human-in-the-Loop (HITL) Support
+
+The routing pattern supports HITL in **two locations**: within route steps and for router review.
+
+### Route Step HITL
+
+Add HITL approval gates within route sequences (same as chain pattern):
+
+```yaml
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify inquiry: technical, billing, general"
+    
+    routes:
+      technical:
+        then:
+          - agent: tech_support
+            input: "Diagnose: {{ inquiry }}"
+          
+          # HITL approval within route sequence
+          - type: hitl
+            prompt: "Review technical solution. Approve to send?"
+            context_display: "{{ steps[0].response }}"
+          
+          - agent: formatter
+            input: "Format response: {{ steps[0].response }}"
+```
+
+### Router Review HITL
+
+Review and override router classification decisions with `review_router`:
+
+```yaml
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify: {{ inquiry }}"
+      
+      # Router review HITL gate
+      review_router:
+        type: hitl
+        prompt: |
+          Review router classification. Respond with:
+          - "approved" to accept router's choice
+          - "route:<name>" to override (e.g., "route:billing")
+        context_display: |
+          Router chose: {{ router.chosen_route }}
+          Reasoning: {{ router.response }}
+    
+    routes:
+      technical:
+        then:
+          - agent: tech_support
+            input: "Handle technical inquiry"
+      
+      billing:
+        then:
+          - agent: billing_support
+            input: "Handle billing inquiry"
+      
+      general:
+        then:
+          - agent: general_support
+            input: "Handle general inquiry"
+```
+
+### HITL Workflow
+
+**1. Router executes and makes classification:**
+```bash
+$ uv run strands run support-router.yaml --var inquiry="My payment failed"
+
+# Router classifies as: billing
+# Session paused for router review
+# Session ID: abc123...
+```
+
+**2. Review classification and approve or override:**
+```bash
+# Accept router's decision
+$ uv run strands run --resume abc123 --hitl-response "approved"
+
+# Or override to different route
+$ uv run strands run --resume abc123 --hitl-response "route:technical"
+```
+
+**3. Execute selected route:**
+```
+# Workflow continues with approved/override route
+# Final route: billing (if approved) or technical (if overridden)
+```
+
+### Router Template Variables
+
+When using router review HITL, these variables are available in route steps:
+
+- **`{{ router.chosen_route }}`**: Final route name (after HITL approval/override)
+- **`{{ router.response }}`**: Router agent's full response text
+- **`{{ steps[n].response }}`**: Previous step responses within route
+
+```yaml
+routes:
+  technical:
+    then:
+      - agent: tech_support
+        input: |
+          Route: {{ router.chosen_route }}
+          Router reasoning: {{ router.response }}
+          
+          Inquiry: {{ inquiry }}
+```
+
+### Override Format
+
+**Approval:** `"approved"` - Accept router's decision
+
+```bash
+uv run strands run --resume <session-id> --hitl-response "approved"
+```
+
+**Override:** `"route:<route_name>"` - Force specific route
+
+```bash
+uv run strands run --resume <session-id> --hitl-response "route:billing"
+```
+
+### Session Requirement
+
+Router review HITL requires session persistence:
+
+```bash
+# This works (session enabled by default)
+uv run strands run router.yaml
+
+# This fails (session disabled)
+uv run strands run router.yaml --no-save-session
+# Error: Router review HITL requires session persistence
+```
+
+### Example: Customer Support Triage
+
+See `examples/routing-hitl-review-openai.yaml` for a complete example with:
+
+- Router classification of customer inquiries
+- Human review of router decisions
+- Override capability for misclassified requests
+- Multiple specialized routes (technical, billing, general)
+
+```yaml
+version: 0
+name: routing-hitl-review-demo
+description: Customer support triage with router review HITL
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+
+inputs:
+  required:
+    inquiry: string
+
+agents:
+  classifier:
+    prompt: |
+      Classify customer inquiries into categories:
+      - technical: bugs, errors, feature issues
+      - billing: payments, subscriptions, invoices
+      - general: questions, feedback, other
+      
+      Respond with JSON: {"route": "<category>"}
+
+  tech_support:
+    prompt: "Provide technical support and solutions"
+
+  billing_support:
+    prompt: "Handle billing and payment inquiries"
+
+  general_support:
+    prompt: "Assist with general questions"
+
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify: {{ inquiry }}"
+      
+      review_router:
+        type: hitl
+        prompt: |
+          Review the router's classification decision:
+          
+          Respond with:
+          - "approved" if classification is correct
+          - "route:technical" to override to technical support
+          - "route:billing" to override to billing
+          - "route:general" to override to general support
+        context_display: |
+          Customer Inquiry: {{ inquiry }}
+          
+          Router Classification: {{ router.chosen_route }}
+          Router Reasoning: {{ router.response }}
+    
+    routes:
+      technical:
+        then:
+          - agent: tech_support
+            input: "{{ inquiry }}"
+      
+      billing:
+        then:
+          - agent: billing_support
+            input: "{{ inquiry }}"
+      
+      general:
+        then:
+          - agent: general_support
+            input: "{{ inquiry }}"
+
+outputs:
+  artifacts:
+    - path: "./artifacts/support-response.md"
+      from: "{{ last_response }}"
+```
+
+For more HITL details, see the [HITL Guide](../hitl.md).
+
 ## Conditional Routing with JMESPath
 
 ### Simple Conditions

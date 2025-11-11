@@ -885,7 +885,7 @@ class TestHITLSessionPersistence:
 
 class TestHITLCheckpointSafety:
     """Test that HITL responses are checkpointed before continuing execution.
-    
+
     These tests validate the fix for the parallel HITL resume checkpoint issue.
     Without proper checkpointing, user responses could be lost if workflow crashes
     after resume but before the next normal checkpoint.
@@ -896,10 +896,10 @@ class TestHITLCheckpointSafety:
         self, parallel_spec_branch_hitl: Spec, tmp_path: Path, mocker: Any
     ) -> None:
         """Test HITL response is checkpointed before continuing execution.
-        
+
         Critical: Ensures user's approval isn't lost if workflow crashes
         after resume but before next checkpoint.
-        
+
         Flow:
         1. Resume from branch HITL pause with response
         2. Immediately simulate crash during next step
@@ -1035,9 +1035,9 @@ class TestHITLCheckpointSafety:
         self, parallel_spec_reduce_hitl: Spec, tmp_path: Path, mocker: Any
     ) -> None:
         """Test reduce HITL response is checkpointed before completing workflow.
-        
+
         Critical: Ensures user's approval isn't lost during reduce HITL resume.
-        
+
         Flow:
         1. Resume from reduce HITL pause with response
         2. Verify session is checkpointed with HITL cleared
@@ -1116,7 +1116,7 @@ class TestHITLCheckpointSafety:
         self, parallel_spec_branch_hitl: Spec, tmp_path: Path, mocker: Any
     ) -> None:
         """Test that checkpoint after HITL resume includes complete user response.
-        
+
         Validates that the checkpoint contains:
         1. HITL state with active=False and user_response set
         2. Updated branch step_history with HITL step
@@ -1251,14 +1251,14 @@ class TestHITLCheckpointSafety:
         self, parallel_spec_branch_hitl: Spec, tmp_path: Path, mocker: Any
     ) -> None:
         """Test that branch HITL resume works after crash using persisted response.
-        
+
         Critical regression test for the fix:
         - User provides HITL response
         - Response is checkpointed
         - Workflow crashes during next step
         - User resumes WITHOUT providing --hitl-response again
         - Workflow should use the checkpointed response and continue
-        
+
         Without the fix, this scenario would pause at the same HITL step again,
         forcing the user to re-provide their response.
         """

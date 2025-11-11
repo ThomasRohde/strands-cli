@@ -541,6 +541,67 @@ pattern:
 
 **Router output**: your router agent should emit a small JSON dict (`{{route: 'faq'|'research'|'coding', rationale: '...'}}`), which the CLI interprets.
 
+#### HITL Support in Routing Patterns
+
+Routing patterns support HITL in **two locations**:
+
+**1. Route Step HITL**: Standard HITL steps within route sequences (same as chain pattern)
+
+```yaml
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify inquiry: technical, billing, general"
+    routes:
+      technical:
+        then:
+          - agent: tech_support
+            input: "Diagnose: {{ inquiry }}"
+          
+          # HITL approval within route sequence
+          - type: hitl
+            prompt: "Review technical solution. Approve to send?"
+            context_display: "{{ steps[0].response }}"
+          
+          - agent: formatter
+            input: "Format response: {{ steps[0].response }}"
+```
+
+**2. Router Review HITL**: Review and override router classification decisions
+
+```yaml
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify: {{ inquiry }}"
+      
+      # Router review HITL gate
+      review_router:
+        type: hitl
+        prompt: |
+          Review router classification. Respond with:
+          - "approved" to accept router's choice
+          - "route:<name>" to override (e.g., "route:billing")
+        context_display: |
+          Router chose: {{ router.chosen_route }}
+          Reasoning: {{ router.response }}
+```
+
+**Template Variables Available in Routes:**
+- **`{{ router.chosen_route }}`**: Final route name (after HITL approval/override)
+- **`{{ router.response }}`**: Router agent's full response text
+- **`{{ steps[n].response }}`**: Previous step responses within route
+
+**Override Format:**
+- **Approval**: `"approved"` - accept router's decision
+- **Override**: `"route:<route_name>"` - force specific route (e.g., `"route:billing"`)
+
+**Example**: See `examples/routing-hitl-review-openai.yaml` for customer support triage with router review.
+
 ---
 
 ### 12.3 Parallel

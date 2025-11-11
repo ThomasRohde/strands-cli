@@ -43,7 +43,6 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 
-from strands_cli.exit_codes import EX_OK
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -52,6 +51,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
+from strands_cli.exit_codes import EX_OK
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
@@ -543,16 +543,16 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                             hitl_response=hitl_response,
                             final_score=final_score,
                         )
-                        
+
                         # Finalize session with current state
                         await finalize_session(session_state, session_repo)
-                        
+
                         # Return successful completion with early termination flag
                         completed_at = datetime.now(UTC).isoformat()
                         duration = (
                             datetime.fromisoformat(completed_at) - datetime.fromisoformat(started_at)
                         ).total_seconds()
-                        
+
                         execution_context = {
                             "iterations": len(iteration_history),
                             "final_score": final_score,
@@ -563,7 +563,7 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                             "early_termination": True,
                             "termination_reason": "user_requested_at_resume",
                         }
-                        
+
                         if iteration_history:
                             last_iteration = iteration_history[-1]
                             execution_context["last_evaluation"] = {
@@ -571,7 +571,7 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                                 "issues": last_iteration["issues"],
                                 "fixes": last_iteration["fixes"],
                             }
-                        
+
                         return RunResult(
                             success=True,
                             last_response=current_draft,
@@ -640,24 +640,24 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                     session_id=session_state.metadata.session_id,
                     iteration=start_iteration,
                 )
-                
+
                 # Get the last evaluation from iteration_history
                 if iteration_history:
                     last_iter = iteration_history[-1]
-                    evaluation = EvaluatorDecision(
+                    last_evaluation = EvaluatorDecision(
                         score=last_iter["score"],
                         issues=last_iter["issues"],
                         fixes=last_iter["fixes"],
                     )
-                    
+
                     # Build revision context
                     revision_context = _build_revision_context(
-                        current_draft, evaluation, start_iteration - 1, variables
+                        current_draft, last_evaluation, start_iteration - 1, variables
                     )
-                    
+
                     # Render revision prompt
                     revision_prompt = render_template(revise_prompt_template, revision_context)
-                    
+
                     # Execute producer for revision
                     revision_response = await invoke_agent_with_retry(
                         producer_agent, revision_prompt, max_attempts, wait_min, wait_max
@@ -667,11 +667,11 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                         if isinstance(revision_response, str)
                         else str(revision_response)
                     )
-                    
+
                     # Estimate tokens for revision
                     estimated_tokens = estimate_tokens(revision_prompt, current_draft)
                     cumulative_tokens += estimated_tokens
-                    
+
                     # Clear pending_revision flag and checkpoint
                     if session_repo:
                         await checkpoint_pattern_state(
@@ -688,7 +688,7 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                             token_increment=estimated_tokens,
                             status=SessionStatus.RUNNING,
                         )
-                    
+
                     logger.info(
                         "pending_revision_complete",
                         session_id=session_state.metadata.session_id if session_state else None,

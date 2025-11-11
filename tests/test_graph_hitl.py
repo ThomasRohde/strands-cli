@@ -710,7 +710,7 @@ class TestGraphHITLLoops:
         mocker.patch("strands_cli.exec.graph.AgentCache", return_value=mock_cache)
 
         # Act - Resume with 'revise' again (second loop)
-        result = await run_graph(
+        await run_graph(
             spec=graph_conditional_hitl_spec,
             variables={},
             session_state=session_state,
@@ -1103,12 +1103,12 @@ class TestGraphHITLCheckpointOrdering:
         self, tmp_path: Any, mocker: Any
     ) -> None:
         """Test checkpoint advances current_node before save (crash-safety).
-        
+
         Validates fix for Issue #2 from HITL.md section 2.3:
         - Checkpoint must update current_node to NEXT node before save
         - On crash during HITL resume, recovery should resume at next node
         - Should NOT re-pause at same HITL node in infinite loop
-        
+
         Test flow:
         1. Create graph: plan → review (HITL) → execute
         2. Run to HITL pause → verify current_node=review, hitl_state.active=True

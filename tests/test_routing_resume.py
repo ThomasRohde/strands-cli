@@ -52,7 +52,7 @@ async def test_routing_fresh_execution_with_session(
         "strands_cli.exec.routing._execute_router_with_retry",
         new_callable=AsyncMock,
     )
-    mock_router.return_value = "general"  # Must match route name in fixture
+    mock_router.return_value = ("general", '{"route": "general"}')  # Returns (route_name, response_text)
 
     # Mock chain execution
     mock_chain = mocker.patch("strands_cli.exec.routing.run_chain", new_callable=AsyncMock)
@@ -256,7 +256,7 @@ async def test_routing_token_accumulation(
         "strands_cli.exec.routing._execute_router_with_retry",
         new_callable=AsyncMock,
     )
-    mock_router.return_value = "general"
+    mock_router.return_value = ("general", '{"route": "general"}')
 
     mock_chain = mocker.patch("strands_cli.exec.routing.run_chain", new_callable=AsyncMock)
     mock_result = Mock()
@@ -290,7 +290,7 @@ async def test_routing_without_session_works(
         "strands_cli.exec.routing._execute_router_with_retry",
         new_callable=AsyncMock,
     )
-    mock_router.return_value = "general"
+    mock_router.return_value = ("general", '{"route": "general"}')
 
     mock_chain = mocker.patch("strands_cli.exec.routing.run_chain", new_callable=AsyncMock)
     mock_result = Mock()
@@ -299,6 +299,7 @@ async def test_routing_without_session_works(
     mock_result.execution_context = {}
     mock_result.pattern_type = "chain"
     mock_result.duration_seconds = 1.5
+    mock_result.variables = {}
     mock_chain.return_value = mock_result
 
     # Execute without session

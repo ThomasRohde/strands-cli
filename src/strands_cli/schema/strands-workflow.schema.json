@@ -842,6 +842,10 @@
               "minimum": 0,
               "default": 2,
               "description": "Maximum retry attempts for malformed router JSON responses."
+            },
+            "review_router": {
+              "$ref": "#/$defs/step",
+              "description": "Optional HITL review step for router decision approval/override."
             }
           }
         },

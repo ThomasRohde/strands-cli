@@ -593,6 +593,71 @@ uv run strands sessions show <session-id>
 
 ### Pattern-Specific Features
 
+**Routing Pattern** - HITL support in two locations:
+
+**1. Route Step HITL** (within route sequences):
+
+```yaml
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify inquiry: technical, billing, general"
+    routes:
+      technical:
+        then:
+          - agent: tech_support
+            input: "Diagnose: {{ inquiry }}"
+          
+          # HITL approval within route
+          - type: hitl
+            prompt: "Review technical solution. Approve to send?"
+            context_display: "{{ steps[0].response }}"
+```
+
+**2. Router Review HITL** (review/override router decisions):
+
+```yaml
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: "Classify: {{ inquiry }}"
+      
+      # Router review HITL gate
+      review_router:
+        type: hitl
+        prompt: |
+          Review router classification. Respond with:
+          - "approved" to accept router's choice
+          - "route:<name>" to override (e.g., "route:billing")
+        context_display: |
+          Router chose: {{ router.chosen_route }}
+          Reasoning: {{ router.response }}
+    
+    routes:
+      technical:
+        then:
+          - agent: tech_support
+            input: "Handle technical inquiry"
+      billing:
+        then:
+          - agent: billing_support
+            input: "Handle billing inquiry"
+```
+
+**Router Template Variables:**
+- `{{ router.chosen_route }}` - Final route name (after HITL approval/override)
+- `{{ router.response }}` - Router agent's full response text
+
+**Override Format:**
+- `"approved"` - Accept router's decision
+- `"route:<route_name>"` - Force specific route (e.g., `"route:billing"`)
+
+---
+
 **Graph Pattern** - HITL nodes enable dynamic routing:
 
 ```yaml
@@ -628,15 +693,17 @@ pattern:
 **Template Access by Pattern:**
 - **Chain**: `{{ steps[n].response }}` or `{{ hitl_response }}`
 - **Workflow**: `{{ tasks.<id>.response }}`
+- **Routing**: `{{ router.chosen_route }}`, `{{ router.response }}`, `{{ steps[n].response }}`
 - **Parallel**: `{{ branches.<id>.response }}`
 - **Graph**: `{{ nodes.<id>.response }}`
 
 See pattern-specific examples:
-- [`examples/chain-hitl-approval-demo.yaml`](../../examples/chain-hitl-approval-demo.yaml)
-- [`examples/workflow-hitl-approval-demo.yaml`](../../examples/workflow-hitl-approval-demo.yaml)
-- [`examples/parallel-hitl-branch-demo.yaml`](../../examples/parallel-hitl-branch-demo.yaml)
-- [`examples/parallel-hitl-reduce-demo.yaml`](../../examples/parallel-hitl-reduce-demo.yaml)
-- [`examples/graph-hitl-approval-demo-openai.yaml`](../../examples/graph-hitl-approval-demo-openai.yaml)
+- [chain-hitl-approval-demo.yaml](https://github.com/ThomasRohde/strands-cli/blob/main/examples/chain-hitl-approval-demo.yaml)
+- [routing-hitl-review-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/main/examples/routing-hitl-review-openai.yaml)
+- [workflow-hitl-approval-demo.yaml](https://github.com/ThomasRohde/strands-cli/blob/main/examples/workflow-hitl-approval-demo.yaml)
+- [parallel-hitl-branch-demo.yaml](https://github.com/ThomasRohde/strands-cli/blob/main/examples/parallel-hitl-branch-demo.yaml)
+- [parallel-hitl-reduce-demo.yaml](https://github.com/ThomasRohde/strands-cli/blob/main/examples/parallel-hitl-reduce-demo.yaml)
+- [graph-hitl-approval-demo-openai.yaml](https://github.com/ThomasRohde/strands-cli/blob/main/examples/graph-hitl-approval-demo-openai.yaml)
 
 ---
 

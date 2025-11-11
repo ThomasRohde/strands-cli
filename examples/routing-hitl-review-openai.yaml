@@ -1,0 +1,157 @@
+# Routing HITL Review Example with OpenAI Provider
+#
+# This example demonstrates router review HITL in routing patterns.
+# A router classifies customer support inquiries, then a human reviews
+# and can approve or override the router's decision before execution.
+#
+# Prerequisites:
+#   1. Set OPENAI_API_KEY environment variable:
+#      - Linux/Mac: export OPENAI_API_KEY=your-api-key
+#      - Windows: $env:OPENAI_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   # Fresh execution (will pause for HITL review)
+#   uv run strands run examples/routing-hitl-review-openai.yaml --var inquiry="My account shows double charges"
+#   
+#   # Resume with approval
+#   uv run strands run --resume <session-id> --hitl-response "approved"
+#   
+#   # Resume with override
+#   uv run strands run --resume <session-id> --hitl-response "route:billing"
+#
+# Features Demonstrated:
+#   - Router review HITL gate (review_router field)
+#   - Human approval/override of router classification
+#   - Template context with router decision ({{ router.chosen_route }}, {{ router.response }})
+#   - Session persistence for HITL pause/resume
+#   - Override format: "route:<route_name>" or "approved"
+
+version: 0
+name: "routing-hitl-review-demo"
+description: "Customer support triage with router review HITL gate"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.3
+  max_tokens: 3000
+
+inputs:
+  values:
+    inquiry: "I can't log in to my account"
+
+agents:
+  classifier:
+    prompt: |
+      You are a customer support inquiry classifier. Analyze customer inquiries and route them
+      to the appropriate team: technical, billing, or general.
+      
+      Classification guidelines:
+      - technical: Login issues, bugs, errors, performance problems, technical configuration
+      - billing: Payment issues, refunds, invoices, subscription changes, pricing questions
+      - general: Account setup, feature requests, general questions, feedback
+      
+      Respond with ONLY valid JSON:
+      {"route": "<route_name>", "reasoning": "brief explanation"}
+
+  technical_agent:
+    prompt: |
+      You are a technical support specialist. Provide step-by-step troubleshooting
+      for technical issues. Be thorough and include diagnostic steps.
+
+  billing_agent:
+    prompt: |
+      You are a billing support specialist. Help customers with payment, subscription,
+      and invoice questions. Be clear about policies and next steps.
+
+  general_agent:
+    prompt: |
+      You are a general support agent. Provide helpful answers to common questions,
+      guide users to appropriate resources, and escalate when needed.
+
+pattern:
+  type: routing
+  config:
+    router:
+      agent: classifier
+      input: |
+        Customer Inquiry: {{ inquiry }}
+        
+        Classify this inquiry into one route: technical, billing, or general
+      max_retries: 2
+      
+      # Router review HITL gate - human can approve or override classification
+      review_router:
+        type: hitl
+        prompt: |
+          Please review the router's classification decision.
+          
+          Respond with:
+          - "approved" to accept the router's choice
+          - "route:technical" to override and route to technical team
+          - "route:billing" to override and route to billing team
+          - "route:general" to override and route to general team
+        
+        context_display: |
+          === ROUTER CLASSIFICATION DECISION ===
+          
+          Customer Inquiry:
+          {{ inquiry }}
+          
+          Router's Selected Route: {{ router.chosen_route }}
+          
+          Router's Full Response:
+          {{ router.response }}
+          
+          ======================================
+        
+        timeout_seconds: 0  # No timeout - wait indefinitely for human review
+    
+    routes:
+      technical:
+        then:
+          - agent: technical_agent
+            input: |
+              Customer reported technical issue:
+              {{ inquiry }}
+              
+              Router classification: {{ router.chosen_route }}
+              
+              Provide detailed troubleshooting steps and diagnostic guidance.
+      
+      billing:
+        then:
+          - agent: billing_agent
+            input: |
+              Customer has billing inquiry:
+              {{ inquiry }}
+              
+              Router classification: {{ router.chosen_route }}
+              
+              Provide clear billing support and policy information.
+      
+      general:
+        then:
+          - agent: general_agent
+            input: |
+              Customer has general question:
+              {{ inquiry }}
+              
+              Router classification: {{ router.chosen_route }}
+              
+              Provide helpful guidance and resource links.
+
+outputs:
+  artifacts:
+    - path: "./routing-hitl-review-output.md"
+      from: |
+        # Customer Support Response
+        
+        **Inquiry:** {{ inquiry }}
+        
+        **Route Taken:** {{ router.chosen_route }}
+        
+        ## Response
+        
+        {{ last_response }}

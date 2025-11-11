@@ -25,17 +25,22 @@ Error Handling:
 
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 from pydantic import ValidationError
+from rich.console import Console
+from rich.panel import Panel
 
 from strands_cli.exec.chain import run_chain
+from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import AgentCache
+from strands_cli.exit_codes import EX_HITL_PAUSE
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
-from strands_cli.session import SessionState
+from strands_cli.session import SessionState, SessionStatus
 from strands_cli.session.checkpoint_utils import (
     checkpoint_pattern_state,
     fail_session,
@@ -43,9 +48,10 @@ from strands_cli.session.checkpoint_utils import (
     validate_session_params,
 )
 from strands_cli.session.file_repository import FileSessionRepository
+from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
-from strands_cli.types import PatternType, RouterDecision, RunResult, Spec
+from strands_cli.types import HITLState, PatternType, RouterDecision, RunResult, Spec
 
 
 class RoutingExecutionError(Exception):
@@ -141,7 +147,7 @@ async def _execute_router_with_retry(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
-) -> str:
+) -> tuple[str, str]:
     """Execute router agent with retry logic for malformed responses.
 
     Args:
@@ -152,7 +158,7 @@ async def _execute_router_with_retry(
         max_retries: Maximum retry attempts
 
     Returns:
-        Selected route name
+        Tuple of (selected_route_name, router_response_text)
 
     Raises:
         RoutingExecutionError: If all retry attempts fail or route is invalid
@@ -207,7 +213,7 @@ async def _execute_router_with_retry(
                 route=decision.route,
                 attempt=attempt + 1,
             )
-            return decision.route
+            return decision.route, response
 
         except RoutingExecutionError as e:
             # Check if this is a validation error (invalid route) vs parse error
@@ -286,6 +292,154 @@ def _build_router_context(spec: Spec, variables: dict[str, str] | None) -> dict[
     return context
 
 
+async def _handle_router_review_hitl(
+    spec: Spec,
+    chosen_route: str,
+    router_response: str,
+    session_state: SessionState,
+    session_repo: FileSessionRepository,
+    variables: dict[str, str] | None,
+    started_at: str,
+) -> tuple[str, bool]:
+    """Handle HITL review of router decision with approval/override capability.
+
+    Four-phase execution:
+    1. Validate session parameters (BLOCKER if session disabled)
+    2. Build and save HITL state with router decision context
+    3. Display prompt to user with router decision and context
+    4. Exit with EX_HITL_PAUSE for user response
+
+    Args:
+        spec: Workflow spec
+        chosen_route: Router's selected route
+        router_response: Router agent's full response
+        session_state: Session state for persistence
+        session_repo: Session repository for checkpointing
+        variables: Template variables
+        started_at: Execution start timestamp
+
+    Returns:
+        Tuple of (final_route, hitl_occurred)
+            - final_route: Approved route or user override
+            - hitl_occurred: True if HITL pause happened, False if resumed
+
+    Raises:
+        RoutingExecutionError: If session not available or invalid override format
+    """
+    console = Console()
+    router_config = spec.pattern.config.router
+    assert router_config is not None, "router config must be present"
+    review_step = router_config.review_router
+    assert review_step is not None, "review_router must be present"
+
+    # Phase 1: Validate session persistence available (BLOCKER)
+    if not session_repo or not session_state:
+        raise RoutingExecutionError(
+            "Router review HITL requires session persistence, but session is disabled. "
+            "Session persistence is required to save pause state and enable resume. "
+            "Remove --no-save-session flag or remove review_router from router config."
+        )
+
+    # Check if resuming from HITL pause
+    hitl_state_dict = session_state.pattern_state.get("hitl_state")
+    if hitl_state_dict:
+        hitl_state = HITLState(**hitl_state_dict)
+        if hitl_state.active and hitl_state.router_review:
+            # Already paused - should not reach here (handled in main executor)
+            raise RoutingExecutionError(
+                f"Session {session_state.metadata.session_id} is waiting for HITL response. "
+                f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                f"--hitl-response 'your response'"
+            )
+
+    # Phase 2: Build HITL state with router decision context
+    # Build context including router decision for context_display
+    template_context = _build_router_context(spec, variables)
+    template_context["router"] = {
+        "chosen_route": chosen_route,
+        "response": router_response,
+    }
+
+    # Render context_display if provided
+    context_text = ""
+    if review_step.context_display:
+        context_text = render_template(review_step.context_display, template_context)
+
+    # Calculate timeout
+    timeout_at = None
+    if review_step.timeout_seconds and review_step.timeout_seconds > 0:
+        timeout_dt = datetime.now(UTC) + timedelta(seconds=review_step.timeout_seconds)
+        timeout_at = timeout_dt.isoformat()
+
+    # Create HITL state for router review
+    new_hitl_state = HITLState(
+        active=True,
+        router_review=True,
+        prompt=review_step.prompt,
+        context_display=context_text,
+        default_response=review_step.default,
+        timeout_at=timeout_at,
+        user_response=None,
+    )
+
+    # Phase 3: Save HITL state to session BEFORE displaying to user
+    session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
+    session_state.pattern_state["router_decision"] = {
+        "chosen_route": chosen_route,
+        "response": router_response,
+    }
+    session_state.metadata.status = SessionStatus.PAUSED
+    session_state.metadata.updated_at = now_iso8601()
+
+    try:
+        spec_content = ""  # Spec snapshot already saved
+        await session_repo.save(session_state, spec_content)
+        logger.info(
+            "router_review_hitl_pause_saved",
+            session_id=session_state.metadata.session_id,
+            chosen_route=chosen_route,
+        )
+    except Exception as e:
+        logger.error(
+            "router_review_hitl_pause_save_failed",
+            session_id=session_state.metadata.session_id,
+            error=str(e),
+        )
+        raise RoutingExecutionError(f"Failed to save router review HITL pause state: {e}") from e
+
+    # Phase 4: Display HITL prompt to user
+    console.print()
+    console.print(
+        Panel(
+            f"[bold yellow]>>> ROUTER DECISION REVIEW REQUIRED <<<[/bold yellow]\n\n{review_step.prompt}",
+            border_style="yellow",
+            padding=(1, 2),
+            title="Router Review HITL",
+        )
+    )
+
+    if context_text:
+        console.print(
+            Panel(
+                f"[bold]Router Decision Context:[/bold]\n\n{context_text}",
+                border_style="dim",
+                padding=(1, 2),
+            )
+        )
+
+    console.print(f"\n[dim]Session ID:[/dim] {session_state.metadata.session_id}")
+    console.print(
+        f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+        f"--hitl-response 'approved' (or 'route:<name>' to override)"
+    )
+    console.print()
+
+    # Exit with HITL pause code
+    import sys
+
+    sys.exit(EX_HITL_PAUSE)
+
+
 def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
     """Create a temporary spec for executing selected route as chain.
 
@@ -299,6 +453,8 @@ def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
     Raises:
         RoutingExecutionError: If route has no steps
     """
+    from strands_cli.types import PatternConfig
+
     routes = spec.pattern.config.routes
     assert routes is not None, "Routing pattern must have routes"
     route = routes[chosen_route]
@@ -309,10 +465,8 @@ def _create_route_spec(spec: Spec, chosen_route: str) -> Spec:
     # Create temporary spec for chain execution with selected route's steps
     route_spec = spec.model_copy(deep=True)
     route_spec.pattern.type = PatternType.CHAIN
-    route_spec.pattern.config.steps = route.then
-    route_spec.pattern.config.tasks = None  # Clear workflow tasks if any
-    route_spec.pattern.config.router = None  # Clear router config
-    route_spec.pattern.config.routes = None  # Clear routes
+    # Replace config with new PatternConfig containing only steps
+    route_spec.pattern.config = PatternConfig(steps=route.then)
 
     return route_spec
 
@@ -322,6 +476,7 @@ async def run_routing(  # noqa: C901
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
 ) -> RunResult:
     """Execute a routing pattern workflow with optional session persistence.
 
@@ -343,6 +498,7 @@ async def run_routing(  # noqa: C901
         variables: Optional CLI --var overrides
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
+        hitl_response: User response when resuming from HITL pause (None = not resuming from HITL)
 
     Returns:
         RunResult with selected route execution outcome
@@ -378,11 +534,22 @@ async def run_routing(  # noqa: C901
             resume=session_state is not None,
         )
 
+        # Track execution start time
+        started_at = datetime.now(UTC).isoformat()
+
         # Validate routing configuration
         router_config, router_agent_id, max_retries = _validate_routing_config(spec)
         span.set_attribute("routing.router_agent", router_agent_id)
         span.set_attribute("routing.route_count", len(spec.pattern.config.routes or {}))
         span.set_attribute("routing.max_retries", max_retries)
+
+        # Validate router review HITL requires session persistence
+        if router_config.review_router and (not session_state or not session_repo):
+            raise RoutingExecutionError(
+                "Router review HITL requires session persistence, but session is disabled. "
+                "Session persistence is required to save pause state and enable resume. "
+                "Remove --no-save-session flag or remove review_router from router config."
+            )
 
         # Build router context and render input
         context = _build_router_context(spec, variables)
@@ -438,54 +605,194 @@ async def run_routing(  # noqa: C901
         cache = AgentCache()
 
         try:
-            # Restore or execute router
-            if session_state and session_state.pattern_state.get("router_executed"):
-                # Resume: router decision already made
-                chosen_route = session_state.pattern_state["chosen_route"]
-                logger.info(
-                    "routing_router_restored",
-                    route=chosen_route,
-                    session_id=session_state.metadata.session_id,
-                )
-                span.add_event(
-                    "router_restored",
-                    {"chosen_route": chosen_route, "router_agent": router_agent_id},
-                )
-            else:
-                # Fresh execution: run router with retry logic
-                try:
-                    chosen_route = await _execute_router_with_retry(
-                        spec,
-                        router_agent_id,
-                        router_input,
-                        cache,
-                        max_retries,
-                        context_manager,
-                        hooks,
-                        notes_manager,
-                    )
-                except RoutingExecutionError:
-                    raise
-                except Exception as e:
-                    raise RoutingExecutionError(f"Router execution failed: {e}") from e
+            # Phase 1: Handle HITL resume if session is paused for router review
+            # Note: hitl_response is passed as a function parameter from resume.py
+            # Don't declare it as a local variable here - it comes as an argument
+            chosen_route: str | None = None
+            router_response: str = ""
+            hitl_processed = False
 
-                # Checkpoint router decision
-                if session_state and session_repo:
-                    await checkpoint_pattern_state(
-                        session_state,
-                        session_repo,
-                        pattern_state_updates={
-                            "router_executed": True,
-                            "chosen_route": chosen_route,
-                            "route_state": {"current_step": 0, "step_history": []},
-                        },
-                        token_increment=500,  # Estimated router tokens
-                    )
-                    logger.debug(
-                        "routing_router_checkpointed",
+            if session_state:
+                # Check for timeout BEFORE checking for hitl_response
+                timed_out, timeout_default = check_hitl_timeout(session_state)
+
+                if timed_out:
+                    # Auto-resume with default response
+                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                    if hitl_state_dict:
+                        from rich.console import Console
+
+                        console = Console()
+                        hitl_state = HITLState(**hitl_state_dict)
+                        console.print(
+                            Panel(
+                                format_timeout_warning(
+                                    hitl_state.timeout_at,
+                                    timeout_default,
+                                ),
+                                border_style="yellow",
+                            )
+                        )
+                        # Override hitl_response with timeout default
+                        hitl_response = timeout_default
+
+                        # Record timeout metadata
+                        session_state.pattern_state["hitl_timeout_occurred"] = True
+                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+
+                # Check for active HITL state
+                hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                if hitl_state_dict:
+                    hitl_state = HITLState(**hitl_state_dict)
+                    if hitl_state.active and hitl_state.router_review:
+                        # Session is paused for router review - validate response provided
+                        if not hitl_response:
+                            raise RoutingExecutionError(
+                                f"Session {session_state.metadata.session_id} is waiting for router review HITL response. "
+                                f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                                f"--hitl-response 'approved' (or 'route:<name>' to override)"
+                            )
+
+                        # Parse router review response: "approved" or "route:<name>"
+                        router_decision = session_state.pattern_state.get("router_decision", {})
+                        original_route = router_decision.get("chosen_route")
+
+                        if hitl_response.strip().lower() == "approved":
+                            # User approved router decision
+                            chosen_route = original_route
+                            logger.info(
+                                "router_review_approved",
+                                session_id=session_state.metadata.session_id,
+                                route=chosen_route,
+                            )
+                        elif hitl_response.strip().lower().startswith("route:"):
+                            # User override with specific route
+                            override_route = hitl_response.strip().lower().replace("route:", "").strip()
+
+                            # Validate override route exists
+                            if spec.pattern.config.routes:
+                                _validate_route_exists(override_route, spec.pattern.config.routes)
+
+                            chosen_route = override_route
+                            logger.info(
+                                "router_review_override",
+                                session_id=session_state.metadata.session_id,
+                                original_route=original_route,
+                                override_route=chosen_route,
+                            )
+                        else:
+                            raise RoutingExecutionError(
+                                f"Invalid router review response: '{hitl_response}'. "
+                                "Expected 'approved' or 'route:<route_name>'"
+                            )
+
+                        # Mark HITL as no longer active
+                        hitl_state.active = False
+                        hitl_state.user_response = hitl_response
+                        session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                        # Mark router as executed with final route
+                        session_state.pattern_state["router_executed"] = True
+                        session_state.pattern_state["chosen_route"] = chosen_route
+                        session_state.pattern_state["route_state"] = {
+                            "current_step": 0,
+                            "step_history": [],
+                        }
+
+                        # Checkpoint session after processing HITL response
+                        if session_repo:
+                            await session_repo.save(session_state, "")
+                            logger.info(
+                                "session.checkpoint_after_router_review_hitl",
+                                session_id=session_state.metadata.session_id,
+                                route=chosen_route,
+                            )
+
+                        # Set flag to skip router execution below
+                        hitl_processed = True
+
+                        # Continue to route execution
+                        span.add_event(
+                            "router_review_hitl_resume",
+                            {
+                                "original_route": original_route or "",
+                                "final_route": chosen_route,
+                                "response": hitl_response,
+                            },
+                        )
+
+            # Restore or execute router (if not already handled by HITL resume)
+            if not hitl_processed:
+                if session_state and session_state.pattern_state.get("router_executed"):
+                    # Resume: router decision already made (non-HITL path)
+                    chosen_route = session_state.pattern_state["chosen_route"]
+                    logger.info(
+                        "routing_router_restored",
                         route=chosen_route,
                         session_id=session_state.metadata.session_id,
                     )
+                    span.add_event(
+                        "router_restored",
+                        {"chosen_route": chosen_route, "router_agent": router_agent_id},
+                    )
+                else:
+                    # Fresh execution: run router with retry logic
+                    try:
+                        chosen_route, router_response = await _execute_router_with_retry(
+                            spec,
+                            router_agent_id,
+                            router_input,
+                            cache,
+                            max_retries,
+                            context_manager,
+                            hooks,
+                            notes_manager,
+                        )
+                    except RoutingExecutionError:
+                        raise
+                    except Exception as e:
+                        raise RoutingExecutionError(f"Router execution failed: {e}") from e
+
+                    # Check for router review HITL gate
+                    if router_config.review_router and session_state and session_repo:
+                        # Router review HITL pause - will exit with EX_HITL_PAUSE
+                        await _handle_router_review_hitl(
+                            spec,
+                            chosen_route,
+                            router_response,
+                            session_state,
+                            session_repo,
+                            variables,
+                            started_at,
+                        )
+                        # Execution will not reach here - function exits via sys.exit()
+
+                    # No HITL or session disabled - checkpoint router decision and proceed
+                    if session_state and session_repo:
+                        await checkpoint_pattern_state(
+                            session_state,
+                            session_repo,
+                            pattern_state_updates={
+                                "router_executed": True,
+                                "chosen_route": chosen_route,
+                                "router_decision": {
+                                    "chosen_route": chosen_route,
+                                    "response": router_response,
+                                },
+                                "route_state": {"current_step": 0, "step_history": []},
+                            },
+                            token_increment=500,  # Estimated router tokens
+                        )
+                        logger.debug(
+                            "routing_router_checkpointed",
+                            route=chosen_route,
+                            session_id=session_state.metadata.session_id,
+                        )
 
             logger.info("route_selected", route=chosen_route)
             span.add_event(
@@ -495,9 +802,20 @@ async def run_routing(  # noqa: C901
             # Create spec for route execution
             route_spec = _create_route_spec(spec, chosen_route)
 
-            # Inject router decision into context for route execution
+            # Inject router decision and response into context for route execution
             route_variables: dict[str, Any] = dict(variables) if variables else {}
-            route_variables["router"] = {"chosen_route": chosen_route}
+
+            # Get router response from session state if available (for resume scenarios)
+            router_response_text = ""
+            if session_state and session_state.pattern_state.get("router_decision"):
+                router_response_text = session_state.pattern_state["router_decision"].get("response", "")
+            elif "router_response" in locals():
+                router_response_text = router_response
+
+            route_variables["router"] = {
+                "chosen_route": chosen_route,
+                "response": router_response_text,
+            }
 
             # Build chain session state if resuming route
             route_session_state = None
@@ -546,6 +864,24 @@ async def run_routing(  # noqa: C901
                 result.execution_context = {}
             result.execution_context["chosen_route"] = chosen_route
             result.execution_context["router_agent"] = router_agent_id
+
+            # Ensure router context is available for artifact rendering
+            if result.variables is None:
+                result.variables = {}
+            
+            # Use the router context that was already built for route execution
+            # This includes router response from either fresh execution or session state
+            result.variables["router"] = route_variables.get("router", {
+                "chosen_route": chosen_route,
+                "response": "",
+            })
+            
+            logger.info(
+                "routing_result_variables_set",
+                variables_keys=list(result.variables.keys()) if result.variables else [],
+                has_router=("router" in result.variables),
+                router_chosen_route=result.variables.get("router", {}).get("chosen_route"),
+            )
 
             logger.info(
                 "routing_execution_complete",
