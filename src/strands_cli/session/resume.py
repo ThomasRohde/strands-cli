@@ -178,12 +178,12 @@ async def _dispatch_pattern_executor(
     elif pattern_type == PatternType.EVALUATOR_OPTIMIZER:
         from strands_cli.exec.evaluator_optimizer import run_evaluator_optimizer
 
-        return await run_evaluator_optimizer(spec, variables, session_state, session_repo)
+        return await run_evaluator_optimizer(spec, variables, session_state, session_repo, hitl_response)
 
     elif pattern_type == PatternType.ORCHESTRATOR_WORKERS:
         from strands_cli.exec.orchestrator_workers import run_orchestrator_workers
 
-        return await run_orchestrator_workers(spec, variables, session_state, session_repo)
+        return await run_orchestrator_workers(spec, variables, session_state, session_repo, hitl_response)
 
     elif pattern_type == PatternType.GRAPH:
         from strands_cli.exec.graph import run_graph

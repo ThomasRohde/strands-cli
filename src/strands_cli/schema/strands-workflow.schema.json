@@ -932,6 +932,48 @@
             }
           }
         },
+        "decomposition_review": {
+          "description": "Optional human review gate after task decomposition. Pauses execution to allow user review of subtasks before delegating to workers.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "prompt"
+          ],
+          "properties": {
+            "type": {
+              "const": "hitl",
+              "description": "Step type identifier for HITL (human-in-the-loop) review gate"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Message displayed to user requesting review input"
+            },
+            "context_display": {
+              "type": "string",
+              "description": "Context to display for user review (supports templates like {{ orchestrator_response }})"
+            },
+            "default": {
+              "type": "string",
+              "description": "Default response if user provides empty input"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Time in seconds before HITL expires (0 = no timeout)"
+            },
+            "validation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Regex pattern to validate user response"
+                }
+              }
+            }
+          }
+        },
         "worker_template": {
           "type": "object",
           "additionalProperties": false,
@@ -946,6 +988,48 @@
               "type": "array",
               "items": {
                 "type": "string"
+              }
+            }
+          }
+        },
+        "reduce_review": {
+          "description": "Optional human review gate before reduce step. Pauses execution to allow user review of worker results before aggregation.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "prompt"
+          ],
+          "properties": {
+            "type": {
+              "const": "hitl",
+              "description": "Step type identifier for HITL (human-in-the-loop) review gate"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Message displayed to user requesting review input"
+            },
+            "context_display": {
+              "type": "string",
+              "description": "Context to display for user review (supports templates like {{ workers }})"
+            },
+            "default": {
+              "type": "string",
+              "description": "Default response if user provides empty input"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Time in seconds before HITL expires (0 = no timeout)"
+            },
+            "validation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Regex pattern to validate user response"
+                }
               }
             }
           }
@@ -1007,6 +1091,48 @@
         },
         "revise_prompt": {
           "type": "string"
+        },
+        "review_gate": {
+          "description": "Optional human review gate between evaluation iterations. Pauses execution after evaluation to allow user review before continuing to next iteration.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "prompt"
+          ],
+          "properties": {
+            "type": {
+              "const": "hitl",
+              "description": "Step type identifier for HITL (human-in-the-loop) review gate"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Message displayed to user requesting review input"
+            },
+            "context_display": {
+              "type": "string",
+              "description": "Context to display for user review (supports templates like {{ iterations[-1].draft }})"
+            },
+            "default": {
+              "type": "string",
+              "description": "Default response if user provides empty input"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Time in seconds before HITL expires (0 = no timeout)"
+            },
+            "validation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": "Regex pattern to validate user response"
+                }
+              }
+            }
+          }
         }
       }
     },

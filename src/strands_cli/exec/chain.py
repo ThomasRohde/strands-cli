@@ -33,6 +33,7 @@ import structlog
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
@@ -210,6 +211,36 @@ async def run_chain(  # noqa: C901
 
         # Phase 1 HITL: Handle resume from HITL pause
         if session_state:
+            # Check for timeout BEFORE checking for hitl_response
+            timed_out, timeout_default = check_hitl_timeout(session_state)
+
+            if timed_out:
+                # Auto-resume with default response
+                if not hitl_response:
+                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                    if hitl_state_dict:
+                        hitl_state = HITLState(**hitl_state_dict)
+                        console.print(
+                            Panel(
+                                format_timeout_warning(
+                                    hitl_state.timeout_at,
+                                    timeout_default,
+                                ),
+                                border_style="yellow",
+                            )
+                        )
+                        hitl_response = timeout_default
+
+                        # Record timeout metadata in pattern_state and session metadata
+                        session_state.pattern_state["hitl_timeout_occurred"] = True
+                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                # If user provided explicit response, that overrides timeout
+
             hitl_state_dict = session_state.pattern_state.get("hitl_state")
             if hitl_state_dict:
                 hitl_state = HITLState(**hitl_state_dict)
@@ -238,6 +269,11 @@ async def run_chain(  # noqa: C901
                     hitl_state.active = False
                     hitl_state.user_response = hitl_response
                     session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+                    
+                    # Ensure step_index is set for chain pattern
+                    if hitl_state.step_index is None:
+                        raise ValueError("HITL step_index must be set for chain pattern")
+                    
                     # Advance current_step to prevent re-prompting on crash after response injection
                     session_state.pattern_state["current_step"] = hitl_state.step_index + 1
 

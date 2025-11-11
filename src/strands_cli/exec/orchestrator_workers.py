@@ -33,12 +33,13 @@ Budget Enforcement:
 import asyncio
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 from opentelemetry.trace import get_current_span
 
+from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
@@ -54,7 +55,7 @@ from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
-from strands_cli.types import PatternType, RunResult, Spec
+from strands_cli.types import HITLState, PatternType, RunResult, Spec
 
 try:
     from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
@@ -466,6 +467,7 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
 ) -> RunResult:
     """Execute orchestrator-workers pattern workflow with optional session persistence.
 
@@ -474,11 +476,17 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
     - Worker-level checkpointing: Save state after workers complete
     - Reduce/writeup gates: Execute once after workers
 
+    Phase 1 HITL Support:
+    - Optional decomposition_review gate after task decomposition
+    - Optional reduce_review gate before reduce step
+    - Template context includes {{ orchestrator_response }}, {{ workers }}, {{ worker_count }}
+
     Args:
         spec: Validated workflow specification
         variables: CLI variable overrides (from --var flags)
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
+        hitl_response: User response when resuming from HITL pause (None = not HITL resume)
 
     Returns:
         RunResult with final response and execution metadata
@@ -504,6 +512,90 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
                 session_state.token_usage.total_input_tokens
                 + session_state.token_usage.total_output_tokens
             )
+            orchestrator_response = session_state.pattern_state.get("orchestrator_response", "")
+            orchestrator_subtasks = session_state.pattern_state.get("orchestrator_subtasks", [])
+
+            # Phase 1 HITL: Handle resume from HITL pause
+            just_resumed_from_hitl_phase = None  # Track which phase we resumed from
+            hitl_state_dict = session_state.pattern_state.get("hitl_state")
+            if hitl_state_dict:
+                # Check for timeout BEFORE checking for hitl_response
+                timed_out, timeout_default = check_hitl_timeout(session_state)
+
+                if timed_out:
+                    # Auto-resume with default response
+                    if not hitl_response:
+                        from rich.console import Console
+                        from rich.panel import Panel
+
+                        console = Console()
+                        hitl_state = HITLState(**hitl_state_dict)
+                        console.print(
+                            Panel(
+                                format_timeout_warning(
+                                    hitl_state.timeout_at,
+                                    timeout_default,
+                                ),
+                                border_style="yellow",
+                            )
+                        )
+                        hitl_response = timeout_default
+
+                        # Record timeout metadata in pattern_state and session metadata
+                        session_state.pattern_state["hitl_timeout_occurred"] = True
+                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+
+                        logger.info(
+                            "hitl_timeout_auto_resume",
+                            session_id=session_state.metadata.session_id,
+                            timeout_at=hitl_state.timeout_at,
+                            default_response=timeout_default,
+                        )
+                    # If user provided explicit response, that overrides timeout
+
+                hitl_state = HITLState(**hitl_state_dict)
+                if hitl_state.active:
+                    # Session is paused for HITL - validate response provided
+                    if not hitl_response:
+                        raise OrchestratorExecutionError(
+                            f"Session {session_state.metadata.session_id} is waiting for HITL response. "
+                            f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                            f"--hitl-response 'your response'"
+                        )
+
+                    # Mark HITL as inactive and store response
+                    just_resumed_from_hitl_phase = hitl_state.phase  # Track resume phase
+                    hitl_state.active = False
+                    hitl_state.user_response = hitl_response
+                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                    # Update session status to RUNNING
+                    session_state.metadata.status = SessionStatus.RUNNING
+                    session_state.metadata.updated_at = now_iso8601()
+
+                    # Checkpoint session after injecting HITL response (before continuing execution)
+                    if session_repo:
+                        await session_repo.save(session_state, "")
+                        logger.info(
+                            "session.checkpoint_after_hitl",
+                            session_id=session_state.metadata.session_id,
+                            phase=hitl_state.phase,
+                        )
+
+                    logger.info(
+                        "hitl_response_received",
+                        session_id=session_state.metadata.session_id,
+                        phase=hitl_state.phase,
+                        response_preview=hitl_response[:100]
+                        if len(hitl_response) > 100
+                        else hitl_response,
+                    )
+
             logger.info(
                 "orchestrator_resume",
                 session_id=session_state.metadata.session_id,
@@ -527,6 +619,9 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
             reduce_executed = False
             writeup_executed = False
             cumulative_tokens = 0
+            orchestrator_response = ""
+            orchestrator_subtasks = []
+            just_resumed_from_hitl_phase = None
 
         start_time = datetime.now(UTC)
         config = spec.pattern.config
@@ -563,17 +658,179 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
         context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(spec)
 
         try:
-            # Execute orchestrator round (skip if workers already executed on resume)
-            if not workers_executed:
+            # Execute orchestrator round (skip if workers already executed on resume OR if resuming from decomposition HITL)
+            orchestrator_subtasks_restored = (
+                orchestrator_subtasks and len(orchestrator_subtasks) > 0
+            )  # Check if we have restored orchestrator state
+
+            if not workers_executed and not orchestrator_subtasks_restored:
                 subtasks, cumulative_tokens = await _execute_orchestrator_round(
                     cache, spec, execution_params, context_manager, hook_factory, notes_manager
                 )
 
-                # Add orchestrator_planning event
-                span.add_event("orchestrator_planning", {"task_count": len(subtasks)})
-                span.set_attribute("orchestrator_workers.worker_count", len(subtasks))
+                # Store orchestrator response for HITL context
+                orchestrator_response = json.dumps(subtasks, indent=2)
+                orchestrator_subtasks = subtasks
+            else:
+                # Workers already executed OR resuming from decomposition HITL - use restored subtasks
+                subtasks = orchestrator_subtasks
+                logger.info(
+                    "Orchestrator round skipped - using restored state",
+                    reason="workers_executed" if workers_executed else "hitl_decomposition_resume",
+                    num_subtasks=len(subtasks),
+                )
 
-                # Execute workers
+                # Add orchestrator_planning event for restored state
+                span.add_event("orchestrator_restored", {"task_count": len(subtasks)})
+
+            # Set span attribute for worker count
+            span.set_attribute("orchestrator_workers.worker_count", len(subtasks))
+
+            # Phase 1 HITL: Check for decomposition_review gate (only if not already reviewed)
+            # Skip if we restored subtasks from session (decomposition already happened)
+            if config.decomposition_review and not orchestrator_subtasks_restored:
+                # BLOCKER: Validate session persistence is available
+                if not session_repo or not session_state:
+                    raise OrchestratorExecutionError(
+                        "Decomposition review gate requires session persistence, but session is disabled. "
+                        "Session persistence is required to save pause state and enable resume. "
+                        "Remove --no-save-session flag or remove decomposition_review from workflow."
+                    )
+
+                # Build template context for HITL prompt
+                hitl_context = {
+                    "orchestrator_response": orchestrator_response,
+                    "subtasks": orchestrator_subtasks,
+                    "task_count": len(orchestrator_subtasks),
+                }
+                if execution_params["user_variables"]:
+                    hitl_context.update(execution_params["user_variables"])
+
+                # Render context_display template if provided
+                context_text = ""
+                if config.decomposition_review.context_display:
+                    try:
+                        context_text = render_template(
+                            config.decomposition_review.context_display, hitl_context
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "context_display_render_failed",
+                            phase="decomposition",
+                            error=str(e),
+                        )
+                        context_text = f"(Failed to render context: {e})"
+
+                # Calculate timeout
+                timeout_at = None
+                if (
+                    config.decomposition_review.timeout_seconds
+                    and config.decomposition_review.timeout_seconds > 0
+                ):
+                    timeout_dt = datetime.now(UTC) + timedelta(
+                        seconds=config.decomposition_review.timeout_seconds
+                    )
+                    timeout_at = timeout_dt.isoformat()
+
+                # Create HITL state
+                new_hitl_state = HITLState(
+                    active=True,
+                    phase="decomposition",
+                    worker_count=len(orchestrator_subtasks),
+                    step_index=None,
+                    task_id=None,
+                    layer_index=None,
+                    branch_id=None,
+                    step_type=None,
+                    node_id=None,
+                    iteration_index=None,
+                    prompt=config.decomposition_review.prompt,
+                    context_display=context_text,
+                    default_response=config.decomposition_review.default,
+                    timeout_at=timeout_at,
+                    user_response=None,
+                )
+
+                # Save session with HITL state BEFORE displaying to user
+                session_state.pattern_state["orchestrator_response"] = orchestrator_response
+                session_state.pattern_state["orchestrator_subtasks"] = orchestrator_subtasks
+                session_state.pattern_state["workers_executed"] = False
+                session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
+                session_state.metadata.status = SessionStatus.PAUSED
+                session_state.metadata.updated_at = now_iso8601()
+
+                try:
+                    await session_repo.save(session_state, "")
+                    logger.info(
+                        "hitl_pause_saved",
+                        session_id=session_state.metadata.session_id,
+                        phase="decomposition",
+                    )
+                except Exception as e:
+                    logger.error(
+                        "hitl_pause_save_failed",
+                        session_id=session_state.metadata.session_id,
+                        phase="decomposition",
+                        error=str(e),
+                    )
+                    raise OrchestratorExecutionError(f"Failed to save HITL pause state: {e}") from e
+
+                # Display HITL prompt to user
+                from rich.console import Console
+                from rich.panel import Panel
+
+                console = Console()
+                console.print()
+                console.print(
+                    Panel(
+                        f"[bold yellow]>>> HUMAN REVIEW REQUIRED <<<[/bold yellow]\n\n{config.decomposition_review.prompt}",
+                        border_style="yellow",
+                        padding=(1, 2),
+                        title="Decomposition Review",
+                    )
+                )
+
+                if context_text:
+                    console.print(
+                        Panel(
+                            f"[bold]Context for Review:[/bold]\n\n{context_text}",
+                            border_style="dim",
+                            padding=(1, 2),
+                        )
+                    )
+
+                console.print(f"\n[dim]Session ID:[/dim] {session_state.metadata.session_id}")
+                console.print(
+                    f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+                    f"--hitl-response 'your response'"
+                )
+                console.print()
+
+                # Exit with HITL pause
+                from strands_cli.exit_codes import EX_HITL_PAUSE
+
+                hitl_pause_completed_at = datetime.now(UTC).isoformat()
+                hitl_pause_duration = (
+                    datetime.fromisoformat(hitl_pause_completed_at) - start_time
+                ).total_seconds()
+
+                return RunResult(
+                    success=True,
+                    last_response=f"HITL decomposition review: {config.decomposition_review.prompt}",
+                    pattern_type=PatternType.ORCHESTRATOR_WORKERS,
+                    started_at=start_time.isoformat(),
+                    completed_at=hitl_pause_completed_at,
+                    duration_seconds=hitl_pause_duration,
+                    agent_id="hitl",
+                    exit_code=EX_HITL_PAUSE,
+                    execution_context={
+                        "orchestrator_response": orchestrator_response,
+                        "task_count": len(orchestrator_subtasks),
+                    },
+                )
+
+            # Execute workers (OUTSIDE decomposition review block)
+            if not workers_executed:
                 worker_results, cumulative_tokens = await _execute_workers_round(
                     cache,
                     spec,
@@ -623,6 +880,151 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
             execution_context = _build_execution_context(
                 worker_results, execution_params["user_variables"]
             )
+            
+            # Inject hitl_response if resuming from HITL (for reduce/writeup templates)
+            if just_resumed_from_hitl_phase and hitl_response:
+                execution_context["hitl_response"] = hitl_response
+
+            # Phase 1 HITL: Check for reduce_review gate before reduce step
+            # Skip if we just resumed from reduce HITL (similar to decomposition skip)
+            if config.reduce_review and config.reduce and not reduce_executed and just_resumed_from_hitl_phase != "reduce":
+                # BLOCKER: Validate session persistence is available
+                if not session_repo or not session_state:
+                    raise OrchestratorExecutionError(
+                        "Reduce review gate requires session persistence, but session is disabled. "
+                        "Session persistence is required to save pause state and enable resume. "
+                        "Remove --no-save-session flag or remove reduce_review from workflow."
+                    )
+
+                # Build template context for HITL prompt
+                hitl_context = {
+                    "workers": worker_results,
+                    "worker_count": len(worker_results),
+                }
+                hitl_context.update(execution_context)
+
+                # Render context_display template if provided
+                context_text = ""
+                if config.reduce_review.context_display:
+                    try:
+                        context_text = render_template(
+                            config.reduce_review.context_display, hitl_context
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "context_display_render_failed",
+                            phase="reduce",
+                            error=str(e),
+                        )
+                        context_text = f"(Failed to render context: {e})"
+
+                # Calculate timeout
+                timeout_at = None
+                if (
+                    config.reduce_review.timeout_seconds
+                    and config.reduce_review.timeout_seconds > 0
+                ):
+                    timeout_dt = datetime.now(UTC) + timedelta(
+                        seconds=config.reduce_review.timeout_seconds
+                    )
+                    timeout_at = timeout_dt.isoformat()
+
+                # Create HITL state
+                new_hitl_state = HITLState(
+                    active=True,
+                    phase="reduce",
+                    worker_count=len(worker_results),
+                    step_index=None,
+                    task_id=None,
+                    layer_index=None,
+                    branch_id=None,
+                    step_type=None,
+                    node_id=None,
+                    iteration_index=None,
+                    prompt=config.reduce_review.prompt,
+                    context_display=context_text,
+                    default_response=config.reduce_review.default,
+                    timeout_at=timeout_at,
+                    user_response=None,
+                )
+
+                # Save session with HITL state BEFORE displaying to user
+                session_state.pattern_state["workers_executed"] = True
+                session_state.pattern_state["worker_results"] = worker_results
+                session_state.pattern_state["reduce_executed"] = False
+                session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
+                session_state.metadata.status = SessionStatus.PAUSED
+                session_state.metadata.updated_at = now_iso8601()
+
+                try:
+                    await session_repo.save(session_state, "")
+                    logger.info(
+                        "hitl_pause_saved",
+                        session_id=session_state.metadata.session_id,
+                        phase="reduce",
+                    )
+                except Exception as e:
+                    logger.error(
+                        "hitl_pause_save_failed",
+                        session_id=session_state.metadata.session_id,
+                        phase="reduce",
+                        error=str(e),
+                    )
+                    raise OrchestratorExecutionError(f"Failed to save HITL pause state: {e}") from e
+
+                # Display HITL prompt to user
+                from rich.console import Console
+                from rich.panel import Panel
+
+                console = Console()
+                console.print()
+                console.print(
+                    Panel(
+                        f"[bold yellow]>>> HUMAN REVIEW REQUIRED <<<[/bold yellow]\n\n{config.reduce_review.prompt}",
+                        border_style="yellow",
+                        padding=(1, 2),
+                        title="Reduce Review",
+                    )
+                )
+
+                if context_text:
+                    console.print(
+                        Panel(
+                            f"[bold]Context for Review:[/bold]\n\n{context_text}",
+                            border_style="dim",
+                            padding=(1, 2),
+                        )
+                    )
+
+                console.print(f"\n[dim]Session ID:[/dim] {session_state.metadata.session_id}")
+                console.print(
+                    f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+                    f"--hitl-response 'your response'"
+                )
+                console.print()
+
+                # Exit with HITL pause
+                from strands_cli.exit_codes import EX_HITL_PAUSE
+
+                hitl_pause_completed_at = datetime.now(UTC).isoformat()
+                hitl_pause_duration = (
+                    datetime.fromisoformat(hitl_pause_completed_at) - start_time
+                ).total_seconds()
+
+                return RunResult(
+                    success=True,
+                    last_response=f"HITL reduce review: {config.reduce_review.prompt}",
+                    pattern_type=PatternType.ORCHESTRATOR_WORKERS,
+                    started_at=start_time.isoformat(),
+                    completed_at=hitl_pause_completed_at,
+                    duration_seconds=hitl_pause_duration,
+                    agent_id="hitl",
+                    exit_code=EX_HITL_PAUSE,
+                    execution_context={
+                        "workers": worker_results,
+                        "worker_count": len(worker_results),
+                    },
+                )
 
             # Execute reduce step if configured (skip if already done on resume)
             final_response = ""
@@ -1105,6 +1507,8 @@ def _build_run_result(
     cumulative_tokens: int,
 ) -> RunResult:
     """Build and return the final RunResult."""
+    from strands_cli.exit_codes import EX_OK
+
     end_time = datetime.now(UTC)
     duration_seconds = (end_time - start_time).total_seconds()
 
@@ -1133,4 +1537,5 @@ def _build_run_result(
         completed_at=end_time.isoformat(),
         duration_seconds=duration_seconds,
         execution_context=execution_context,
+        exit_code=EX_OK,  # Set exit code on successful completion
     )

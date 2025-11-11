@@ -82,6 +82,10 @@ class SessionMetadata(BaseModel):
         default=None,
         description="Error message if status=FAILED",
     )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Arbitrary session metadata collected during execution",
+    )
 
 
 class TokenUsage(BaseModel):

@@ -32,7 +32,6 @@ from strands_cli.types import (
     Spec,
 )
 
-
 # ============================================================================
 # Test Fixtures
 # ============================================================================
@@ -1241,7 +1240,7 @@ class TestGraphHITLCheckpointOrdering:
         assert loaded_state2.pattern_state["node_results"]["execute"]["response"] == "Execution complete"
 
         # Step 4: Simulate crash recovery scenario
-        # If we resume from loaded_state2 (which has current_node=execute), 
+        # If we resume from loaded_state2 (which has current_node=execute),
         # workflow should NOT re-pause at review node
         # (This is conceptual validation - actual test shows checkpoint state is correct)
 

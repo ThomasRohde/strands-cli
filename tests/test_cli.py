@@ -970,14 +970,14 @@ class TestCLIErrorHandling:
         # Create a temporary spec file from the fixture
         # Convert Pydantic model to dict, then to YAML
         graph_spec_file = temp_artifacts_dir / "graph-spec.yaml"
-        
+
         # Use ruamel.yaml for proper serialization
         from ruamel.yaml import YAML
         yaml_writer = YAML()
-        
+
         # Convert Spec to dict (mode='json' for enums, by_alias=True for 'from' field, exclude_none=True for clean YAML)
         spec_dict = graph_spec_fixture.model_dump(mode='json', by_alias=True, exclude_none=True)
-        
+
         # Add host for Ollama provider and outputs to ensure spec is fully supported
         spec_dict['runtime']['host'] = 'http://localhost:11434'
         spec_dict['outputs'] = {
@@ -985,7 +985,7 @@ class TestCLIErrorHandling:
                 {'path': './output.txt', 'from': '{{ last_response }}'}
             ]
         }
-        
+
         with open(graph_spec_file, 'w') as f:
             yaml_writer.dump(spec_dict, f)
 
@@ -1003,7 +1003,7 @@ class TestCLIErrorHandling:
 
         # Assert exit code is EX_RUNTIME (not EX_UNKNOWN)
         assert result.exit_code == EX_RUNTIME
-        
+
         # Assert error message is structured (not "Unexpected error")
         assert "Unexpected error" not in result.stdout
         assert "failed" in result.stdout.lower() or "error" in result.stdout.lower()

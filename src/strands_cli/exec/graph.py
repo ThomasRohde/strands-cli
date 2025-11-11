@@ -43,6 +43,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from strands_cli.exec.conditions import ConditionEvaluationError, evaluate_condition
+from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.utils import (
     TOKEN_WARNING_THRESHOLD,
     AgentCache,
@@ -658,7 +659,37 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                 last_executed_node = execution_path[-1]
 
             # Check for HITL resume
-            hitl_state_dict = pattern_state.get("hitl_state")
+            # Check for timeout BEFORE checking for hitl_response
+            timed_out, timeout_default = check_hitl_timeout(session_state)
+
+            if timed_out:
+                # Auto-resume with default response
+                if not hitl_response:
+                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                    if hitl_state_dict:
+                        hitl_state = HITLState(**hitl_state_dict)
+                        console.print(
+                            Panel(
+                                format_timeout_warning(
+                                    hitl_state.timeout_at,
+                                    timeout_default,
+                                ),
+                                border_style="yellow",
+                            )
+                        )
+                        hitl_response = timeout_default
+
+                        # Record timeout metadata in pattern_state and session metadata
+                        session_state.pattern_state["hitl_timeout_occurred"] = True
+                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                # If user provided explicit response, that overrides timeout
+
+            hitl_state_dict = session_state.pattern_state.get("hitl_state")
             if hitl_state_dict:
                 hitl_state = HITLState(**hitl_state_dict)
                 if hitl_state.active:
@@ -706,7 +737,9 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                     # This ensures crash recovery resumes from correct node
                     if next_node_id is None:
                         # Terminal HITL node - mark workflow complete
-                        current_node_id = hitl_node_id  # Keep terminal node for final response extraction
+                        current_node_id = (
+                            hitl_node_id  # Keep terminal node for final response extraction
+                        )
                         session_state.metadata.status = SessionStatus.COMPLETED
                     else:
                         # Non-terminal HITL - advance to next node
@@ -715,6 +748,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
 
                     # Checkpoint with correct current_node (crash-safe)
                     from strands_cli.session.utils import now_iso8601
+
                     session_state.pattern_state["current_node"] = current_node_id
                     session_state.pattern_state["node_results"] = node_results
                     session_state.pattern_state["execution_path"] = execution_path

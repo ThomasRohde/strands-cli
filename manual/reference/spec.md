@@ -265,6 +265,14 @@ pattern:
       min_score: 85
       max_iters: 3
     revise_prompt: "Improve based on feedback"
+    review_gate:
+      type: hitl
+      prompt: "Review draft iteration {{ iteration_index }} before continuing"
+      context_display: |
+        Score: {{ iterations[-1].evaluation.score }}
+        Feedback: {{ iterations[-1].evaluation.feedback }}
+      default: "continue"
+      timeout_seconds: 3600
 ```
 
 **See**: [Evaluator-Optimizer Pattern Guide](../howto/patterns/evaluator-optimizer.md)
@@ -282,12 +290,25 @@ pattern:
       limits:
         max_workers: 6
         max_rounds: 3
+    decomposition_review:
+      type: hitl
+      prompt: "Approve planner subtasks before dispatch"
+      context_display: |
+        {{ orchestrator_response }}
     worker_template:
       agent: researcher
       tools: ["http_request"]
     reduce:
       agent: writer
       input: "Synthesize results"
+    reduce_review:
+      type: hitl
+      prompt: "Review {{ worker_count }} worker results before aggregation"
+      context_display: |
+        {% for worker in workers %}
+        ### Worker {{ loop.index }}
+        {{ worker.response }}
+        {% endfor %}
 ```
 
 **See**: [Orchestrator-Workers Pattern Guide](../howto/patterns/orchestrator-workers.md)

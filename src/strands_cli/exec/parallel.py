@@ -38,6 +38,7 @@ import structlog
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
@@ -181,6 +182,43 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
     # 1. Fresh resume with new hitl_response from user (hitl_response parameter provided)
     # 2. Crash recovery where response was already checkpointed (check session_state.hitl_state.user_response)
     if session_state:
+        # Check for timeout BEFORE checking for hitl_response
+        timed_out, timeout_default = check_hitl_timeout(session_state)
+
+        if timed_out:
+            # Auto-resume with default response
+            if not hitl_response:
+                hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                if (
+                    hitl_state_dict
+                    and hitl_state_dict.get("step_type") == "branch"
+                    and hitl_state_dict.get("branch_id") == branch.id
+                ):
+                    console.print(
+                        Panel(
+                            format_timeout_warning(
+                                hitl_state_dict.get("timeout_at"),
+                                timeout_default,
+                            ),
+                            border_style="yellow",
+                        )
+                    )
+                    hitl_response = timeout_default
+
+                    # Record timeout metadata in pattern_state and session metadata
+                    session_state.pattern_state["hitl_timeout_occurred"] = True
+                    session_state.pattern_state["hitl_timeout_at"] = hitl_state_dict.get(
+                        "timeout_at"
+                    )
+                    session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state_dict.get(
+                        "timeout_at"
+                    )
+                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
+            # If user provided explicit response, that overrides timeout
+
         hitl_state_dict = session_state.pattern_state.get("hitl_state")
         if (
             hitl_state_dict
@@ -191,7 +229,7 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
             # - Use new response from parameter if provided
             # - Otherwise use persisted response from previous checkpoint
             effective_hitl_response = hitl_response or hitl_state_dict.get("user_response")
-            
+
             if effective_hitl_response:
                 # Restore pre-HITL step history from session state
                 branch_states = session_state.pattern_state.get("branch_states", {})
@@ -257,7 +295,9 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
                     "branch_hitl_response_received",
                     branch_id=branch.id,
                     step=hitl_state_dict["step_index"],
-                    response_preview=effective_hitl_response[:100] if len(effective_hitl_response) > 100 else effective_hitl_response,
+                    response_preview=effective_hitl_response[:100]
+                    if len(effective_hitl_response) > 100
+                    else effective_hitl_response,
                     from_checkpoint=hitl_response is None,
                 )
 
@@ -884,7 +924,9 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                         # CRITICAL: Persist token usage before pause to prevent budget bypass on resume
                         pause_tokens = cumulative_tokens + hitl_info["cumulative_tokens"]
                         session_state.token_usage.total_input_tokens = pause_tokens // 2
-                        session_state.token_usage.total_output_tokens = pause_tokens - session_state.token_usage.total_input_tokens
+                        session_state.token_usage.total_output_tokens = (
+                            pause_tokens - session_state.token_usage.total_input_tokens
+                        )
                         session_state.metadata.status = SessionStatus.PAUSED
                         session_state.metadata.updated_at = now_iso8601()
 
@@ -1042,6 +1084,36 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
             final_agent_id: str
 
             if spec.pattern.config.reduce:
+                # Check for timeout on reduce HITL when resuming from pause
+                if session_state and not reduce_executed:
+                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                    if hitl_state_dict and hitl_state_dict.get("step_type") == "reduce":
+                        timed_out, timeout_default = check_hitl_timeout(session_state)
+                        if timed_out and not hitl_response:
+                            console.print(
+                                Panel(
+                                    format_timeout_warning(
+                                        hitl_state_dict.get("timeout_at"),
+                                        timeout_default,
+                                    ),
+                                    border_style="yellow",
+                                )
+                            )
+                            hitl_response = timeout_default
+
+                            # Record timeout metadata in pattern_state and session metadata
+                            session_state.pattern_state["hitl_timeout_occurred"] = True
+                            session_state.pattern_state["hitl_timeout_at"] = (
+                                hitl_state_dict.get("timeout_at")
+                            )
+                            session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                            session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                            session_state.metadata.metadata["hitl_timeout_at"] = (
+                                hitl_state_dict.get("timeout_at")
+                            )
+                            session_state.metadata.metadata["hitl_default_used"] = timeout_default
+
                 # Phase 2.2 HITL: Check if reduce is HITL step
                 if (
                     hasattr(spec.pattern.config.reduce, "type")
@@ -1102,7 +1174,9 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                         session_state.pattern_state["reduce_executed"] = False
                         # CRITICAL: Persist token usage before pause to prevent budget bypass on resume
                         session_state.token_usage.total_input_tokens = cumulative_tokens // 2
-                        session_state.token_usage.total_output_tokens = cumulative_tokens - session_state.token_usage.total_input_tokens
+                        session_state.token_usage.total_output_tokens = (
+                            cumulative_tokens - session_state.token_usage.total_input_tokens
+                        )
                         session_state.metadata.status = SessionStatus.PAUSED
                         session_state.metadata.updated_at = now_iso8601()
 
@@ -1208,7 +1282,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                                 # Log warning but continue - checkpoint failure shouldn't block execution
                                 logger.warning(
                                     "reduce_hitl_resume_without_checkpoint",
-                                    message="HITL response not persisted - workflow crash will lose user input"
+                                    message="HITL response not persisted - workflow crash will lose user input",
                                 )
 
                 elif not reduce_executed:

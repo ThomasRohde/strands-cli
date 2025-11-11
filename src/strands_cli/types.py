@@ -378,6 +378,13 @@ class HITLState(BaseModel):
     # Graph pattern fields
     node_id: str | None = Field(None, description="ID of HITL node (graph pattern)")
 
+    # Evaluator-optimizer pattern fields
+    iteration_index: int | None = Field(None, description="Iteration index (evaluator-optimizer pattern)")
+
+    # Orchestrator-workers pattern fields
+    phase: str | None = Field(None, description="Orchestrator phase: 'decomposition' or 'reduce' (orchestrator-workers pattern)")
+    worker_count: int | None = Field(None, ge=0, description="Number of workers (orchestrator-workers pattern)")
+
     # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
     context_display: str | None = Field(None, description="Context shown to user")
@@ -392,20 +399,30 @@ class HITLState(BaseModel):
         has_workflow_fields = self.task_id is not None or self.layer_index is not None
         has_parallel_fields = self.branch_id is not None or self.step_type is not None
         has_graph_fields = self.node_id is not None
+        has_evaluator_fields = self.iteration_index is not None
+        has_orchestrator_fields = self.phase is not None or self.worker_count is not None
 
         # Count how many pattern field sets are present
-        pattern_count = sum([has_chain_fields, has_workflow_fields, has_parallel_fields, has_graph_fields])
+        pattern_count = sum([
+            has_chain_fields,
+            has_workflow_fields,
+            has_parallel_fields,
+            has_graph_fields,
+            has_evaluator_fields,
+            has_orchestrator_fields
+        ])
 
         if pattern_count == 0:
             raise ValueError(
                 "HITLState must have fields for one pattern: "
                 "step_index (chain) OR task_id+layer_index (workflow) OR "
-                "branch_id/step_type (parallel) OR node_id (graph)"
+                "branch_id/step_type (parallel) OR node_id (graph) OR "
+                "iteration_index (evaluator-optimizer) OR phase/worker_count (orchestrator-workers)"
             )
         if pattern_count > 1:
             raise ValueError(
                 "HITLState cannot mix fields from multiple patterns. "
-                "Use only chain OR workflow OR parallel OR graph fields."
+                "Use only chain OR workflow OR parallel OR graph OR evaluator-optimizer OR orchestrator-workers fields."
             )
 
         # Workflow pattern requires both task_id and layer_index
@@ -425,6 +442,11 @@ class HITLState(BaseModel):
             # Reduce HITL requires step_type='reduce' but no branch_id
             if self.step_type == "reduce" and self.branch_id:
                 raise ValueError("Parallel reduce HITL should not have branch_id")
+
+        # Orchestrator pattern validation
+        if has_orchestrator_fields:
+            if self.phase not in ["decomposition", "reduce", None]:
+                raise ValueError("Orchestrator HITL phase must be 'decomposition' or 'reduce'")
 
         return self
 
@@ -868,10 +890,13 @@ class PatternConfig(BaseModel):
     evaluator: EvaluatorConfig | None = None  # Evaluator config
     accept: AcceptConfig | None = None  # Accept criteria
     revise_prompt: str | None = None  # Revision prompt template
+    review_gate: HITLStep | None = None  # HITL pause between iterations (optional)
 
     # Orchestrator-workers fields
     orchestrator: OrchestratorConfig | None = None  # Orchestrator config
+    decomposition_review: HITLStep | None = None  # HITL pause after task decomposition (optional)
     worker_template: WorkerTemplate | None = None  # Worker template
+    reduce_review: HITLStep | None = None  # HITL pause before reduce step (optional)
     writeup: ChainStep | None = None  # Optional final synthesis step
 
     # Graph fields

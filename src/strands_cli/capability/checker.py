@@ -436,7 +436,7 @@ def _validate_graph_pattern(spec: Spec, issues: list[CapabilityIssue]) -> None: 
         # Skip validation for HITL nodes (they don't have an agent field)
         if node.type == "hitl":
             continue
-        
+
         if node.agent and node.agent not in spec.agents:
             issues.append(
                 CapabilityIssue(

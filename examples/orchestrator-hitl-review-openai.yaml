@@ -1,0 +1,106 @@
+version: 0
+name: "orchestrator-hitl-review"
+description: "Orchestrator-workers with human review gates for decomposition and reduce"
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 50000
+    warn_threshold: 0.8
+
+agents:
+  orchestrator:
+    prompt: |
+      You are an orchestrator agent. Break down the following task into 2-4 subtasks
+      for worker agents to execute in parallel.
+      
+      Respond with ONLY a JSON array of tasks. Each task should have a "task" field.
+      
+      Example format:
+      [
+        {"task": "Subtask 1 description"},
+        {"task": "Subtask 2 description"}
+      ]
+      
+      If there are no subtasks needed, return an empty array: []
+
+  worker:
+    prompt: "You are a worker agent. Complete the assigned subtask thoroughly and professionally."
+
+  reducer:
+    prompt: |
+      You are a reducer agent. Aggregate the worker results into a cohesive final output.
+      Ensure consistency, remove redundancy, and provide a well-structured synthesis.
+
+pattern:
+  type: orchestrator_workers
+  config:
+    orchestrator:
+      agent: orchestrator
+      limits:
+        max_workers: 3
+        max_rounds: 1
+    
+    decomposition_review:
+      type: hitl
+      prompt: |
+        Review the task decomposition before delegating to workers.
+        
+        Respond with:
+        - 'approve' or 'yes' to proceed with workers
+        - Provide feedback for revision (e.g., "split task 1 into smaller pieces")
+      context_display: |
+        ### Orchestrator Plan
+        {{ orchestrator_response }}
+        
+        **Number of subtasks:** {{ task_count }}
+      default: "approve"
+      timeout_seconds: 1800  # 30 minutes
+    
+    worker_template:
+      agent: worker
+    
+    reduce_review:
+      type: hitl
+      prompt: |
+        Review {{ worker_count }} worker results before final aggregation.
+        
+        Respond with:
+        - 'approved' to proceed with reduce step
+        - 'reject' to stop workflow
+        - Provide specific feedback for revision
+      context_display: |
+        {% for worker in workers %}
+        ### Worker {{ loop.index }}
+        **Task:** {{ worker.task }}
+        
+        **Result Preview:**
+        {{ worker.response[:300] }}...
+        
+        ---
+        {% endfor %}
+      default: "approved"
+      timeout_seconds: 1800  # 30 minutes
+    
+    reduce:
+      agent: reducer
+      input: |
+        User review: {{ hitl_response }}
+        
+        Aggregate these {{ num_workers }} worker results into a final synthesis:
+        
+        {% for worker in workers %}
+        ## Worker {{ loop.index }}: {{ worker.task }}
+        {{ worker.response }}
+        
+        {% endfor %}
+
+inputs:
+  values:
+    project_description: "Develop a new customer feedback portal with web interface, API integration, and dashboard analytics"
+
+outputs:
+  artifacts:
+    - path: "./orchestrated-output.md"
+      from: "{{ last_response }}"

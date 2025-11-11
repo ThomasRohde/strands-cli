@@ -35,12 +35,16 @@ Error Handling:
 
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 from pydantic import ValidationError
+from rich.console import Console
+from rich.panel import Panel
 
+from strands_cli.exit_codes import EX_OK
+from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
     AgentCache,
@@ -59,8 +63,9 @@ from strands_cli.session.checkpoint_utils import (
     validate_session_params,
 )
 from strands_cli.session.file_repository import FileSessionRepository
+from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
-from strands_cli.types import EvaluatorDecision, PatternType, RunResult, Spec
+from strands_cli.types import EvaluatorDecision, HITLState, PatternType, RunResult, Spec
 
 
 class EvaluatorOptimizerExecutionError(Exception):
@@ -70,6 +75,7 @@ class EvaluatorOptimizerExecutionError(Exception):
 
 
 logger = structlog.get_logger(__name__)
+console = Console()
 
 
 async def _run_initial_production(
@@ -288,6 +294,7 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
     variables: dict[str, str] | None = None,
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
+    hitl_response: str | None = None,
 ) -> RunResult:
     """Execute evaluator-optimizer pattern workflow with optional session persistence.
 
@@ -305,11 +312,18 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
     - Iteration history restoration: Preserve draft and evaluation history
     - Acceptance check on resume: Exit early if already accepted
 
+    Phase 1 HITL Support:
+    - Optional review_gate between evaluation iterations
+    - Pauses execution for human review/approval before continuing
+    - Template context includes {{ iterations[n].evaluation }} and {{ iterations[n].draft }}
+    - Supports timeout and default response configuration
+
     Args:
         spec: Validated workflow specification
         variables: User-provided template variables
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
+        hitl_response: User response when resuming from HITL pause (None = not HITL resume)
 
     Returns:
         RunResult with final draft and execution metadata
@@ -451,6 +465,128 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                 current_draft_length=len(current_draft),
             )
 
+            # Phase 1 HITL: Handle resume from HITL pause
+            # Check for timeout BEFORE checking for hitl_response
+            timed_out, timeout_default = check_hitl_timeout(session_state)
+
+            if timed_out:
+                # Auto-resume with default response
+                if not hitl_response:
+                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                    if hitl_state_dict:
+                        hitl_state = HITLState(**hitl_state_dict)
+                        console.print(
+                            Panel(
+                                format_timeout_warning(
+                                    hitl_state.timeout_at,
+                                    timeout_default,
+                                ),
+                                border_style="yellow",
+                            )
+                        )
+                        hitl_response = timeout_default
+
+                        # Record timeout metadata in pattern_state and session metadata
+                        session_state.pattern_state["hitl_timeout_occurred"] = True
+                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.pattern_state["hitl_default_used"] = timeout_default
+
+                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                # If user provided explicit response, that overrides timeout
+
+            hitl_state_dict = session_state.pattern_state.get("hitl_state")
+            if hitl_state_dict:
+                hitl_state = HITLState(**hitl_state_dict)
+                if hitl_state.active:
+                    # Session is paused for HITL - validate response provided
+                    if not hitl_response:
+                        raise EvaluatorOptimizerExecutionError(
+                            f"Session {session_state.metadata.session_id} is waiting for HITL response. "
+                            f"Resume with: strands run --resume {session_state.metadata.session_id} "
+                            f"--hitl-response 'your response'"
+                        )
+
+                    # Mark HITL as inactive and store response
+                    hitl_state.active = False
+                    hitl_state.user_response = hitl_response
+                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+
+                    # Update session status to RUNNING
+                    session_state.metadata.status = SessionStatus.RUNNING
+                    session_state.metadata.updated_at = now_iso8601()
+
+                    # Checkpoint session after injecting HITL response (before continuing execution)
+                    if session_repo:
+                        await session_repo.save(session_state, "")
+                        logger.info(
+                            "session.checkpoint_after_hitl",
+                            session_id=session_state.metadata.session_id,
+                            iteration=hitl_state.iteration_index,
+                        )
+
+                    logger.info(
+                        "hitl_response_received",
+                        session_id=session_state.metadata.session_id,
+                        iteration=hitl_state.iteration_index,
+                        response_preview=hitl_response[:100]
+                        if len(hitl_response) > 100
+                        else hitl_response,
+                    )
+
+                    # Check if user wants to stop early BEFORE continuing execution
+                    if hitl_response and hitl_response.lower().strip() in ["stop", "abort", "end"]:
+                        logger.info(
+                            "early_termination_requested_at_resume",
+                            iteration=hitl_state.iteration_index,
+                            hitl_response=hitl_response,
+                            final_score=final_score,
+                        )
+                        
+                        # Finalize session with current state
+                        await finalize_session(session_state, session_repo)
+                        
+                        # Return successful completion with early termination flag
+                        completed_at = datetime.now(UTC).isoformat()
+                        duration = (
+                            datetime.fromisoformat(completed_at) - datetime.fromisoformat(started_at)
+                        ).total_seconds()
+                        
+                        execution_context = {
+                            "iterations": len(iteration_history),
+                            "final_score": final_score,
+                            "min_score": min_score,
+                            "max_iters": max_iters,
+                            "history": iteration_history,
+                            "cumulative_tokens": cumulative_tokens,
+                            "early_termination": True,
+                            "termination_reason": "user_requested_at_resume",
+                        }
+                        
+                        if iteration_history:
+                            last_iteration = iteration_history[-1]
+                            execution_context["last_evaluation"] = {
+                                "score": last_iteration["score"],
+                                "issues": last_iteration["issues"],
+                                "fixes": last_iteration["fixes"],
+                            }
+                        
+                        return RunResult(
+                            success=True,
+                            last_response=current_draft,
+                            agent_id=producer_agent_id,
+                            pattern_type=PatternType.EVALUATOR_OPTIMIZER,
+                            started_at=started_at,
+                            completed_at=completed_at,
+                            duration_seconds=duration,
+                            exit_code=EX_OK,
+                            execution_context=execution_context,
+                        )
+
+                    # Continue from the iteration after HITL (already restored from start_iteration)
+                    # The hitl_response is used in decision logic below (check for "stop" vs "continue")
+
         # Phase 6: Create context manager and hooks for compaction
         context_manager = create_from_policy(spec.context_policy, spec)
         hooks: list[Any] = []
@@ -496,6 +632,69 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                 hooks=hooks,
                 worker_index=None,
             )
+
+            # Check if resuming after HITL with pending revision
+            if session_state and session_state.pattern_state.get("pending_revision"):
+                logger.info(
+                    "executing_pending_revision",
+                    session_id=session_state.metadata.session_id,
+                    iteration=start_iteration,
+                )
+                
+                # Get the last evaluation from iteration_history
+                if iteration_history:
+                    last_iter = iteration_history[-1]
+                    evaluation = EvaluatorDecision(
+                        score=last_iter["score"],
+                        issues=last_iter["issues"],
+                        fixes=last_iter["fixes"],
+                    )
+                    
+                    # Build revision context
+                    revision_context = _build_revision_context(
+                        current_draft, evaluation, start_iteration - 1, variables
+                    )
+                    
+                    # Render revision prompt
+                    revision_prompt = render_template(revise_prompt_template, revision_context)
+                    
+                    # Execute producer for revision
+                    revision_response = await invoke_agent_with_retry(
+                        producer_agent, revision_prompt, max_attempts, wait_min, wait_max
+                    )
+                    current_draft = (
+                        revision_response
+                        if isinstance(revision_response, str)
+                        else str(revision_response)
+                    )
+                    
+                    # Estimate tokens for revision
+                    estimated_tokens = estimate_tokens(revision_prompt, current_draft)
+                    cumulative_tokens += estimated_tokens
+                    
+                    # Clear pending_revision flag and checkpoint
+                    if session_repo:
+                        await checkpoint_pattern_state(
+                            session_state,
+                            session_repo,
+                            pattern_state_updates={
+                                "current_iteration": start_iteration,
+                                "current_draft": current_draft,
+                                "iteration_history": iteration_history,
+                                "final_score": final_score,
+                                "accepted": False,
+                                "pending_revision": False,
+                            },
+                            token_increment=estimated_tokens,
+                            status=SessionStatus.RUNNING,
+                        )
+                    
+                    logger.info(
+                        "pending_revision_complete",
+                        session_id=session_state.metadata.session_id if session_state else None,
+                        iteration=start_iteration,
+                        draft_length=len(current_draft),
+                    )
 
             # Iteration 1: Initial production (skip if resuming)
             if start_iteration == 1:
@@ -611,6 +810,13 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                         "issues": evaluation.issues or [],
                         "fixes": evaluation.fixes or [],
                         "draft_preview": current_draft[:100],
+                        "draft": current_draft,  # Full draft for template context
+                        "evaluation": {  # Nested evaluation object for template access
+                            "score": evaluation.score,
+                            "issues": evaluation.issues or [],
+                            "fixes": evaluation.fixes or [],
+                            "feedback": "; ".join(evaluation.issues or []) if evaluation.issues else "",
+                        },
                     }
                 )
 
@@ -660,6 +866,156 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                         final_score=final_score,
                     )
                     break
+
+                # Phase 1 HITL: Check for review_gate before continuing to revision
+                if config.review_gate:
+                    # BLOCKER: Validate session persistence is available
+                    if not session_repo or not session_state:
+                        raise EvaluatorOptimizerExecutionError(
+                            f"Review gate at iteration {iteration} requires session persistence, "
+                            "but session is disabled. Session persistence is required to save pause "
+                            "state and enable resume. Remove --no-save-session flag or remove "
+                            "review_gate from workflow."
+                        )
+
+                    # Build template context for HITL prompt
+                    hitl_context = {
+                        "iteration_index": len(iteration_history) - 1,  # 0-based index
+                        "iterations": iteration_history,
+                        "current_draft": current_draft,
+                        "current_evaluation": {
+                            "score": evaluation.score,
+                            "issues": evaluation.issues or [],
+                            "fixes": evaluation.fixes or [],
+                        },
+                    }
+                    if variables:
+                        hitl_context.update(variables)
+
+                    # Render context_display template if provided
+                    context_text = ""
+                    if config.review_gate.context_display:
+                        try:
+                            context_text = render_template(
+                                config.review_gate.context_display, hitl_context
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "context_display_render_failed",
+                                iteration=iteration,
+                                error=str(e),
+                            )
+                            context_text = f"(Failed to render context: {e})"
+
+                    # Calculate timeout
+                    timeout_at = None
+                    if (
+                        config.review_gate.timeout_seconds
+                        and config.review_gate.timeout_seconds > 0
+                    ):
+                        timeout_dt = datetime.now(UTC) + timedelta(
+                            seconds=config.review_gate.timeout_seconds
+                        )
+                        timeout_at = timeout_dt.isoformat()
+
+                    # Create HITL state
+                    new_hitl_state = HITLState(
+                        active=True,
+                        iteration_index=len(iteration_history) - 1,  # 0-based index
+                        step_index=None,
+                        task_id=None,
+                        layer_index=None,
+                        branch_id=None,
+                        step_type=None,
+                        node_id=None,
+                        prompt=config.review_gate.prompt,
+                        context_display=context_text,
+                        default_response=config.review_gate.default,
+                        timeout_at=timeout_at,
+                        user_response=None,
+                    )
+
+                    # Save session with HITL state BEFORE displaying to user
+                    session_state.pattern_state["current_iteration"] = iteration
+                    session_state.pattern_state["current_draft"] = current_draft
+                    session_state.pattern_state["iteration_history"] = iteration_history
+                    session_state.pattern_state["final_score"] = final_score
+                    session_state.pattern_state["accepted"] = False
+                    session_state.pattern_state["pending_revision"] = True  # Flag that revision step is needed on resume
+                    session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
+                    session_state.metadata.status = SessionStatus.PAUSED
+                    session_state.metadata.updated_at = now_iso8601()
+
+                    try:
+                        await session_repo.save(session_state, "")
+                        logger.info(
+                            "hitl_pause_saved",
+                            session_id=session_state.metadata.session_id,
+                            iteration=len(iteration_history) - 1,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "hitl_pause_save_failed",
+                            session_id=session_state.metadata.session_id,
+                            iteration=len(iteration_history) - 1,
+                            error=str(e),
+                        )
+                        raise EvaluatorOptimizerExecutionError(
+                            f"Failed to save HITL pause state: {e}"
+                        ) from e
+
+                    # Display HITL prompt to user
+                    console.print()
+                    console.print(
+                        Panel(
+                            f"[bold yellow]>>> HUMAN REVIEW REQUIRED <<<[/bold yellow]\n\n{config.review_gate.prompt}",
+                            border_style="yellow",
+                            padding=(1, 2),
+                            title=f"Review Gate - Iteration {len(iteration_history)}",
+                        )
+                    )
+
+                    if context_text:
+                        console.print(
+                            Panel(
+                                f"[bold]Context for Review:[/bold]\n\n{context_text}",
+                                border_style="dim",
+                                padding=(1, 2),
+                            )
+                        )
+
+                    console.print(f"\n[dim]Session ID:[/dim] {session_state.metadata.session_id}")
+                    console.print(
+                        f"[dim]Resume with:[/dim] strands run --resume {session_state.metadata.session_id} "
+                        f"--hitl-response 'continue' (or 'stop' to end early)"
+                    )
+                    console.print()
+
+                    # Exit with HITL pause
+                    from strands_cli.exit_codes import EX_HITL_PAUSE
+
+                    hitl_pause_completed_at = datetime.now(UTC).isoformat()
+                    hitl_pause_started_dt = datetime.fromisoformat(started_at)
+                    hitl_pause_completed_dt = datetime.fromisoformat(hitl_pause_completed_at)
+                    hitl_pause_duration = (
+                        hitl_pause_completed_dt - hitl_pause_started_dt
+                    ).total_seconds()
+
+                    return RunResult(
+                        success=True,
+                        last_response=f"HITL review gate at iteration {len(iteration_history)}: {config.review_gate.prompt}",
+                        pattern_type=PatternType.EVALUATOR_OPTIMIZER,
+                        started_at=started_at,
+                        completed_at=hitl_pause_completed_at,
+                        duration_seconds=hitl_pause_duration,
+                        agent_id="hitl",
+                        exit_code=EX_HITL_PAUSE,
+                        execution_context={
+                            "iterations": len(iteration_history),
+                            "current_score": final_score,
+                            "history": iteration_history,
+                        },
+                    )
 
                 # Prepare for revision
                 logger.info("iteration_start", iteration=iteration + 1, phase="revision")
@@ -777,6 +1133,7 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                 started_at=started_at,
                 completed_at=completed_at,
                 duration_seconds=duration,
+                exit_code=EX_OK,
                 execution_context=execution_context,
             )
 

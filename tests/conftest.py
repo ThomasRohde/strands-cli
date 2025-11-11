@@ -856,3 +856,123 @@ def pytest_configure(config: Any) -> None:
     config.addinivalue_line("markers", "integration: Integration tests")
     config.addinivalue_line("markers", "e2e: End-to-end tests")
     config.addinivalue_line("markers", "slow: Slow-running tests")
+
+
+# ============================================================================
+# HITL Test Helpers
+# ============================================================================
+
+
+def create_chain_spec_with_hitl(
+    timeout_seconds: int | None = None, default: str | None = None
+) -> Any:
+    """Create a chain spec with HITL step for testing."""
+    from strands_cli.types import (
+        ChainStep,
+        Pattern,
+        PatternConfig,
+        PatternType,
+        ProviderType,
+        Runtime,
+        Spec,
+    )
+
+    return Spec(
+        name="test-chain-hitl",
+        runtime=Runtime(provider=ProviderType.OPENAI, model_id="gpt-4o-mini"),
+        agents={"agent1": {"prompt": "Test agent"}},
+        pattern=Pattern(
+            type=PatternType.CHAIN,
+            config=PatternConfig(
+                steps=[
+                    ChainStep(agent="agent1", input="Step 1"),
+                    ChainStep(
+                        type="hitl",
+                        prompt="Approve step 1?",
+                        timeout_seconds=timeout_seconds,
+                        default=default,
+                    ),
+                    ChainStep(agent="agent1", input="Step 2"),
+                ]
+            ),
+        ),
+    )
+
+
+def create_workflow_spec_with_hitl(
+    timeout_seconds: int | None = None, default: str | None = None
+) -> Any:
+    """Create a workflow spec with HITL task for testing."""
+    from strands_cli.types import (
+        Pattern,
+        PatternConfig,
+        PatternType,
+        ProviderType,
+        Runtime,
+        Spec,
+        WorkflowTask,
+    )
+
+    return Spec(
+        name="test-workflow-hitl",
+        runtime=Runtime(provider=ProviderType.OPENAI, model_id="gpt-4o-mini"),
+        agents={"agent1": {"prompt": "Test agent"}},
+        pattern=Pattern(
+            type=PatternType.WORKFLOW,
+            config=PatternConfig(
+                tasks=[
+                    WorkflowTask(id="task1", agent="agent1", input="Task 1"),
+                    WorkflowTask(
+                        id="task2",
+                        type="hitl",
+                        prompt="Approve task2?",
+                        depends_on=["task1"],
+                        timeout_seconds=timeout_seconds,
+                        default=default,
+                    ),
+                    WorkflowTask(id="task3", agent="agent1", input="Task 3", depends_on=["task2"]),
+                ]
+            ),
+        ),
+    )
+
+
+def create_graph_spec_with_hitl(
+    timeout_seconds: int | None = None, default: str | None = None
+) -> Any:
+    """Create a graph spec with HITL node for testing."""
+    from strands_cli.types import (
+        GraphNode,
+        Pattern,
+        PatternConfig,
+        PatternType,
+        ProviderType,
+        Runtime,
+        Spec,
+    )
+
+    return Spec(
+        name="test-graph-hitl",
+        runtime=Runtime(provider=ProviderType.OPENAI, model_id="gpt-4o-mini"),
+        agents={"agent1": {"prompt": "Test agent"}},
+        pattern=Pattern(
+            type=PatternType.GRAPH,
+            config=PatternConfig(
+                nodes={
+                    "start_node": GraphNode(id="start_node", agent="agent1", input="Start"),
+                    "approval_node": GraphNode(
+                        id="approval_node",
+                        type="hitl",
+                        prompt="Approve?",
+                        timeout_seconds=timeout_seconds,
+                        default=default,
+                    ),
+                    "end_node": GraphNode(id="end_node", agent="agent1", input="End"),
+                },
+                edges=[
+                    {"from": "start_node", "to": ["approval_node"]},
+                    {"from": "approval_node", "to": ["end_node"]},
+                ],
+            ),
+        ),
+    )

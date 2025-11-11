@@ -958,7 +958,7 @@ class TestHITLCheckpointSafety:
             },
             token_usage=TokenUsage(total_input_tokens=150, total_output_tokens=180),
         )
-        
+
         # Save initial session state (simulate pause checkpoint)
         await repo.save(session_state, "")
 
@@ -1177,7 +1177,7 @@ class TestHITLCheckpointSafety:
             },
             token_usage=TokenUsage(),
         )
-        
+
         # Save initial paused state
         await repo.save(session_state, "")
 
@@ -1211,7 +1211,7 @@ class TestHITLCheckpointSafety:
             if "branch_hitl_resume_checkpointed" in str(call)
         ]
         assert len(checkpoint_calls) >= 1
-        
+
         # Verify checkpoint includes session_id, branch_id, step, and response_length
         checkpoint_call = checkpoint_calls[0]
         checkpoint_kwargs = checkpoint_call[1] if len(checkpoint_call) > 1 else checkpoint_call.kwargs
@@ -1229,7 +1229,7 @@ class TestHITLCheckpointSafety:
         # The critical proof is in the branch_states step_history
         branch_state = checkpointed_state.pattern_state.get("branch_states", {}).get("web_research", {})
         step_history = branch_state.get("step_history", [])
-        
+
         # Should have original step + HITL step + validation step
         assert len(step_history) >= 2, f"Expected at least 2 steps in history, got {len(step_history)}"
 
@@ -1326,7 +1326,7 @@ class TestHITLCheckpointSafety:
             },
             token_usage=TokenUsage(),
         )
-        
+
         # Save crashed state
         await repo.save(session_state, "")
 
@@ -1352,7 +1352,7 @@ class TestHITLCheckpointSafety:
         # Assert - Workflow completed successfully without re-pausing at HITL
         assert result.success is True
         assert result.agent_id != "hitl", "Should not pause at HITL again - response was checkpointed"
-        
+
         # Verify validation step executed (proves we continued past HITL)
         assert "Validation complete" in result.last_response or any(
             "Validation complete" in str(b.get("response", ""))
@@ -1362,7 +1362,7 @@ class TestHITLCheckpointSafety:
         # Verify the checkpointed response was used
         final_state = await repo.load("test-crash-resume-456")
         web_branch = final_state.pattern_state.get("branch_states", {}).get("web_research", {})
-        
+
         # HITL step should be in history with the original response
         # Note: May have duplicate HITL records if restored multiple times, but all should have same response
         hitl_steps = [s for s in web_branch.get("step_history", []) if s.get("type") == "hitl"]
