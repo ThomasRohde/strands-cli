@@ -27,5 +27,5 @@ pattern:
 
 outputs:
   artifacts:
-    - path: "./artifacts/debug-demo-result.txt"
+    - path: "debug-demo-result.txt"
       from: "{{ last_response }}"

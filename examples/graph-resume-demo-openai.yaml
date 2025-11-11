@@ -131,7 +131,7 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/analysis-report.md
+    - path: analysis-report.md
       from: |
         # Content Analysis Report
         

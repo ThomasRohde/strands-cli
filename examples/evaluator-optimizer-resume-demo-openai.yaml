@@ -107,7 +107,7 @@ pattern:
 
 outputs:
   artifacts:
-    - path: ./artifacts/final-essay.md
+    - path: final-essay.md
       from: |
         # Essay: {{ topic }}
         
