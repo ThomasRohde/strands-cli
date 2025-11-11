@@ -51,7 +51,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
-from strands_cli.exit_codes import EX_HITL_PAUSE
+from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
 from strands_cli.loader import render_template
 from strands_cli.session import SessionState, SessionStatus
 from strands_cli.session.checkpoint_utils import (
@@ -274,6 +274,17 @@ def _build_node_context(
     # Add node results as nodes{} dictionary
     context["nodes"] = node_results
 
+    # Expose the most recent HITL response (if any) for {{ hitl_response }} templates
+    hitl_responses = [
+        result.get("response")
+        for result in node_results.values()
+        if result.get("type") == "hitl" and "response" in result
+    ]
+    if hitl_responses:
+        context["hitl_response"] = hitl_responses[-1]
+    elif "hitl_response" not in context:
+        context["hitl_response"] = None
+
     return context
 
 
@@ -326,6 +337,13 @@ def _get_next_node(
     # Conditional 'choose' edge: evaluate in order
     if current_edge.choose:
         context = {"nodes": node_results}
+        hitl_responses = [
+            result.get("response")
+            for result in node_results.values()
+            if result.get("type") == "hitl" and "response" in result
+        ]
+        if hitl_responses:
+            context["hitl_response"] = hitl_responses[-1]
         for choice in current_edge.choose:
             try:
                 if evaluate_condition(choice.when, context):
@@ -664,7 +682,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
 
             if timed_out:
                 # Auto-resume with default response
-                if not hitl_response:
+                if hitl_response is None:
                     hitl_state_dict = session_state.pattern_state.get("hitl_state")
                     if hitl_state_dict:
                         hitl_state = HITLState(**hitl_state_dict)
@@ -694,7 +712,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                 hitl_state = HITLState(**hitl_state_dict)
                 if hitl_state.active:
                     # Resuming from HITL pause - validate response provided
-                    if not hitl_response:
+                    if hitl_response is None:
                         raise GraphExecutionError(
                             f"Session {session_state.metadata.session_id} is waiting for HITL response.\n"
                             f"Resume with: strands run --resume {session_state.metadata.session_id} "
@@ -991,6 +1009,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                     "name": spec.name,
                     "timestamp": end_time.isoformat(),
                 },
+                exit_code=EX_OK,
             )
 
         except HITLPauseError as e:

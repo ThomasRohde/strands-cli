@@ -115,10 +115,19 @@ async def test_single_hitl_pause_handled(minimal_chain_spec: Spec, mocker) -> No
         if call_count == 1:
             # First call: return HITL pause
             session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+            session_state.metadata.status = SessionStatus.PAUSED
+            await session_repo.save(session_state, "")
             return hitl_result
-        else:
-            # Second call: return success
-            return success_result
+
+        # Second call: successful completion
+        assert hitl_response == "approved"
+        hitl_state_after = hitl_state.model_dump()
+        hitl_state_after["active"] = False
+        hitl_state_after["user_response"] = hitl_response
+        session_state.pattern_state["hitl_state"] = hitl_state_after
+        session_state.metadata.status = SessionStatus.COMPLETED
+        await session_repo.save(session_state, "")
+        return success_result
 
     mocker.patch.object(
         executor,
@@ -143,8 +152,8 @@ async def test_single_hitl_pause_handled(minimal_chain_spec: Spec, mocker) -> No
     assert result.last_response == "Final output"
     assert result.exit_code == EX_OK
 
-    # Verify session saved 3 times: initial, after HITL response, after completion
-    assert mock_repo.save.call_count == 3
+    # Verify session saved 4 times (initial snapshot, pause checkpoint, executor resume, final completion)
+    assert mock_repo.save.call_count == 4
 
 
 @pytest.mark.asyncio
@@ -180,10 +189,12 @@ async def test_multiple_hitl_pauses_handled(minimal_chain_spec: Spec, mocker) ->
         nonlocal call_count
         call_count += 1
 
-        if call_count <= 3:
-            # First 3 calls: return HITL pauses
+        if call_count <= len(hitl_states):
+            # Return HITL pause
             hitl_state = hitl_states[call_count - 1]
             session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
+            session_state.metadata.status = SessionStatus.PAUSED
+            await session_repo.save(session_state, "")
 
             return RunResult(
                 success=True,
@@ -195,18 +206,19 @@ async def test_multiple_hitl_pauses_handled(minimal_chain_spec: Spec, mocker) ->
                 agent_id="hitl",
                 exit_code=EX_HITL_PAUSE,
             )
-        else:
-            # 4th call: return success
-            return RunResult(
-                success=True,
-                last_response="All steps completed",
-                pattern_type=PatternType.CHAIN,
-                started_at=datetime.now(UTC).isoformat(),
-                completed_at=datetime.now(UTC).isoformat(),
-                duration_seconds=5.0,
-                agent_id="agent1",
-                exit_code=EX_OK,
-            )
+
+        session_state.metadata.status = SessionStatus.COMPLETED
+        await session_repo.save(session_state, "")
+        return RunResult(
+            success=True,
+            last_response="All steps completed",
+            pattern_type=PatternType.CHAIN,
+            started_at=datetime.now(UTC).isoformat(),
+            completed_at=datetime.now(UTC).isoformat(),
+            duration_seconds=5.0,
+            agent_id="agent1",
+            exit_code=EX_OK,
+        )
 
     mocker.patch.object(
         executor,
@@ -237,8 +249,8 @@ async def test_multiple_hitl_pauses_handled(minimal_chain_spec: Spec, mocker) ->
     assert result.success is True
     assert result.last_response == "All steps completed"
 
-    # Verify session saved: initial + 3 HITL responses + final completion = 5 times
-    assert mock_repo.save.call_count == 5
+    # Verify session saved: initial + per-pause checkpoints + final completion = 6 times
+    assert mock_repo.save.call_count == 6
 
 
 @pytest.mark.asyncio
@@ -288,6 +300,8 @@ async def test_session_state_updated_after_hitl(minimal_chain_spec: Spec, mocker
                 step_index=1,
                 prompt="Approve?",
             ).model_dump()
+            session_state.metadata.status = SessionStatus.PAUSED
+            await session_repo.save(session_state, "")
 
             return RunResult(
                 success=True,
@@ -301,6 +315,16 @@ async def test_session_state_updated_after_hitl(minimal_chain_spec: Spec, mocker
             )
         else:
             # Second call: success
+            assert hitl_response == "user_input"
+            session_state.pattern_state["hitl_state"] = HITLState(
+                active=False,
+                step_index=1,
+                prompt="Approve?",
+                user_response=hitl_response,
+            ).model_dump()
+            session_state.metadata.status = SessionStatus.COMPLETED
+            await session_repo.save(session_state, "")
+
             return RunResult(
                 success=True,
                 last_response="Complete",
@@ -325,19 +349,22 @@ async def test_session_state_updated_after_hitl(minimal_chain_spec: Spec, mocker
     )
 
     # Verify session state updates
-    assert len(saved_sessions) == 3
+    assert len(saved_sessions) == 4
 
     # Initial save
     assert saved_sessions[0]["status"] == SessionStatus.RUNNING
 
-    # After HITL response
-    hitl_state_after = HITLState(**saved_sessions[1]["pattern_state"]["hitl_state"])
+    # Find the paused checkpoint and resumed state with injected response
+    pause_snapshot = next(s for s in saved_sessions if s["status"] == SessionStatus.PAUSED)
+    hitl_snapshots = [s for s in saved_sessions if "hitl_state" in s["pattern_state"]]
+    hitl_state_after = HITLState(**hitl_snapshots[-1]["pattern_state"]["hitl_state"])
+
     assert hitl_state_after.active is False
     assert hitl_state_after.user_response == "user_input"
-    assert saved_sessions[1]["status"] == SessionStatus.RUNNING
+    assert pause_snapshot["status"] == SessionStatus.PAUSED
 
-    # After completion
-    assert saved_sessions[2]["status"] == SessionStatus.COMPLETED
+    # Final save should mark session completed
+    assert saved_sessions[-1]["status"] == SessionStatus.COMPLETED
 
 
 @pytest.mark.asyncio

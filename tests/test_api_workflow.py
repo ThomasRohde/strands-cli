@@ -217,8 +217,15 @@ class TestWorkflowRunInteractiveAsync:
             mock_result = create_run_result(last_response="Test response")
             mock_executor.run_interactive.return_value = mock_result
 
-            # Create workflow
             mock_spec = MagicMock(spec=Spec)
+            mock_spec.name = "test-workflow"
+            mock_spec.pattern = MagicMock()
+            mock_spec.pattern.type = PatternType.CHAIN
+
+            mock_runtime = MagicMock()
+            mock_runtime.model_dump.return_value = {"provider": "ollama"}
+            mock_spec.runtime = mock_runtime
+
             workflow = Workflow(mock_spec)
 
             # Run
@@ -226,7 +233,9 @@ class TestWorkflowRunInteractiveAsync:
 
             # Verify executor created with spec
             mock_executor_cls.assert_called_once_with(mock_spec)
-            mock_executor.run_interactive.assert_called_once_with({"topic": "AI"})
+            mock_executor.run_interactive.assert_called_once_with(
+                {"topic": "AI"}, hitl_handler=None
+            )
             assert result.last_response == "Test response"
 
     @pytest.mark.asyncio

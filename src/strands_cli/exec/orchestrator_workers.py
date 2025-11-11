@@ -522,9 +522,8 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
                 # Check for timeout BEFORE checking for hitl_response
                 timed_out, timeout_default = check_hitl_timeout(session_state)
 
-                if timed_out:
+                if timed_out and hitl_response is None:
                     # Auto-resume with default response
-                    if not hitl_response:
                         from rich.console import Console
                         from rich.panel import Panel
 
@@ -561,7 +560,7 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
                 hitl_state = HITLState(**hitl_state_dict)
                 if hitl_state.active:
                     # Session is paused for HITL - validate response provided
-                    if not hitl_response:
+                    if hitl_response is None:
                         raise OrchestratorExecutionError(
                             f"Session {session_state.metadata.session_id} is waiting for HITL response. "
                             f"Resume with: strands run --resume {session_state.metadata.session_id} "

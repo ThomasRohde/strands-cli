@@ -202,6 +202,8 @@ async def test_interactive_hitl_error_handling(
     mock_create_model: Any,
 ) -> None:
     """Test that errors during HITL execution mark session as FAILED."""
+    from strands_cli.exec.chain import ChainExecutionError
+
     # Mock LLM to raise error on second call
     mock_strands_agent.invoke_async.side_effect = [
         "Draft report",
@@ -211,10 +213,10 @@ async def test_interactive_hitl_error_handling(
     def mock_handler(state: HITLState) -> str:
         return "approved"
 
-    # Run and expect error
+    # Run and expect error (wrapped in ChainExecutionError)
     workflow = Workflow.from_file(single_hitl_spec_file)
 
-    with pytest.raises(RuntimeError, match="LLM service error"):
+    with pytest.raises(ChainExecutionError, match="LLM service error"):
         await workflow.run_interactive_async(hitl_handler=mock_handler)
 
     # Verify session would be marked as FAILED
@@ -476,7 +478,7 @@ async def test_interactive_hitl_max_iterations_safety(
     mock_create_model: Any,
 ) -> None:
     """Test that max_iterations safety limit prevents infinite loops."""
-    # Create spec that could loop infinitely
+    # Create spec with graph pattern that loops back to HITL step
     spec_file = tmp_path / "infinite_hitl.yaml"
     spec_file.write_text("""
 version: 0
@@ -488,11 +490,23 @@ agents:
   agent1:
     prompt: "You are a helpful assistant."
 pattern:
-  type: chain
+  type: graph
   config:
-    steps:
-      - type: hitl
+    nodes:
+      start:
+        type: hitl
         prompt: "Continue?"
+      end:
+        agent: agent1
+        input: "Final step"
+    edges:
+      - from: start
+        choose:
+          - when: "{{ hitl_response == 'continue' }}"
+            to: start
+          - when: else
+            to: end
+    max_iterations: 150
 """)
 
     call_count = 0
@@ -500,17 +514,17 @@ pattern:
     def mock_handler(state: HITLState) -> str:
         nonlocal call_count
         call_count += 1
-        # Always return something, creating potential infinite loop
+        # Always return "continue", creating infinite loop
         return "continue"
 
     workflow = Workflow.from_file(spec_file)
 
-    # Should raise error after max_iterations
+    # Should raise error after max_iterations (100 in run_interactive, not graph max_iterations)
     with pytest.raises(RuntimeError, match="exceeded maximum iterations"):
         await workflow.run_interactive_async(hitl_handler=mock_handler)
 
-    # Verify it tried multiple times but stopped at limit
-    assert call_count > 0
+    # Verify it tried multiple times but stopped at API limit (100)
+    assert call_count == 100
 
 
 @pytest.mark.asyncio

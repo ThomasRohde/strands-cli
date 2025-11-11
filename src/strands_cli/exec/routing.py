@@ -616,7 +616,7 @@ async def run_routing(  # noqa: C901
                 # Check for timeout BEFORE checking for hitl_response
                 timed_out, timeout_default = check_hitl_timeout(session_state)
 
-                if timed_out:
+                if timed_out and hitl_response is None:
                     # Auto-resume with default response
                     hitl_state_dict = session_state.pattern_state.get("hitl_state")
                     if hitl_state_dict:
@@ -651,7 +651,7 @@ async def run_routing(  # noqa: C901
                     hitl_state = HITLState(**hitl_state_dict)
                     if hitl_state.active and hitl_state.router_review:
                         # Session is paused for router review - validate response provided
-                        if not hitl_response:
+                        if hitl_response is None:
                             raise RoutingExecutionError(
                                 f"Session {session_state.metadata.session_id} is waiting for router review HITL response. "
                                 f"Resume with: strands run --resume {session_state.metadata.session_id} "

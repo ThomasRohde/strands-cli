@@ -217,7 +217,7 @@ async def run_chain(  # noqa: C901
 
             if timed_out:
                 # Auto-resume with default response
-                if not hitl_response:
+                if hitl_response is None:
                     hitl_state_dict = session_state.pattern_state.get("hitl_state")
                     if hitl_state_dict:
                         hitl_state = HITLState(**hitl_state_dict)
@@ -247,7 +247,7 @@ async def run_chain(  # noqa: C901
                 hitl_state = HITLState(**hitl_state_dict)
                 if hitl_state.active:
                     # Session is paused for HITL - validate response provided
-                    if not hitl_response:
+                    if hitl_response is None:
                         raise ChainExecutionError(
                             f"Session {session_state.metadata.session_id} is waiting for HITL response. "
                             f"Resume with: strands run --resume {session_state.metadata.session_id} "

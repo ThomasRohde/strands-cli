@@ -120,20 +120,15 @@ class WorkflowExecutor:
                     # Prompt user via handler (may raise on Ctrl+C)
                     hitl_response = hitl_handler(hitl_state)
 
-                    # Update session state with user response
-                    # This is critical for resume - executor will use this on next iteration
-                    hitl_state.active = False  # Mark as no longer waiting
-                    hitl_state.user_response = hitl_response
-                    session_state.pattern_state["hitl_state"] = hitl_state.model_dump()
-
-                    # Update session metadata timestamp
-                    session_state.metadata.updated_at = now_iso8601()
-
-                    # Save updated session state with user response
-                    await session_repo.save(session_state, spec_content)
+                    # NOTE: Do NOT save session here - the executor will inject the HITL
+                    # response and update completed_tasks/task_results, then save the session.
+                    # Saving here would overwrite the executor's changes with stale state.
 
                     # Continue to next iteration (resume with response)
-                    # Clear hitl_response will be passed to executor which will resume from HITL step
+                    # The hitl_response will be passed to executor which will:
+                    # 1. Inject response into task_results
+                    # 2. Add task to completed_tasks
+                    # 3. Save updated session state
                     continue
                 else:
                     # Workflow completed successfully (no more HITL pauses)

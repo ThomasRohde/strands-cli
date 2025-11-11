@@ -55,6 +55,7 @@ from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import HITLState, ParallelBranch, PatternType, RunResult, Spec
+from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
 
 try:
     from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
@@ -185,9 +186,8 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
         # Check for timeout BEFORE checking for hitl_response
         timed_out, timeout_default = check_hitl_timeout(session_state)
 
-        if timed_out:
+        if timed_out and hitl_response is None:
             # Auto-resume with default response
-            if not hitl_response:
                 hitl_state_dict = session_state.pattern_state.get("hitl_state")
                 if (
                     hitl_state_dict
@@ -228,9 +228,13 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
             # Determine the effective HITL response:
             # - Use new response from parameter if provided
             # - Otherwise use persisted response from previous checkpoint
-            effective_hitl_response = hitl_response or hitl_state_dict.get("user_response")
+            effective_hitl_response = (
+                hitl_response
+                if hitl_response is not None
+                else hitl_state_dict.get("user_response")
+            )
 
-            if effective_hitl_response:
+            if effective_hitl_response is not None:
                 # Restore pre-HITL step history from session state
                 branch_states = session_state.pattern_state.get("branch_states", {})
                 if branch.id in branch_states:
@@ -990,6 +994,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                         started_at=started_at,
                         completed_at=end_time.isoformat(),
                         duration_seconds=duration,
+                        exit_code=EX_HITL_PAUSE,
                         tokens_estimated=cumulative_tokens + hitl_info["cumulative_tokens"],
                         execution_context={
                             "session_id": session_state.metadata.session_id
@@ -998,9 +1003,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                             "branch_id": branch_id,
                             "step_index": hitl_info["step_index"],
                         },
-                    )
-
-            # Clear hitl_state after successful branch resume
+                    )            # Clear hitl_state after successful branch resume
             if session_state and hitl_response and session_state.pattern_state.get("hitl_state"):
                 hitl_state_dict = session_state.pattern_state["hitl_state"]
                 if hitl_state_dict.get("step_type") == "branch":
@@ -1235,6 +1238,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                             started_at=started_at,
                             completed_at=end_time.isoformat(),
                             duration_seconds=duration,
+                            exit_code=EX_HITL_PAUSE,
                             tokens_estimated=cumulative_tokens,
                             execution_context={
                                 "session_id": session_state.metadata.session_id,
@@ -1394,6 +1398,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                 started_at=started_at,
                 completed_at=end_time.isoformat(),
                 duration_seconds=duration,
+                exit_code=EX_OK,
                 tokens_estimated=cumulative_tokens,
                 execution_context={"branches": branches_dict},
             )

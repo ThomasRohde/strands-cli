@@ -42,7 +42,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
-from strands_cli.exit_codes import EX_HITL_PAUSE
+from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus, TokenUsage
@@ -653,7 +653,7 @@ async def run_workflow(  # noqa: C901
 
             if timed_out:
                 # Auto-resume with default response
-                if not hitl_response:
+                if hitl_response is None:
                     hitl_state_dict = session_state.pattern_state.get("hitl_state")
                     if hitl_state_dict:
                         hitl_state = HITLState(**hitl_state_dict)
@@ -687,9 +687,9 @@ async def run_workflow(  # noqa: C901
                         "hitl_validation_check",
                         hitl_response=repr(hitl_response),
                         is_none=hitl_response is None,
-                        is_falsy=not hitl_response,
+                        is_empty=isinstance(hitl_response, str) and hitl_response == "",
                     )
-                    if not hitl_response:
+                    if hitl_response is None:
                         raise WorkflowExecutionError(
                             f"Session {session_state.metadata.session_id} is waiting for HITL response. "
                             f"Resume with: strands run --resume {session_state.metadata.session_id} "
@@ -726,6 +726,11 @@ async def run_workflow(  # noqa: C901
                         task_id=hitl_state.task_id,
                         response=hitl_response[:100],
                     )
+
+                    # NOTE: current_layer stays the same after HITL injection.
+                    # The layer loop will continue from the same layer, but
+                    # _check_layer_for_hitl() will skip this task because it's
+                    # now in completed_tasks set.
 
             logger.info(
                 "workflow_resume",
@@ -1062,6 +1067,7 @@ async def run_workflow(  # noqa: C901
                 duration_seconds=duration,
                 artifacts_written=[],
                 execution_context={"tasks": task_results},
+                exit_code=EX_OK,
             )
         except Exception as e:
             # Mark session as failed before re-raising
