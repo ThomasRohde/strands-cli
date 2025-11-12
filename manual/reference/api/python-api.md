@@ -430,6 +430,7 @@ class RunResult:
     artifacts_written: list[str] = []      # Paths to output files
     session_id: str | None = None          # Session ID (for resume)
     token_usage: dict[str, int] = {}       # Token consumption by agent
+    execution_context: dict[str, Any] = {} # Pattern-specific execution data
 ```
 
 ### Accessing Results
@@ -457,6 +458,124 @@ total_tokens = sum(result.token_usage.values())
 print(f"Total tokens: {total_tokens}")
 ```
 
+### Accessing Intermediate Results
+
+The `execution_context` field provides access to intermediate step/task/branch/node outputs. The structure varies by pattern:
+
+#### Chain Pattern
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Access individual step outputs
+steps = result.execution_context["steps"]
+print(f"Step 0 output: {steps[0]['response']}")
+print(f"Step 1 output: {steps[1]['response']}")
+print(f"Step 2 tokens: {steps[2]['tokens']}")
+
+# Iterate through all steps
+for i, step in enumerate(steps):
+    print(f"Step {i}: {step['response'][:100]}...")
+```
+
+#### Workflow Pattern
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Access task results by ID
+tasks = result.execution_context["tasks"]
+print(f"Research task: {tasks['research']['response']}")
+print(f"Analysis task: {tasks['analyze']['response']}")
+
+# Iterate through all tasks
+for task_id, task_data in tasks.items():
+    print(f"{task_id}: {task_data['response'][:100]}...")
+```
+
+#### Parallel Pattern
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Access branch outputs by ID
+branches = result.execution_context["branches"]
+print(f"Branch 1: {branches['branch_1']['response']}")
+print(f"Branch 2: {branches['branch_2']['response']}")
+
+# Check if reduce step was executed
+if "reduce" in result.execution_context:
+    print(f"Reduce output: {result.execution_context['reduce']['response']}")
+```
+
+#### Graph Pattern
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Access node outputs by ID
+nodes = result.execution_context["nodes"]
+print(f"Initial node: {nodes['start']['response']}")
+print(f"Decision node: {nodes['evaluate']['response']}")
+print(f"Final node: {nodes['finish']['response']}")
+
+# Check node execution order
+if "execution_path" in result.execution_context:
+    print(f"Nodes executed: {result.execution_context['execution_path']}")
+```
+
+#### Evaluator-Optimizer Pattern
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Access iteration history
+iterations = result.execution_context.get("iterations", [])
+for i, iteration in enumerate(iterations):
+    print(f"Iteration {i}:")
+    print(f"  Producer output: {iteration['producer_response'][:100]}...")
+    print(f"  Evaluator score: {iteration['score']}")
+    print(f"  Issues: {iteration.get('issues', [])}")
+```
+
+#### Orchestrator-Workers Pattern
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Access worker outputs
+workers = result.execution_context.get("workers", [])
+for i, worker in enumerate(workers):
+    print(f"Worker {i}: {worker['response'][:100]}...")
+
+# Access orchestrator decomposition
+if "decomposition" in result.execution_context:
+    tasks = result.execution_context["decomposition"]
+    print(f"Decomposed into {len(tasks)} tasks")
+```
+
+### Reading Artifact Files
+
+Since `artifacts_written` contains absolute file paths, you can read the generated files directly:
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Read all generated artifacts
+for artifact_path in result.artifacts_written:
+    with open(artifact_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+        print(f"\n=== {artifact_path} ===")
+        print(content)
+
+# Or access specific artifact by name pattern
+report_files = [p for p in result.artifacts_written if "report" in p]
+if report_files:
+    with open(report_files[0], 'r', encoding='utf-8') as f:
+        report = f.read()
+        print(report)
+```
+
 ---
 
 ## Pattern-Specific Features
@@ -470,8 +589,12 @@ Sequential multi-step execution with HITL checkpoints.
 workflow = Workflow.from_file("chain-workflow.yaml")
 result = workflow.run_interactive(topic="AI")
 
-# Access step responses
-print(result.last_response)  # Final step output
+# Access final output
+print(result.last_response)
+
+# Access individual step outputs
+for i, step in enumerate(result.execution_context["steps"]):
+    print(f"Step {i}: {step['response'][:100]}...")
 ```
 
 ### Workflow Pattern
@@ -485,6 +608,13 @@ result = workflow.run_interactive(
     topic="climate change",
     sources=["academic", "news", "reports"]
 )
+
+# Access specific task outputs by ID
+tasks = result.execution_context["tasks"]
+research_output = tasks["research_task"]["response"]
+analysis_output = tasks["analysis_task"]["response"]
+print(f"Research: {research_output[:200]}...")
+print(f"Analysis: {analysis_output[:200]}...")
 ```
 
 ### Parallel Pattern
@@ -497,6 +627,15 @@ workflow = Workflow.from_file("parallel-workflow.yaml")
 result = workflow.run_interactive(
     datasets=["sales.csv", "marketing.csv", "support.csv"]
 )
+
+# Access branch outputs
+branches = result.execution_context["branches"]
+for branch_id, branch_data in branches.items():
+    print(f"{branch_id}: {branch_data['response'][:100]}...")
+
+# Access reduce step output (if present)
+if "reduce" in result.execution_context:
+    print(f"Final synthesis: {result.execution_context['reduce']['response']}")
 ```
 
 ### Graph Pattern
@@ -510,6 +649,11 @@ result = workflow.run_interactive(
     task="Generate business proposal",
     quality_threshold=0.9
 )
+
+# Access node outputs by ID
+nodes = result.execution_context["nodes"]
+for node_id, node_data in nodes.items():
+    print(f"{node_id}: {node_data['response'][:100]}...")
 ```
 
 ### Evaluator-Optimizer Pattern
@@ -523,6 +667,15 @@ result = workflow.run_interactive(
     code_file="main.py",
     max_iterations=5
 )
+
+# Access iteration history
+iterations = result.execution_context.get("iterations", [])
+print(f"Completed {len(iterations)} iterations")
+for i, iteration in enumerate(iterations):
+    print(f"Iteration {i}: Score={iteration['score']}")
+
+# Access final optimized output
+print(result.last_response)
 ```
 
 ### Orchestrator-Workers Pattern
@@ -536,6 +689,15 @@ result = workflow.run_interactive(
     research_topic="quantum computing applications",
     num_workers=3
 )
+
+# Access worker outputs
+workers = result.execution_context.get("workers", [])
+print(f"Processed {len(workers)} worker tasks:")
+for i, worker in enumerate(workers):
+    print(f"  Worker {i}: {worker['response'][:100]}...")
+
+# Access final synthesis/report
+print(f"\nFinal report:\n{result.last_response}")
 ```
 
 ---

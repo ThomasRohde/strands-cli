@@ -1,17 +1,25 @@
 # Strands Python API Examples
 
-This directory contains example scripts demonstrating the **Strands Python API** for programmatic workflow execution.
+This directory contains example scripts demonstrating the **Strands Python API** for programmatic workflow execution and construction.
 
 ## Overview
 
-The Strands Python API provides a first-class programmatic interface for executing workflows, enabling developers to:
+The Strands Python API provides two powerful interfaces:
+
+1. **Workflow Execution API**: Load YAML workflows and execute them programmatically
+2. **Builder API**: Construct workflows entirely in Python without YAML (fluent/builder pattern)
+
+Use the API to:
 
 - Run workflows as Python programs (no CLI required)
+- Build workflows programmatically with type safety
 - Handle HITL (Human-in-the-Loop) interactively in terminal
 - Build custom approval logic and integrations
 - Use async/await for high-performance applications
 
 ## Examples
+
+### Phase 1: Workflow Execution API (Load YAML + Execute)
 
 ### 01_interactive_hitl.py
 
@@ -33,6 +41,240 @@ print(result.last_response)
 **Usage:**
 ```powershell
 python examples/api/01_interactive_hitl.py
+```
+
+---
+
+### Phase 2: Builder API (Construct Workflows in Python)
+
+#### 02_chain_builder.py
+
+**Build chain pattern workflows programmatically**
+
+```python
+from strands_cli.api import FluentBuilder
+
+workflow = (
+    FluentBuilder("research-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("researcher", "You are a research assistant...")
+    .chain()
+    .step("researcher", "Research: {{topic}}")
+    .step("researcher", "Analyze: {{ steps[0].response }}")
+    .artifact("output.md", "{{ last_response }}")
+    .build()
+)
+
+result = await workflow.run_interactive_async(topic="AI")
+```
+
+**Demonstrates:**
+- Fluent builder API for chain pattern
+- Sequential step execution
+- Template variable references ({{ steps[n].response }})
+- No YAML required
+
+**Usage:**
+```powershell
+python examples/api/02_chain_builder.py
+```
+
+---
+
+#### 03_workflow_builder.py
+
+**Build DAG workflows with parallel task execution**
+
+```python
+workflow = (
+    FluentBuilder("parallel-research")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("researcher", "You are a research assistant...")
+    .workflow()
+    .task("overview", "researcher", "Overview of: {{topic}}")
+    .task("technical", "researcher", "Technical analysis...", depends_on=["overview"])
+    .task("applications", "researcher", "Use cases...", depends_on=["overview"])
+    .task("synthesis", "researcher", "Combine insights...", depends_on=["technical", "applications"])
+    .build()
+)
+```
+
+**Demonstrates:**
+- DAG-based workflow pattern
+- Task dependencies with `depends_on`
+- Automatic parallel execution where possible
+- Topological sort validation (detects circular dependencies)
+
+**Usage:**
+```powershell
+python examples/api/03_workflow_builder.py
+```
+
+---
+
+#### 04_parallel_builder.py
+
+**Build parallel branch execution with reduce step**
+
+```python
+workflow = (
+    FluentBuilder("parallel-analysis")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("researcher", "Domain expert...")
+    .agent("synthesizer", "Synthesis expert...")
+    .parallel()
+    .branch("academic").step("researcher", "Academic perspective").done()
+    .branch("industry").step("researcher", "Industry perspective").done()
+    .branch("regulatory").step("researcher", "Regulatory perspective").done()
+    .reduce("synthesizer", "Synthesize: {{ branches.academic.response }}")
+    .build()
+)
+```
+
+**Demonstrates:**
+- Parallel pattern with concurrent branch execution
+- Branch context isolation
+- Optional reduce step for synthesis
+- Reference branch outputs via {{ branches.id.response }}
+
+**Usage:**
+```powershell
+python examples/api/04_parallel_builder.py
+```
+
+---
+
+#### 05_graph_builder.py
+
+**Build state machine workflows with conditional edges**
+
+```python
+workflow = (
+    FluentBuilder("support-router")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("intake", "Customer support intake...")
+    .agent("technical_support", "Technical support engineer...")
+    .graph()
+    .node("intake", "intake", "{{ input_request }}")
+    .node("technical", "technical_support")
+    .node("billing", "billing_support")
+    .conditional_edge("intake", [
+        ("{{ 'technical' in nodes.intake.response.lower() }}", "technical"),
+        ("{{ 'billing' in nodes.intake.response.lower() }}", "billing"),
+        ("else", "general"),
+    ])
+    .max_iterations(5)
+    .build()
+)
+```
+
+**Demonstrates:**
+- Graph pattern (state machine)
+- Conditional transitions between nodes
+- Node output references via {{ nodes.id.response }}
+- Cycle prevention with max_iterations
+
+**Usage:**
+```powershell
+python examples/api/05_graph_builder.py
+```
+
+---
+
+#### 06_routing_builder.py
+
+**Build routing workflows with classifier-based agent selection**
+
+```python
+workflow = (
+    FluentBuilder("task-classifier")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("router", "Classify tasks...")
+    .agent("coder", "Expert software engineer...")
+    .agent("researcher", "Thorough researcher...")
+    .routing()
+    .router("router", "Classify: {{ task }}", max_retries=3)
+    .route("coding").step("coder", "Implement: {{ task }}").done()
+    .route("research").step("researcher", "Research: {{ task }}").done()
+    .build()
+)
+```
+
+**Demonstrates:**
+- Routing pattern with dynamic agent selection
+- Router agent returns JSON: {"route": "route_name"}
+- Multi-step routes
+- Configurable retry logic for malformed JSON
+
+**Usage:**
+```powershell
+python examples/api/06_routing_builder.py
+```
+
+---
+
+#### 07_evaluator_optimizer_builder.py
+
+**Build iterative refinement loops with producer-evaluator feedback**
+
+```python
+workflow = (
+    FluentBuilder("content-refinement")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("writer", "Expert content writer...")
+    .agent("critic", "Critical editor...")
+    .evaluator_optimizer()
+    .producer("writer")
+    .evaluator("critic", "Evaluate: {{ draft }}")
+    .accept(min_score=85, max_iterations=3)
+    .revise_prompt("Improve based on: {{ evaluation.score }}/100...")
+    .build()
+)
+```
+
+**Demonstrates:**
+- Evaluator-optimizer pattern
+- Iterative refinement with feedback loop
+- Evaluator returns JSON: {"score": 0-100, "issues": [...], "fixes": [...]}
+- Custom revision prompts
+- Acceptance criteria (min_score, max_iterations)
+
+**Usage:**
+```powershell
+python examples/api/07_evaluator_optimizer_builder.py
+```
+
+---
+
+#### 08_orchestrator_builder.py
+
+**Build task decomposition workflows with parallel worker execution**
+
+```python
+workflow = (
+    FluentBuilder("research-swarm")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("orchestrator", "Break down complex tasks...")
+    .agent("researcher", "Research specialist...")
+    .agent("report_writer", "Technical writer...")
+    .orchestrator_workers()
+    .orchestrator("orchestrator", max_workers=3, max_rounds=1)
+    .worker_template("researcher", tools=["http_executors"])
+    .reduce_step("report_writer")
+    .build()
+)
+```
+
+**Demonstrates:**
+- Orchestrator-workers pattern
+- Task decomposition (orchestrator returns JSON array of subtasks)
+- Parallel worker pool execution
+- Optional synthesis/reduce step
+- Worker limits (max_workers, max_rounds)
+
+**Usage:**
+```powershell
+python examples/api/08_orchestrator_builder.py
 ```
 
 ---
@@ -194,10 +436,10 @@ result = workflow.run()
 
 ## API Quick Reference
 
-### Workflow Class
+### Workflow Execution API
 
 ```python
-from strands import Workflow
+from strands_cli import Workflow
 
 # Load from file
 workflow = Workflow.from_file("workflow.yaml", **variables)
@@ -213,6 +455,115 @@ result = workflow.run(**variables)
 
 # Run non-interactive (async)
 result = await workflow.run_async(**variables)
+```
+
+### Builder API (Fluent Pattern)
+
+```python
+from strands_cli.api import FluentBuilder
+
+# Core workflow setup
+workflow = (
+    FluentBuilder("workflow-name")
+    .description("Optional description")
+    .runtime("openai", model="gpt-4o-mini", temperature=0.7, max_tokens=4000)
+    .agent("agent_id", "System prompt...", tools=["tool1", "tool2"])
+    
+    # Select pattern (pick one):
+    .chain()           # Sequential steps
+    .workflow()        # DAG with dependencies
+    .parallel()        # Concurrent branches
+    .graph()           # State machine
+    .routing()         # Classifier-based routing
+    .evaluator_optimizer()   # Iterative refinement
+    .orchestrator_workers()  # Task decomposition
+    
+    # Pattern-specific methods... (see examples)
+    
+    .artifact("output.md", "{{ last_response }}")
+    .build()
+)
+
+# Execute
+result = await workflow.run_interactive_async(**variables)
+```
+
+#### Chain Pattern Methods
+
+```python
+.chain()
+  .step(agent, input, vars=None, tool_overrides=None)
+  .hitl(prompt, context_display=None, default=None, timeout_seconds=None)
+  .build()
+```
+
+#### Workflow Pattern Methods
+
+```python
+.workflow()
+  .task(id, agent, input, description=None, depends_on=None, vars=None)
+  .hitl_task(id, prompt, show=None, default=None, depends_on=None)
+  .build()
+```
+
+#### Parallel Pattern Methods
+
+```python
+.parallel()
+  .branch(id)
+    .step(agent, input, vars=None)
+    .hitl(prompt, context_display=None, default=None)
+    .done()
+  .reduce(agent, input, vars=None)
+  .build()
+```
+
+#### Graph Pattern Methods
+
+```python
+.graph()
+  .node(id, agent, input=None)
+  .hitl_node(id, prompt, show=None, default=None)
+  .edge(from_node, to_node)
+  .conditional_edge(from_node, [(condition, target), ...])
+  .max_iterations(count)
+  .build()
+```
+
+#### Routing Pattern Methods
+
+```python
+.routing()
+  .router(agent, input, max_retries=2)
+  .route(id)
+    .step(agent, input, vars=None)
+    .hitl(prompt, context_display=None)
+    .done()
+  .build()
+```
+
+#### Evaluator-Optimizer Pattern Methods
+
+```python
+.evaluator_optimizer()
+  .producer(agent, input=None)
+  .evaluator(agent, input)
+  .accept(min_score, max_iterations=3)
+  .revise_prompt(template)
+  .review_gate(prompt, show=None)
+  .build()
+```
+
+#### Orchestrator-Workers Pattern Methods
+
+```python
+.orchestrator_workers()
+  .orchestrator(agent, input=None, max_workers=None, max_rounds=None)
+  .worker_template(agent, tools=None)
+  .reduce_step(agent, input=None, vars=None)
+  .decomposition_review(prompt, show=None)
+  .reduce_review(prompt, show=None)
+  .build()
 ```
 
 ### Custom HITL Handler
@@ -256,15 +607,25 @@ result.artifacts_written     # list[str] - Artifact file paths
 
 ## Supported Workflow Patterns
 
-All 7 workflow patterns work with the Python API:
+All 7 workflow patterns work with both Execution API (YAML) and Builder API (Python):
 
-- ✅ **chain** - Sequential multi-step execution
-- ✅ **workflow** - Multi-task DAG with dependencies
-- ✅ **routing** - Dynamic agent selection
-- ✅ **parallel** - Concurrent branch execution
-- ✅ **evaluator-optimizer** - Iterative refinement
-- ✅ **orchestrator-workers** - Task decomposition
-- ✅ **graph** - State machine with transitions
+- ✅ **chain** - Sequential multi-step execution (examples: 02_chain_builder.py, 02_simple_chain.py)
+- ✅ **workflow** - Multi-task DAG with dependencies (example: 03_workflow_builder.py)
+- ✅ **routing** - Dynamic agent selection (example: 06_routing_builder.py)
+- ✅ **parallel** - Concurrent branch execution (example: 04_parallel_builder.py)
+- ✅ **evaluator-optimizer** - Iterative refinement (example: 07_evaluator_optimizer_builder.py)
+- ✅ **orchestrator-workers** - Task decomposition (example: 08_orchestrator_builder.py)
+- ✅ **graph** - State machine with transitions (example: 05_graph_builder.py)
+
+## Key Differences: Execution API vs Builder API
+
+| Feature | Execution API | Builder API |
+|---------|---------------|-------------|
+| **Definition** | Load YAML files | Python fluent builder |
+| **Type Safety** | Runtime validation only | IDE autocomplete + Pydantic validation |
+| **Flexibility** | Declarative, version-controlled | Programmatic, dynamic |
+| **Best For** | Shareable workflows, GitOps | Custom integrations, programmatic generation |
+| **Example** | `Workflow.from_file("spec.yaml")` | `FluentBuilder("name").chain().build()` |
 
 ## Additional Resources
 

@@ -215,6 +215,144 @@ result = await workflow.run_interactive_async(topic="AI")
 result = workflow.run(topic="AI")
 ```
 
+### 6. Accessing Results
+
+All execution methods return a `RunResult` object with comprehensive execution data:
+
+```python
+result = workflow.run_interactive(topic="AI")
+
+# Basic result fields
+print(f"Success: {result.success}")
+print(f"Duration: {result.duration_seconds:.2f}s")
+print(f"Final output: {result.last_response}")
+
+# Artifact file paths
+if result.artifacts_written:
+    print(f"Generated {len(result.artifacts_written)} files:")
+    for path in result.artifacts_written:
+        print(f"  - {path}")
+
+# Token usage by agent
+total_tokens = sum(result.token_usage.values())
+print(f"Total tokens consumed: {total_tokens}")
+```
+
+#### Accessing Intermediate Results
+
+Use `execution_context` to access step/task/branch/node outputs:
+
+**Chain Pattern:**
+```python
+# Access individual step outputs
+steps = result.execution_context["steps"]
+print(f"Step 0: {steps[0]['response'][:100]}...")
+print(f"Step 1: {steps[1]['response'][:100]}...")
+
+# Iterate through all steps
+for i, step in enumerate(steps):
+    print(f"Step {i} consumed {step['tokens']} tokens")
+```
+
+**Workflow Pattern:**
+```python
+# Access task results by ID
+tasks = result.execution_context["tasks"]
+research = tasks["gather_data"]["response"]
+analysis = tasks["analyze"]["response"]
+
+print(f"Research: {research[:200]}...")
+print(f"Analysis: {analysis[:200]}...")
+```
+
+**Parallel Pattern:**
+```python
+# Access branch outputs by ID
+branches = result.execution_context["branches"]
+for branch_id, branch_data in branches.items():
+    print(f"{branch_id}: {branch_data['response'][:100]}...")
+
+# Access reduce step output (if present)
+if "reduce" in result.execution_context:
+    reduce_output = result.execution_context["reduce"]["response"]
+    print(f"Synthesis: {reduce_output}")
+```
+
+**Graph Pattern:**
+```python
+# Access node outputs by ID
+nodes = result.execution_context["nodes"]
+start_output = nodes["start"]["response"]
+decision_output = nodes["evaluate"]["response"]
+final_output = nodes["finish"]["response"]
+
+# Check execution path
+if "execution_path" in result.execution_context:
+    path = result.execution_context["execution_path"]
+    print(f"Executed nodes: {' → '.join(path)}")
+```
+
+#### Reading Generated Artifacts
+
+```python
+# Read all artifact files
+for artifact_path in result.artifacts_written:
+    with open(artifact_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+        print(f"\n=== {artifact_path} ===")
+        print(content)
+
+# Find specific artifacts by pattern
+reports = [p for p in result.artifacts_written if "report" in p]
+if reports:
+    with open(reports[0], 'r') as f:
+        report_content = f.read()
+        print(report_content)
+```
+
+#### Complete Example
+
+```python
+workflow = (
+    FluentBuilder("analysis-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("researcher", "You are a researcher")
+    .agent("analyst", "You are an analyst")
+    .chain()
+    .step("researcher", "Research {{topic}}")
+    .step("analyst", "Analyze: {{ steps[0].response }}")
+    .artifact("{{topic}}-analysis.md", "# Analysis\n\n{{ last_response }}")
+    .build()
+)
+
+result = workflow.run_interactive(topic="quantum computing")
+
+# Access everything
+if result.success:
+    # Intermediate results
+    research = result.execution_context["steps"][0]["response"]
+    analysis = result.execution_context["steps"][1]["response"]
+    
+    print(f"Research findings:\n{research[:300]}...\n")
+    print(f"Analysis:\n{analysis[:300]}...\n")
+    
+    # Final output
+    print(f"Final output:\n{result.last_response}\n")
+    
+    # Artifacts
+    print(f"Generated files:")
+    for path in result.artifacts_written:
+        print(f"  ✓ {path}")
+        with open(path, 'r') as f:
+            content = f.read()
+            print(f"    Size: {len(content)} bytes")
+    
+    # Performance metrics
+    print(f"\nMetrics:")
+    print(f"  Duration: {result.duration_seconds:.2f}s")
+    print(f"  Tokens: {sum(result.token_usage.values())}")
+```
+
 ## Migration Guide: YAML → Builder API
 
 ### Single Agent Workflow
