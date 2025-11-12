@@ -218,9 +218,7 @@ def test_load_spec_from_snapshot_hash_mismatch(tmp_path: Path, mocker: Any) -> N
 async def test_dispatch_pattern_executor_chain(mocker: Any) -> None:
     """Test dispatching to chain executor."""
 
-    mock_run_chain = mocker.patch(
-        "strands_cli.exec.chain.run_chain", new_callable=AsyncMock
-    )
+    mock_run_chain = mocker.patch("strands_cli.exec.chain.run_chain", new_callable=AsyncMock)
     mock_result = _create_run_result()
     mock_run_chain.return_value = mock_result
 
@@ -260,9 +258,7 @@ async def test_dispatch_pattern_executor_workflow(mocker: Any) -> None:
 @pytest.mark.asyncio
 async def test_dispatch_pattern_executor_routing(mocker: Any) -> None:
     """Test dispatching to routing executor."""
-    mock_run_routing = mocker.patch(
-        "strands_cli.exec.routing.run_routing", new_callable=AsyncMock
-    )
+    mock_run_routing = mocker.patch("strands_cli.exec.routing.run_routing", new_callable=AsyncMock)
     mock_result = _create_run_result()
     mock_run_routing.return_value = mock_result
 
@@ -346,9 +342,7 @@ async def test_dispatch_pattern_executor_orchestrator_workers(mocker: Any) -> No
 @pytest.mark.asyncio
 async def test_dispatch_pattern_executor_graph(mocker: Any) -> None:
     """Test dispatching to graph executor."""
-    mock_run_graph = mocker.patch(
-        "strands_cli.exec.graph.run_graph", new_callable=AsyncMock
-    )
+    mock_run_graph = mocker.patch("strands_cli.exec.graph.run_graph", new_callable=AsyncMock)
     mock_result = _create_run_result()
     mock_run_graph.return_value = mock_result
 
@@ -367,9 +361,7 @@ async def test_dispatch_pattern_executor_graph(mocker: Any) -> None:
 @pytest.mark.asyncio
 async def test_dispatch_pattern_executor_with_hitl_response(mocker: Any) -> None:
     """Test dispatching with HITL response passes it through."""
-    mock_run_chain = mocker.patch(
-        "strands_cli.exec.chain.run_chain", new_callable=AsyncMock
-    )
+    mock_run_chain = mocker.patch("strands_cli.exec.chain.run_chain", new_callable=AsyncMock)
     mock_result = _create_run_result()
     mock_run_chain.return_value = mock_result
 
@@ -444,9 +436,7 @@ outputs:
 
     # Mock executor
     mock_result = _create_run_result(variables={})
-    mock_run_chain = mocker.patch(
-        "strands_cli.exec.chain.run_chain", new_callable=AsyncMock
-    )
+    mock_run_chain = mocker.patch("strands_cli.exec.chain.run_chain", new_callable=AsyncMock)
     mock_run_chain.return_value = mock_result
 
     # Mock console
@@ -484,9 +474,7 @@ async def test_run_resume_with_hitl_response(tmp_path: Path, mocker: Any) -> Non
     mocker.patch("strands_cli.session.resume.compute_spec_hash", return_value="abc123")
 
     mock_result = _create_run_result(variables={})
-    mock_run_chain = mocker.patch(
-        "strands_cli.exec.chain.run_chain", new_callable=AsyncMock
-    )
+    mock_run_chain = mocker.patch("strands_cli.exec.chain.run_chain", new_callable=AsyncMock)
     mock_run_chain.return_value = mock_result
 
     mocker.patch("strands_cli.session.resume.console")
@@ -525,10 +513,10 @@ async def test_run_resume_merges_variables(tmp_path: Path, mocker: Any) -> None:
     mocker.patch("strands_cli.session.resume.compute_spec_hash", return_value="abc123")
 
     # Result has different variables (should merge with precedence)
-    mock_result = _create_run_result(variables={"result_key": "result_value", "shared": "from_result"})
-    mock_run_chain = mocker.patch(
-        "strands_cli.exec.chain.run_chain", new_callable=AsyncMock
+    mock_result = _create_run_result(
+        variables={"result_key": "result_value", "shared": "from_result"}
     )
+    mock_run_chain = mocker.patch("strands_cli.exec.chain.run_chain", new_callable=AsyncMock)
     mock_run_chain.return_value = mock_result
 
     mocker.patch("strands_cli.session.resume.console")
@@ -587,4 +575,3 @@ async def test_run_resume_with_telemetry(tmp_path: Path, mocker: Any) -> None:
 
     # Should have configured telemetry
     mock_configure.assert_called_once_with({"enabled": True})
-

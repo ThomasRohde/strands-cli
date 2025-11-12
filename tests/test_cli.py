@@ -968,23 +968,23 @@ class TestCLIErrorHandling:
         )
 
         # Create a temporary spec file from the fixture
-        # Convert Pydantic model to dict, then to YAML
+        # graph_spec_fixture is already a dict, not a Pydantic model
         graph_spec_file = temp_artifacts_dir / "graph-spec.yaml"
 
         # Use ruamel.yaml for proper serialization
         from ruamel.yaml import YAML
+
         yaml_writer = YAML()
 
-        # Convert Spec to dict (mode='json' for enums, by_alias=True for 'from' field, exclude_none=True for clean YAML)
-        spec_dict = graph_spec_fixture.model_dump(mode='json', by_alias=True, exclude_none=True)
+        # graph_spec_fixture is a dict, no need for model_dump
+        spec_dict = graph_spec_fixture.copy()
 
-        # Add host for Ollama provider and outputs to ensure spec is fully supported
-        spec_dict['runtime']['host'] = 'http://localhost:11434'
-        spec_dict['outputs'] = {
-            'artifacts': [
-                {'path': './output.txt', 'from': '{{ last_response }}'}
-            ]
+        # Add required version field and outputs for capability check
+        spec_dict["version"] = 0
+        spec_dict["outputs"] = {
+            "artifacts": [{"path": "./output.txt", "from": "{{ last_response }}"}]
         }
+        # Runtime is already valid in the fixture (openai/gpt-4o-mini)
 
         with open(graph_spec_file, 'w') as f:
             yaml_writer.dump(spec_dict, f)

@@ -42,7 +42,7 @@ TOOL_SPEC = {
 }
 
 
-def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
+def head(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
     """Read first N lines from a file.
 
     Cross-platform implementation using pure Python (no subprocess/shell).

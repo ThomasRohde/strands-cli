@@ -39,6 +39,7 @@ from typing import Any
 import structlog
 from opentelemetry.trace import get_current_span
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -278,6 +279,8 @@ async def _execute_worker(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    event_bus: EventBus | None = None,
+    session_state: SessionState | None = None,
 ) -> dict[str, Any]:
     """Execute a single worker task.
 
@@ -338,6 +341,29 @@ async def _execute_worker(
         worker_index=worker_index,
     )
 
+    # Phase 3: Emit worker_start event before agent invocation
+    if event_bus:
+        task_description = task.get("task", str(task))
+        await event_bus.emit(
+            WorkflowEvent(
+                event_type="worker_start",
+                timestamp=datetime.now(UTC),
+                session_id=session_state.metadata.session_id if session_state else None,
+                spec_name=spec.name,
+                pattern_type="orchestrator_workers",
+                data={
+                    "worker_index": worker_index,
+                    "agent_id": worker_agent_id,
+                    "assigned_task": task_description[:200],
+                },
+            )
+        )
+        logger.debug(
+            "worker_start_event_emitted",
+            worker=worker_index,
+            agent=worker_agent_id,
+        )
+
     # Invoke worker with task description
     task_description = task.get("task", str(task))
     result = await invoke_agent_with_retry(
@@ -375,6 +401,8 @@ async def _execute_workers_batch(
     max_attempts: int,
     wait_min: int,
     wait_max: int,
+    event_bus: EventBus | None = None,
+    session_state: SessionState | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute all worker tasks in parallel with semaphore control.
 
@@ -421,6 +449,8 @@ async def _execute_workers_batch(
                     max_attempts,
                     wait_min,
                     wait_max,
+                    event_bus,
+                    session_state,
                 )
         else:
             return await _execute_worker(
@@ -436,6 +466,8 @@ async def _execute_workers_batch(
                 max_attempts,
                 wait_min,
                 wait_max,
+                event_bus,
+                session_state,
             )
 
     logger.info(
@@ -468,6 +500,8 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute orchestrator-workers pattern workflow with optional session persistence.
 
@@ -524,38 +558,38 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
 
                 if timed_out and hitl_response is None:
                     # Auto-resume with default response
-                        from rich.console import Console
-                        from rich.panel import Panel
+                    from rich.console import Console
+                    from rich.panel import Panel
 
-                        console = Console()
-                        hitl_state = HITLState(**hitl_state_dict)
-                        console.print(
-                            Panel(
-                                format_timeout_warning(
-                                    hitl_state.timeout_at,
-                                    timeout_default,
-                                ),
-                                border_style="yellow",
-                            )
+                    console = Console()
+                    hitl_state = HITLState(**hitl_state_dict)
+                    console.print(
+                        Panel(
+                            format_timeout_warning(
+                                hitl_state.timeout_at,
+                                timeout_default,
+                            ),
+                            border_style="yellow",
                         )
-                        hitl_response = timeout_default
+                    )
+                    hitl_response = timeout_default
 
-                        # Record timeout metadata in pattern_state and session metadata
-                        session_state.pattern_state["hitl_timeout_occurred"] = True
-                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.pattern_state["hitl_default_used"] = timeout_default
+                    # Record timeout metadata in pattern_state and session metadata
+                    session_state.pattern_state["hitl_timeout_occurred"] = True
+                    session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.pattern_state["hitl_default_used"] = timeout_default
 
-                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
-                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
 
-                        logger.info(
-                            "hitl_timeout_auto_resume",
-                            session_id=session_state.metadata.session_id,
-                            timeout_at=hitl_state.timeout_at,
-                            default_response=timeout_default,
-                        )
-                    # If user provided explicit response, that overrides timeout
+                    logger.info(
+                        "hitl_timeout_auto_resume",
+                        session_id=session_state.metadata.session_id,
+                        timeout_at=hitl_state.timeout_at,
+                        default_response=timeout_default,
+                    )
+                # If user provided explicit response, that overrides timeout
 
                 hitl_state = HITLState(**hitl_state_dict)
                 if hitl_state.active:
@@ -654,7 +688,53 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
         execution_params = _setup_execution_parameters(spec, config, variables)
 
         # Setup context and hook factory
-        context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(spec)
+        # Use provided cache or create new one via helper
+        if agent_cache:
+            cache = agent_cache
+            should_close = False
+            # Still need to setup context/hooks, but skip cache creation
+            context_manager = create_from_policy(spec.context_policy, spec)
+
+            # Setup notes manager
+            notes_manager_local = None
+            step_counter: list[int] = [0]
+            if spec.context_policy and spec.context_policy.notes:
+                notes_config = spec.context_policy.notes
+                notes_manager_local = NotesManager(notes_config.file)
+
+            # Define hook factory
+            def create_hooks() -> list[Any]:
+                from strands_cli.runtime.budget_enforcer import BudgetEnforcerHook
+
+                hooks: list[Any] = []
+                if (
+                    spec.context_policy
+                    and spec.context_policy.compaction
+                    and spec.context_policy.compaction.enabled
+                ):
+                    threshold = spec.context_policy.compaction.when_tokens_over or 60000
+                    hooks.append(
+                        ProactiveCompactionHook(
+                            threshold_tokens=threshold, model_id=spec.runtime.model_id
+                        )
+                    )
+                if spec.runtime.budgets and spec.runtime.budgets.get("max_tokens"):
+                    max_tokens = spec.runtime.budgets["max_tokens"]
+                    warn_threshold = spec.runtime.budgets.get("warn_threshold", 0.8)
+                    hooks.append(
+                        BudgetEnforcerHook(max_tokens=max_tokens, warn_threshold=warn_threshold)
+                    )
+                if notes_manager_local:
+                    hooks.append(NotesAppenderHook(notes_manager_local, step_counter))
+                return hooks
+
+            hook_factory = create_hooks
+            notes_manager = notes_manager_local
+        else:
+            context_manager, hook_factory, notes_manager, cache = await _setup_context_and_hooks(
+                spec
+            )
+            should_close = True
 
         try:
             # Execute orchestrator round (skip if workers already executed on resume OR if resuming from decomposition HITL)
@@ -839,6 +919,8 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
                     hook_factory,
                     notes_manager,
                     cumulative_tokens,
+                    event_bus,
+                    session_state,
                 )
 
                 # Checkpoint after workers complete (before reduce/writeup)
@@ -886,7 +968,12 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
 
             # Phase 1 HITL: Check for reduce_review gate before reduce step
             # Skip if we just resumed from reduce HITL (similar to decomposition skip)
-            if config.reduce_review and config.reduce and not reduce_executed and just_resumed_from_hitl_phase != "reduce":
+            if (
+                config.reduce_review
+                and config.reduce
+                and not reduce_executed
+                and just_resumed_from_hitl_phase != "reduce"
+            ):
                 # BLOCKER: Validate session persistence is available
                 if not session_repo or not session_state:
                     raise OrchestratorExecutionError(
@@ -1173,7 +1260,8 @@ async def run_orchestrator_workers(  # noqa: C901 - Complexity acceptable for mu
             raise OrchestratorExecutionError(f"Orchestrator execution failed: {e}") from e
         finally:
             # CRITICAL: Clean up resources
-            await cache.close()
+            if should_close:
+                await cache.close()
 
 
 def _setup_execution_parameters(
@@ -1270,6 +1358,7 @@ async def _setup_context_and_hooks(spec: Spec) -> tuple[Any, Any, Any, AgentCach
         return hooks
 
     # Create AgentCache (single instance for entire workflow)
+    # NOTE: Cache is created here but closed in caller's finally block
     cache = AgentCache()
 
     return context_manager, create_hooks, notes_manager, cache
@@ -1344,6 +1433,8 @@ async def _execute_workers_round(
     hook_factory: Any,
     notes_manager: Any,
     cumulative_tokens: int,
+    event_bus: EventBus | None = None,
+    session_state: SessionState | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute workers and return results and updated cumulative tokens."""
     # Execute workers
@@ -1360,6 +1451,8 @@ async def _execute_workers_round(
         execution_params["max_attempts"],
         execution_params["wait_min"],
         execution_params["wait_max"],
+        event_bus,
+        session_state,
     )
 
     cumulative_tokens += worker_tokens

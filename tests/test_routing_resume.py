@@ -52,7 +52,10 @@ async def test_routing_fresh_execution_with_session(
         "strands_cli.exec.routing._execute_router_with_retry",
         new_callable=AsyncMock,
     )
-    mock_router.return_value = ("general", '{"route": "general"}')  # Returns (route_name, response_text)
+    mock_router.return_value = (
+        "general",
+        '{"route": "general"}',
+    )  # Returns (route_name, response_text)
 
     # Mock chain execution
     mock_chain = mocker.patch("strands_cli.exec.routing.run_chain", new_callable=AsyncMock)
@@ -313,4 +316,3 @@ async def test_routing_without_session_works(
     assert result.success is True
     assert mock_router.call_count == 1
     assert mock_chain.call_count == 1
-

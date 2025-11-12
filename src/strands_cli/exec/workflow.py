@@ -34,6 +34,7 @@ import structlog
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -344,6 +345,8 @@ async def _execute_task(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
+    event_bus: EventBus | None = None,
+    session_state: SessionState | None = None,
 ) -> tuple[str, int]:
     """Execute a single task asynchronously.
 
@@ -354,6 +357,12 @@ async def _execute_task(
         max_attempts: Max retry attempts
         wait_min: Min retry wait (seconds)
         wait_max: Max retry wait (seconds)
+        cache: Agent cache for reuse
+        context_manager: Optional conversation manager
+        hooks: Optional hooks for agents
+        notes_manager: Optional notes manager
+        event_bus: Optional event bus for emitting events
+        session_state: Optional session state for session_id
 
     Returns:
         Tuple of (response_text, estimated_tokens)
@@ -376,6 +385,22 @@ async def _execute_task(
             f"Available agents: {', '.join(spec.agents.keys())}"
         )
     task_agent_config = spec.agents[task_agent_id]
+
+    # Emit task_start event before agent building/invocation
+    if event_bus:
+        await event_bus.emit(
+            WorkflowEvent(
+                event_type="task_start",
+                timestamp=datetime.now(UTC),
+                spec_name=spec.name,
+                pattern_type="workflow",
+                session_id=session_state.metadata.session_id if session_state else None,
+                data={
+                    "task_id": task.id,
+                    "agent_id": task_agent_id,
+                },
+            )
+        )
 
     # Phase 5: Use cached agent instead of rebuilding per task
     try:
@@ -471,6 +496,8 @@ async def _execute_workflow_layer(
     context_manager: Any = None,
     hooks: list[Any] | None = None,
     notes_manager: Any = None,
+    event_bus: EventBus | None = None,
+    session_state: SessionState | None = None,
 ) -> list[tuple[str, int]]:
     """Execute all tasks in a workflow layer (potentially in parallel).
 
@@ -483,6 +510,12 @@ async def _execute_workflow_layer(
         max_attempts: Max retry attempts
         wait_min: Min retry wait
         wait_max: Max retry wait
+        cache: Agent cache for reuse
+        context_manager: Optional conversation manager
+        hooks: Optional hooks
+        notes_manager: Optional notes manager
+        event_bus: Optional event bus for emitting events
+        session_state: Optional session state for session_id
 
     Returns:
         List of (response_text, estimated_tokens) for each task
@@ -523,6 +556,8 @@ async def _execute_workflow_layer(
                         context_manager,
                         hooks,
                         notes_manager,
+                        event_bus,
+                        session_state,
                     )
             else:
                 return await _execute_task(
@@ -536,6 +571,8 @@ async def _execute_workflow_layer(
                     context_manager,
                     hooks,
                     notes_manager,
+                    event_bus,
+                    session_state,
                 )  # Execute all tasks in layer (parallel where possible)
 
         results = await asyncio.gather(
@@ -554,6 +591,8 @@ async def run_workflow(  # noqa: C901
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,  # NEW: User's response when resuming from HITL pause
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute a multi-task workflow with DAG dependencies, HITL support, and optional session persistence.
 
@@ -617,6 +656,19 @@ async def run_workflow(  # noqa: C901
         )
         span.add_event("execution_start", {"spec_name": spec.name})
 
+        # Emit workflow_start event
+        if event_bus:
+            await event_bus.emit(
+                WorkflowEvent(
+                    event_type="workflow_start",
+                    timestamp=datetime.now(UTC),
+                    spec_name=spec.name,
+                    pattern_type="workflow",
+                    session_id=session_state.metadata.session_id if session_state else None,
+                    data={"task_count": len(spec.pattern.config.tasks or [])},
+                )
+            )
+
         # Validate and prepare workflow
         task_map = _validate_workflow_config(spec)
 
@@ -651,31 +703,30 @@ async def run_workflow(  # noqa: C901
             # Check for timeout BEFORE checking for hitl_response
             timed_out, timeout_default = check_hitl_timeout(session_state)
 
-            if timed_out:
+            if timed_out and hitl_response is None:
                 # Auto-resume with default response
-                if hitl_response is None:
-                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
-                    if hitl_state_dict:
-                        hitl_state = HITLState(**hitl_state_dict)
-                        console.print(
-                            Panel(
-                                format_timeout_warning(
-                                    hitl_state.timeout_at,
-                                    timeout_default,
-                                ),
-                                border_style="yellow",
-                            )
+                hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                if hitl_state_dict:
+                    hitl_state = HITLState(**hitl_state_dict)
+                    console.print(
+                        Panel(
+                            format_timeout_warning(
+                                hitl_state.timeout_at,
+                                timeout_default,
+                            ),
+                            border_style="yellow",
                         )
-                        hitl_response = timeout_default
+                    )
+                    hitl_response = timeout_default
 
-                        # Record timeout metadata in pattern_state and session metadata
-                        session_state.pattern_state["hitl_timeout_occurred"] = True
-                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.pattern_state["hitl_default_used"] = timeout_default
+                    # Record timeout metadata in pattern_state and session metadata
+                    session_state.pattern_state["hitl_timeout_occurred"] = True
+                    session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.pattern_state["hitl_default_used"] = timeout_default
 
-                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
-                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
                 # If user provided explicit response, that overrides timeout
 
             hitl_state_dict = session_state.pattern_state.get("hitl_state")
@@ -801,7 +852,9 @@ async def run_workflow(  # noqa: C901
             logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
 
         # Phase 5: Create AgentCache for agent reuse across tasks
-        cache = AgentCache()
+        # Phase 3: Support optional shared agent_cache from context manager
+        cache = agent_cache or AgentCache()
+        should_close = agent_cache is None
         try:
             # Execute each layer starting from current_layer
             for layer_index in range(current_layer, len(execution_layers)):
@@ -914,6 +967,8 @@ async def run_workflow(  # noqa: C901
                                 context_manager,
                                 hooks,
                                 notes_manager,
+                                event_bus,
+                                session_state,
                             )
                         except Exception as e:
                             raise WorkflowExecutionError(
@@ -962,6 +1017,8 @@ async def run_workflow(  # noqa: C901
                         context_manager,
                         hooks,
                         notes_manager,
+                        event_bus,
+                        session_state,
                     )
                 except Exception as e:
                     raise WorkflowExecutionError(
@@ -1001,6 +1058,27 @@ async def run_workflow(  # noqa: C901
                             "cumulative_tokens": cumulative_tokens,
                         },
                     )
+
+                    # Emit task_complete event
+                    if event_bus:
+                        await event_bus.emit(
+                            WorkflowEvent(
+                                event_type="task_complete",
+                                timestamp=datetime.now(UTC),
+                                spec_name=spec.name,
+                                pattern_type="workflow",
+                                session_id=session_state.metadata.session_id
+                                if session_state
+                                else None,
+                                data={
+                                    "task_id": task_id,
+                                    "agent_id": task_map[task_id].agent,
+                                    "response": response_text[:200],
+                                    "response_length": len(response_text),
+                                    "cumulative_tokens": cumulative_tokens,
+                                },
+                            )
+                        )
 
                 # Checkpoint after layer completion
                 if session_state and session_repo:
@@ -1056,6 +1134,24 @@ async def run_workflow(  # noqa: C901
                 },
             )
 
+            # Emit workflow_complete event
+            if event_bus:
+                await event_bus.emit(
+                    WorkflowEvent(
+                        event_type="workflow_complete",
+                        timestamp=datetime.now(UTC),
+                        spec_name=spec.name,
+                        pattern_type="workflow",
+                        session_id=session_state.metadata.session_id if session_state else None,
+                        data={
+                            "duration_seconds": duration,
+                            "tasks_executed": len(task_results),
+                            "cumulative_tokens": cumulative_tokens,
+                            "last_response": final_response[:200],
+                        },
+                    )
+                )
+
             return RunResult(
                 success=True,
                 last_response=final_response,
@@ -1080,4 +1176,6 @@ async def run_workflow(  # noqa: C901
             raise WorkflowExecutionError(f"Workflow execution failed: {e}") from e
         finally:
             # Phase 5: Clean up cached agents and HTTP clients
-            await cache.close()
+            # Phase 3: Only close if we created the cache (not shared from context manager)
+            if should_close:
+                await cache.close()

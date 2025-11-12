@@ -897,15 +897,222 @@ result = workflow.run_interactive()
 
 ---
 
-## Limitations (MVP)
+## Phase 3 Features (v0.14.0+)
+
+### Event System
+
+Hook into workflow lifecycle with event callbacks:
+
+```python
+from strands import Workflow
+
+workflow = Workflow.from_file("workflow.yaml")
+
+# Subscribe to events
+@workflow.on("workflow_start")
+def on_start(event):
+    print(f"🚀 Starting: {event.spec_name}")
+
+@workflow.on("step_complete")
+def on_step(event):
+    step = event.data.get("step_index", "?")
+    print(f"✓ Step {step} completed")
+
+@workflow.on("workflow_complete")
+def on_complete(event):
+    duration = event.data.get("duration_seconds", 0)
+    print(f"✅ Completed in {duration:.2f}s")
+
+result = workflow.run_interactive(topic="AI")
+```
+
+Available event types:
+- `workflow_start` - Workflow begins
+- `step_start` / `step_complete` - Chain pattern steps
+- `task_start` / `task_complete` - Workflow pattern tasks
+- `branch_start` / `branch_complete` - Parallel pattern branches
+- `node_start` / `node_complete` - Graph pattern nodes
+- `hitl_pause` - HITL step encountered
+- `error` - Error occurred
+- `workflow_complete` - Workflow finished
+
+See [examples/api/06_event_callbacks.py](../../examples/api/06_event_callbacks.py) for complete example.
+
+### Session Management API
+
+Programmatic session control:
+
+```python
+from strands import SessionManager
+from strands.types import SessionStatus
+
+async def manage_sessions():
+    manager = SessionManager()
+    
+    # List sessions with pagination
+    sessions = await manager.list(offset=0, limit=10)
+    print(f"Found {len(sessions)} sessions")
+    
+    # Filter by status
+    paused = await manager.list(status=SessionStatus.PAUSED)
+    
+    # Filter by workflow name
+    specific = await manager.list(workflow_name="research-workflow")
+    
+    # Get specific session
+    session = await manager.get("session-id")
+    print(f"Status: {session.metadata['status']}")
+    
+    # Resume paused session
+    result = await manager.resume("session-id", hitl_response="approved")
+    
+    # Cleanup old sessions (older than 7 days)
+    removed = await manager.cleanup(older_than_days=7)
+    print(f"Cleaned up {removed} sessions")
+    
+    # Delete specific session
+    await manager.delete("session-id")
+
+# Run async
+import asyncio
+asyncio.run(manage_sessions())
+```
+
+Features:
+- **Pagination**: `offset` and `limit` parameters (max 1000)
+- **Filtering**: By status and workflow name
+- **Caching**: 5-minute TTL for improved performance
+- **Cleanup**: Age and status-based deletion
+
+See [examples/api/07_session_management.py](../../examples/api/07_session_management.py) for complete example.
+
+### Async Context Manager
+
+Proper resource management with async context managers:
+
+```python
+from strands import Workflow
+
+workflow = Workflow.from_file("workflow.yaml")
+
+# Use async context manager for automatic cleanup
+async with workflow.async_executor() as executor:
+    result = await executor.run_async(topic="AI")
+    print(result.last_response)
+# Agent cache automatically cleaned up
+```
+
+Benefits:
+- Automatic agent cache cleanup
+- Exception-safe resource management
+- Reusable across multiple executions
+- Better performance (shared model clients)
+
+See [examples/api/08_async_execution.py](../../examples/api/08_async_execution.py) for complete example.
+
+### Streaming API (Alpha)
+
+Stream workflow execution events as they occur:
+
+```python
+from strands import Workflow
+
+workflow = Workflow.from_file("workflow.yaml")
+
+async def stream_workflow():
+    async for chunk in workflow.stream_async(topic="AI"):
+        if chunk.chunk_type == "step_start":
+            print(f"\n→ Starting step...")
+        elif chunk.chunk_type == "step_complete":
+            response = chunk.data.get("response", "")
+            print(f"✓ {response[:100]}...")
+        elif chunk.chunk_type == "complete":
+            print("\n✅ Workflow complete!")
+
+import asyncio
+asyncio.run(stream_workflow())
+```
+
+Chunk types:
+- `token` - Individual tokens (future)
+- `step_start` - Step begins
+- `step_complete` - Step finishes
+- `complete` - Workflow finishes
+
+**Note**: Token-by-token streaming not yet implemented. Currently returns complete responses as chunks.
+
+See [examples/api/11_streaming_responses.py](../../examples/api/11_streaming_responses.py) for complete example.
+
+### FastAPI Integration
+
+Deploy workflows as REST APIs:
+
+```python
+from fastapi import FastAPI
+from strands import Workflow
+from strands.integrations.fastapi_router import create_workflow_router
+
+app = FastAPI()
+
+workflow = Workflow.from_file("workflow.yaml")
+router = create_workflow_router(workflow, prefix="/workflow")
+app.include_router(router)
+
+# Run with: uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Endpoints:
+- `POST /workflow/execute` - Execute workflow
+- `GET /workflow/sessions` - List sessions (paginated)
+- `GET /workflow/sessions/{id}` - Get session details
+- `POST /workflow/sessions/{id}/resume` - Resume paused session
+- `DELETE /workflow/sessions/{id}` - Delete session
+
+Install web extras: `pip install strands-cli[web]`
+
+See [examples/api/09_fastapi_integration.py](../../examples/api/09_fastapi_integration.py) and [manual/reference/integrations.md](integrations.md) for complete guide.
+
+### Webhook Notifications
+
+Send workflow events to external services:
+
+```python
+from strands import Workflow
+from strands.integrations.webhook_handler import GenericWebhookHandler
+
+workflow = Workflow.from_file("workflow.yaml")
+
+# Create webhook handler
+webhook = GenericWebhookHandler(
+    url="https://hooks.example.com/events",
+    headers={"Authorization": "Bearer TOKEN"}
+)
+
+# Subscribe to events
+@workflow.on("workflow_complete")
+def notify(event):
+    webhook.send(event)
+
+result = workflow.run_interactive(topic="AI")
+```
+
+Features:
+- Automatic retry with exponential backoff (3 attempts)
+- Extensible for Slack, Teams, Discord, etc.
+- Error handling and logging
+- HTTPS support with auth headers
+
+See [examples/api/10_webhook_notifications.py](../../examples/api/10_webhook_notifications.py) and [manual/reference/integrations.md](integrations.md) for custom webhook handlers.
+
+## Limitations
 
 ### Current Limitations
 
-1. **No event system**: Cannot hook into step completion events yet
-2. **Console output mixing**: Executor logs may interfere with HITL prompts (cosmetic)
-3. **Session cleanup**: Interactive sessions not auto-cleaned (manual cleanup via CLI)
-4. **Timeout enforcement**: HITL timeouts not enforced in interactive mode
-5. **Progress tracking**: No progress bars for long-running steps yet
+1. **Console output mixing**: Executor logs may interfere with HITL prompts (cosmetic)
+2. **Timeout enforcement**: HITL timeouts not enforced in interactive mode
+3. **Progress tracking**: No progress bars for long-running steps yet
+4. **Token streaming**: Streaming API returns complete responses, not individual tokens
+
 
 ### Workarounds
 
@@ -913,21 +1120,27 @@ result = workflow.run_interactive()
 # 1. Console output - acceptable for MVP
 # Use --quiet flag in CLI if needed
 
-# 2. Session cleanup
-from strands_cli.session.repository import FileSessionRepository
-repo = FileSessionRepository()
-# Manually clean up old sessions via CLI:
-# strands sessions cleanup --max-age-days 7
+# 2. Session cleanup - now automated with SessionManager
+from strands import SessionManager
+import asyncio
+
+async def cleanup():
+    manager = SessionManager()
+    removed = await manager.cleanup(older_than_days=7)
+    print(f"Cleaned up {removed} sessions")
+
+asyncio.run(cleanup())
 
 # 3. Timeouts - use asyncio.wait_for
 import asyncio
 
 async def run_with_timeout(workflow, timeout=300):
     """Run workflow with overall timeout."""
-    return await asyncio.wait_for(
-        workflow.run_interactive_async(),
-        timeout=timeout
-    )
+    async with workflow.async_executor() as executor:
+        return await asyncio.wait_for(
+            executor.run_async(topic="AI"),
+            timeout=timeout
+        )
 ```
 
 ---
@@ -963,13 +1176,43 @@ result = run_with_retry(workflow, topic="AI")
 ### 3. Resource Cleanup
 
 ```python
-# Use context managers for cleanup (future)
-async with Workflow.from_file("workflow.yaml") as workflow:
-    result = await workflow.run_interactive_async()
-# Session auto-cleaned on exit
+# Use async context manager for automatic cleanup
+async def run_workflow():
+    workflow = Workflow.from_file("workflow.yaml")
+    
+    async with workflow.async_executor() as executor:
+        result = await executor.run_async(topic="AI")
+        return result
+    # Agent cache auto-cleaned on exit
+
+import asyncio
+result = asyncio.run(run_workflow())
 ```
 
-### 4. Logging Integration
+### 4. Event Monitoring
+
+```python
+from strands import Workflow
+
+workflow = Workflow.from_file("workflow.yaml")
+
+# Track execution progress
+progress = {"steps": 0}
+
+@workflow.on("step_complete")
+def track_progress(event):
+    progress["steps"] += 1
+    print(f"Progress: {progress['steps']} steps completed")
+
+@workflow.on("error")
+def handle_error(event):
+    print(f"Error: {event.data.get('error', 'Unknown')}")
+
+result = workflow.run_interactive(topic="AI")
+print(f"Total steps: {progress['steps']}")
+```
+
+### 5. Logging Integration
 
 ```python
 import logging
@@ -991,69 +1234,14 @@ else:
 
 ---
 
-## Future Enhancements (Post-MVP)
-
-### Week 2: Fluent Builder API
-
-```python
-# Programmatic workflow construction (no YAML)
-from strands import WorkflowBuilder, ChainBuilder
-
-workflow = (
-    ChainBuilder("research-workflow")
-    .with_runtime(provider="openai", model_id="gpt-4o")
-    .add_agent("researcher", prompt="Research {{topic}}")
-    .add_step(agent="researcher", input="{{topic}}")
-    .add_hitl(prompt="Review findings?")
-    .add_step(agent="researcher", input="Finalize with feedback")
-    .build()
-)
-
-result = workflow.run_interactive(topic="AI")
-```
-
-### Week 3: Event System
-
-```python
-# Hook into workflow lifecycle
-@workflow.on("step_complete")
-def log_step(event):
-    print(f"Completed: {event.step_id} in {event.duration}s")
-
-@workflow.on("hitl_requested")
-def notify_hitl(event):
-    send_slack_message(f"Approval needed: {event.prompt}")
-
-result = workflow.run_interactive()
-```
-
-### Week 3: Session Management API
-
-```python
-# Programmatic session control
-from strands import SessionManager
-
-manager = SessionManager()
-
-# List sessions
-sessions = manager.list_active_sessions()
-
-# Resume from Python
-session = manager.get_session("session-123")
-result = session.resume(hitl_response="approved")
-
-# Cleanup
-manager.cleanup_old_sessions(max_age_days=7)
-```
-
----
-
 ## See Also
 
+- [Integrations Guide](../reference/integrations.md) - Webhooks and FastAPI deployment
 - [HITL How-To Guide](../howto/hitl.md) - CLI-based HITL workflows
-- [Session Management](../howto/session-management.md) - Session persistence and resume
+- [Session API Reference](../reference/session-api.md) - Session persistence and resume
 - [Workflow Spec Reference](../reference/spec.md) - YAML specification format
 - [CLI Commands](../reference/cli.md) - Command-line interface
+- [API Examples](../../examples/api/) - Working code examples
 
 ---
 

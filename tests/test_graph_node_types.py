@@ -38,7 +38,7 @@ class TestGraphNode:
             prompt="Approve the plan?",
             context_display="Review: {{ nodes.planner.response }}",
             default="approved",
-            timeout_seconds=3600
+            timeout_seconds=3600,
         )
 
         assert node.type == "hitl"
@@ -132,7 +132,7 @@ class TestHITLStateGraphPattern:
             context_display="Context: ...",
             default_response="approved",
             timeout_at="2025-11-10T15:00:00Z",
-            user_response=None
+            user_response=None,
         )
 
         assert state.active is True
@@ -144,11 +144,7 @@ class TestHITLStateGraphPattern:
 
     def test_hitl_state_graph_pattern_minimal(self) -> None:
         """Test HITLState with minimal graph pattern fields."""
-        state = HITLState(
-            active=True,
-            node_id="review",
-            prompt="Approve?"
-        )
+        state = HITLState(active=True, node_id="review", prompt="Approve?")
 
         assert state.node_id == "review"
         assert state.context_display is None
@@ -161,7 +157,7 @@ class TestHITLStateGraphPattern:
                 active=True,
                 step_index=0,  # Chain field
                 node_id="review",  # Graph field
-                prompt="Approve?"
+                prompt="Approve?",
             )
 
     def test_hitl_state_cannot_mix_workflow_and_graph_fields(self) -> None:
@@ -172,7 +168,7 @@ class TestHITLStateGraphPattern:
                 task_id="task1",  # Workflow field
                 layer_index=0,  # Workflow field
                 node_id="review",  # Graph field
-                prompt="Approve?"
+                prompt="Approve?",
             )
 
     def test_hitl_state_cannot_mix_parallel_and_graph_fields(self) -> None:
@@ -182,36 +178,24 @@ class TestHITLStateGraphPattern:
                 active=True,
                 branch_id="branch1",  # Parallel field
                 node_id="review",  # Graph field
-                prompt="Approve?"
+                prompt="Approve?",
             )
 
     def test_hitl_state_requires_pattern_fields(self) -> None:
         """Test HITLState requires at least one pattern field set."""
         with pytest.raises(ValidationError, match="must have fields for one pattern"):
-            HITLState(
-                active=True,
-                prompt="Approve?"
-            )
+            HITLState(active=True, prompt="Approve?")
 
     def test_hitl_state_chain_pattern_still_works(self) -> None:
         """Test existing chain pattern HITLState validation still works."""
-        state = HITLState(
-            active=True,
-            step_index=2,
-            prompt="Review step 2"
-        )
+        state = HITLState(active=True, step_index=2, prompt="Review step 2")
 
         assert state.step_index == 2
         assert state.node_id is None
 
     def test_hitl_state_workflow_pattern_still_works(self) -> None:
         """Test existing workflow pattern HITLState validation still works."""
-        state = HITLState(
-            active=True,
-            task_id="review_task",
-            layer_index=1,
-            prompt="Review task"
-        )
+        state = HITLState(active=True, task_id="review_task", layer_index=1, prompt="Review task")
 
         assert state.task_id == "review_task"
         assert state.layer_index == 1
@@ -224,7 +208,7 @@ class TestHITLStateGraphPattern:
             branch_id="branch_research",
             step_index=0,
             step_type="branch",
-            prompt="Review branch"
+            prompt="Review branch",
         )
 
         assert state.branch_id == "branch_research"

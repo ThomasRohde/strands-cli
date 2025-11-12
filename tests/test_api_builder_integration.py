@@ -99,7 +99,10 @@ class TestBuilderChaining:
             .step("researcher", "Research B")
             .step("analyst", "Analyze: {{ steps[0].response }}")
             .done()
-            .reduce("writer", "Combine: {{ branches.branch_a.response }} + {{ branches.branch_b.response }}")
+            .reduce(
+                "writer",
+                "Combine: {{ branches.branch_a.response }} + {{ branches.branch_b.response }}",
+            )
             .artifact("synthesis.md", "{{ last_response }}")
             .build()
         )
@@ -341,9 +344,7 @@ class TestBuilderErrorHandling:
     def test_no_pattern_defined_error(self) -> None:
         """Test error when building without defining a pattern."""
         builder = (
-            FluentBuilder("test")
-            .runtime("openai", model="gpt-4o-mini")
-            .agent("agent1", "Prompt")
+            FluentBuilder("test").runtime("openai", model="gpt-4o-mini").agent("agent1", "Prompt")
         )
 
         with pytest.raises(BuildError, match="No pattern defined"):
@@ -433,7 +434,9 @@ class TestBuilderReusability:
 
     def test_builder_reuse_for_multiple_workflows(self) -> None:
         """Test that base builder can be reused to create multiple workflows."""
-        base = FluentBuilder("base").runtime("openai", model="gpt-4o-mini").agent("agent1", "Prompt")
+        base = (
+            FluentBuilder("base").runtime("openai", model="gpt-4o-mini").agent("agent1", "Prompt")
+        )
 
         # Create chain workflow
         chain_workflow = base.chain().step("agent1", "Chain step").build()

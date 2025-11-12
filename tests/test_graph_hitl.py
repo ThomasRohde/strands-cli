@@ -954,7 +954,9 @@ class TestGraphTerminalHITL:
         # Assert - Workflow completes successfully
         assert result2.success is True
         loaded_state2 = await repo.load(result.session_id)
-        assert loaded_state2.pattern_state["node_results"]["final_approval"]["response"] == "confirmed"
+        assert (
+            loaded_state2.pattern_state["node_results"]["final_approval"]["response"] == "confirmed"
+        )
         assert loaded_state2.pattern_state["hitl_state"]["active"] is False
 
 
@@ -1047,9 +1049,7 @@ class TestGraphHITLErrorHandling:
             )
 
     @pytest.mark.asyncio
-    async def test_normal_graph_without_session_works(
-        self, tmp_path: Any, mocker: Any
-    ) -> None:
+    async def test_normal_graph_without_session_works(self, tmp_path: Any, mocker: Any) -> None:
         """Test graph without HITL works without session persistence."""
         # Arrange - Graph spec without HITL nodes
         spec = Spec(
@@ -1237,7 +1237,10 @@ class TestGraphHITLCheckpointOrdering:
 
         # ✅ Execute node result should exist (workflow completed)
         assert "execute" in loaded_state2.pattern_state["node_results"]
-        assert loaded_state2.pattern_state["node_results"]["execute"]["response"] == "Execution complete"
+        assert (
+            loaded_state2.pattern_state["node_results"]["execute"]["response"]
+            == "Execution complete"
+        )
 
         # Step 4: Simulate crash recovery scenario
         # If we resume from loaded_state2 (which has current_node=execute),
@@ -1249,5 +1252,3 @@ class TestGraphHITLCheckpointOrdering:
         assert execution_path == ["plan", "review", "execute"], (
             "Execution path should show linear progression through all nodes"
         )
-
-

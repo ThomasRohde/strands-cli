@@ -140,11 +140,12 @@ async def test_delete_session(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_delete_nonexistent_session(tmp_path: Path):
-    """Test deleting non-existent session doesn't raise error."""
+    """Test deleting non-existent session raises FileNotFoundError."""
     repo = FileSessionRepository(storage_dir=tmp_path)
 
-    # Should not raise
-    await repo.delete("nonexistent-session-id")
+    # Should raise FileNotFoundError
+    with pytest.raises(FileNotFoundError):
+        await repo.delete("nonexistent-session-id")
 
 
 @pytest.mark.asyncio

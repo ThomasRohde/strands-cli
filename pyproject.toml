@@ -76,6 +76,10 @@ docs = [
 ]
 mcp = ["mcp>=1.11.0"]
 prometheus = ["prometheus-client>=0.20"]
+web = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.20.0",
+]
 
 # CLI entry point
 [project.scripts]
@@ -149,6 +153,10 @@ select = [
 ignore = [
   "E501" # managed by formatter/line-length
 ]
+
+[tool.ruff.lint.mccabe]
+# Allow slightly higher complexity for validation and orchestration logic
+max-complexity = 15
 
 [tool.ruff.format]
 quote-style = "preserve"

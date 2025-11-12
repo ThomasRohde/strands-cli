@@ -6,4 +6,4 @@ from strands_cli.api import Workflow
 # Version (managed in pyproject.toml)
 __version__ = "0.3.0"
 
-__all__ = ["__version__", "Workflow"]
+__all__ = ["Workflow", "__version__"]

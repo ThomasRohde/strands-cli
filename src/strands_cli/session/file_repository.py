@@ -107,20 +107,20 @@ class FileSessionRepository:
 
         return await asyncio.to_thread(_exists)
 
-    async def save(self, state: SessionState, spec_content: str) -> None:
+    async def save(self, state: SessionState, spec_content: str | None = None) -> None:
         """Save complete session state.
 
         Writes three files atomically with file locking to prevent
         concurrent corruption:
         1. session.json: Metadata, variables, runtime, usage, artifacts
         2. pattern_state.json: Pattern-specific execution state
-        3. spec_snapshot.yaml: Original workflow spec for comparison (only if spec_content is non-empty)
+        3. spec_snapshot.yaml: Original workflow spec for comparison (only if spec_content is provided)
 
         Uses atomic writes (temp file + rename) and file locking for safety.
 
         Args:
             state: Session state to persist
-            spec_content: Original workflow spec YAML/JSON content (empty string = skip spec update)
+            spec_content: Original workflow spec YAML/JSON content (optional, None = skip spec update)
 
         Raises:
             SessionCorruptedError: If file write fails
@@ -260,6 +260,9 @@ class FileSessionRepository:
         Args:
             session_id: Session ID to delete
 
+        Raises:
+            FileNotFoundError: If session doesn't exist
+
         Example:
             >>> await repo.delete("abc-123")
         """
@@ -269,6 +272,9 @@ class FileSessionRepository:
             if session_dir.exists():
                 shutil.rmtree(session_dir)
                 logger.info("session_deleted", session_id=session_id)
+            else:
+                # FIX: Raise FileNotFoundError for nonexistent sessions
+                raise FileNotFoundError(f"Session directory not found: {session_dir}")
 
         await asyncio.to_thread(_delete)
 

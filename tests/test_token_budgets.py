@@ -340,8 +340,7 @@ class TestBudgetIntegration:
     @pytest.mark.asyncio
     async def test_budget_exceeded_raises_error(self, spec_with_budget: Spec, mocker: Any) -> None:
         """Test that exceeding budget raises BudgetExceededError."""
-        from strands_cli.exec.chain import run_chain
-        from strands_cli.exec.chain import ChainExecutionError
+        from strands_cli.exec.chain import ChainExecutionError, run_chain
 
         # Set very low budget
         spec_with_budget.runtime.budgets = {"max_tokens": 10, "warn_threshold": 0.8}

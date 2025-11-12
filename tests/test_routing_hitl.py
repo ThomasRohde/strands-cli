@@ -55,7 +55,9 @@ def routing_hitl_spec(sample_openai_spec: Spec) -> Spec:
         "technical": Route(
             then=[ChainStep(agent="test_agent", input="Handle technical: {{ inquiry }}")]
         ),
-        "billing": Route(then=[ChainStep(agent="test_agent", input="Handle billing: {{ inquiry }}")]),
+        "billing": Route(
+            then=[ChainStep(agent="test_agent", input="Handle billing: {{ inquiry }}")]
+        ),
     }
 
     spec.pattern.config = RoutingConfig(router=router_config, routes=routes)
@@ -207,9 +209,7 @@ class TestRouterReviewHITLResume:
 
             # Verify HITL state was deactivated
             assert routing_session_state.pattern_state["hitl_state"]["active"] is False
-            assert (
-                routing_session_state.pattern_state["hitl_state"]["user_response"] == "approved"
-            )
+            assert routing_session_state.pattern_state["hitl_state"]["user_response"] == "approved"
 
     @pytest.mark.asyncio
     async def test_router_review_hitl_resume_with_override(
@@ -480,4 +480,3 @@ class TestRouterContextInjection:
             assert "router" in captured_variables
             assert captured_variables["router"]["chosen_route"] == "billing"
             assert "Payment issue" in captured_variables["router"]["response"]
-

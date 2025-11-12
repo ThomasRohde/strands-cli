@@ -58,10 +58,7 @@ async def main() -> None:
         # Configure router
         .router(
             "task_router",
-            (
-                "Task: {{ task }}\n\n"
-                "Classify this task as: coding, research, or writing"
-            ),
+            ("Task: {{ task }}\n\nClassify this task as: coding, research, or writing"),
             max_retries=3,
         )
         # Define coding route (2 steps: code + documentation)
@@ -76,10 +73,7 @@ async def main() -> None:
         )
         .step(
             "writer",
-            (
-                "Take this code and create user-friendly documentation:\n\n"
-                "{{ steps[0].response }}"
-            ),
+            ("Take this code and create user-friendly documentation:\n\n{{ steps[0].response }}"),
         )
         .done()
         # Define research route (2 steps: research + article)

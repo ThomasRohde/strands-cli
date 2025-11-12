@@ -43,7 +43,7 @@ TOOL_SPEC = {
 }
 
 
-def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
+def tail(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
     """Read last N lines from a file.
 
     Cross-platform implementation using deque for efficiency.

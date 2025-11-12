@@ -33,6 +33,7 @@ import structlog
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -117,6 +118,8 @@ async def run_chain(  # noqa: C901
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute a multi-step chain workflow with optional session persistence and HITL support.
 
@@ -145,6 +148,8 @@ async def run_chain(  # noqa: C901
         session_state: Existing session state for resume (None = fresh start)
         session_repo: Repository for checkpointing (None = no checkpoints)
         hitl_response: User response when resuming from HITL pause (None = not HITL resume)
+        event_bus: Optional event bus for emitting workflow events
+        agent_cache: Optional shared agent cache (None = create local cache)
 
     Returns:
         RunResult with final step response and execution metadata
@@ -172,6 +177,19 @@ async def run_chain(  # noqa: C901
 
         logger.info("chain_execution_start", spec_name=spec.name)
         span.add_event("execution_start", {"spec_name": spec.name})
+
+        # Emit workflow_start event
+        if event_bus:
+            await event_bus.emit(
+                WorkflowEvent(
+                    event_type="workflow_start",
+                    timestamp=datetime.now(UTC),
+                    spec_name=spec.name,
+                    pattern_type="chain",
+                    session_id=session_state.metadata.session_id if session_state else None,
+                    data={"step_count": len(spec.pattern.config.steps or [])},
+                )
+            )
 
         if not spec.pattern.config.steps:
             raise ChainExecutionError("Chain pattern has no steps")
@@ -215,31 +233,30 @@ async def run_chain(  # noqa: C901
             # Check for timeout BEFORE checking for hitl_response
             timed_out, timeout_default = check_hitl_timeout(session_state)
 
-            if timed_out:
+            if timed_out and hitl_response is None:
                 # Auto-resume with default response
-                if hitl_response is None:
-                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
-                    if hitl_state_dict:
-                        hitl_state = HITLState(**hitl_state_dict)
-                        console.print(
-                            Panel(
-                                format_timeout_warning(
-                                    hitl_state.timeout_at,
-                                    timeout_default,
-                                ),
-                                border_style="yellow",
-                            )
+                hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                if hitl_state_dict:
+                    hitl_state = HITLState(**hitl_state_dict)
+                    console.print(
+                        Panel(
+                            format_timeout_warning(
+                                hitl_state.timeout_at,
+                                timeout_default,
+                            ),
+                            border_style="yellow",
                         )
-                        hitl_response = timeout_default
+                    )
+                    hitl_response = timeout_default
 
-                        # Record timeout metadata in pattern_state and session metadata
-                        session_state.pattern_state["hitl_timeout_occurred"] = True
-                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.pattern_state["hitl_default_used"] = timeout_default
+                    # Record timeout metadata in pattern_state and session metadata
+                    session_state.pattern_state["hitl_timeout_occurred"] = True
+                    session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.pattern_state["hitl_default_used"] = timeout_default
 
-                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
-                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
                 # If user provided explicit response, that overrides timeout
 
             hitl_state_dict = session_state.pattern_state.get("hitl_state")
@@ -355,9 +372,11 @@ async def run_chain(  # noqa: C901
             logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
 
         # Phase 4: Create AgentCache for agent reuse across steps
+        # Phase 3: Support optional shared agent_cache from context manager
         # Phase 2: Pass session_id for agent session restoration
         agent_session_id = session_state.metadata.session_id if session_state else None
-        cache = AgentCache()
+        cache = agent_cache or AgentCache()
+        should_close = agent_cache is None
         try:
             # Execute steps starting from start_step (skip completed steps on resume)
             for step_index in range(start_step, len(spec.pattern.config.steps)):
@@ -507,6 +526,24 @@ async def run_chain(  # noqa: C901
                         hitl_pause_completed_dt - hitl_pause_started_dt
                     ).total_seconds()
 
+                    # Emit hitl_pause event
+                    if event_bus:
+                        await event_bus.emit(
+                            WorkflowEvent(
+                                event_type="hitl_pause",
+                                timestamp=datetime.now(UTC),
+                                spec_name=spec.name,
+                                pattern_type="chain",
+                                session_id=session_state.metadata.session_id
+                                if session_state
+                                else None,
+                                data={
+                                    "step_index": step_index,
+                                    "prompt": step.prompt,
+                                },
+                            )
+                        )
+
                     return RunResult(
                         success=True,
                         last_response=f"HITL pause at step {step_index}: {step.prompt}",
@@ -613,6 +650,28 @@ async def run_chain(  # noqa: C901
                     session_manager=agent_session_manager,
                 )
 
+                # Phase 3: Emit step_start event before agent invocation
+                if event_bus:
+                    await event_bus.emit(
+                        WorkflowEvent(
+                            event_type="step_start",
+                            timestamp=datetime.now(UTC),
+                            session_id=session_state.metadata.session_id if session_state else None,
+                            spec_name=spec.name,
+                            pattern_type="chain",
+                            data={
+                                "step_index": step_index,
+                                "agent_id": step_agent_id,
+                                "input_preview": step_input[:200] if step_input else "",
+                            },
+                        )
+                    )
+                    logger.debug(
+                        "step_start_event_emitted",
+                        step=step_index,
+                        agent=step_agent_id,
+                    )
+
                 # Phase 4: Direct await instead of asyncio.run() per step
                 step_response = await invoke_agent_with_retry(
                     agent, step_input, max_attempts, wait_min, wait_max
@@ -651,6 +710,25 @@ async def run_chain(  # noqa: C901
                     },
                 )
 
+                # Emit step_complete event
+                if event_bus:
+                    await event_bus.emit(
+                        WorkflowEvent(
+                            event_type="step_complete",
+                            timestamp=datetime.now(UTC),
+                            spec_name=spec.name,
+                            pattern_type="chain",
+                            session_id=session_state.metadata.session_id if session_state else None,
+                            data={
+                                "step_index": step_index,
+                                "agent_id": step.agent,
+                                "response": response_text[:200],  # First 200 chars
+                                "response_length": len(response_text),
+                                "cumulative_tokens": cumulative_tokens,
+                            },
+                        )
+                    )
+
                 # Phase 2: Checkpoint after each step if session persistence enabled
                 if session_state and session_repo:
                     # Update session state with progress
@@ -688,11 +766,37 @@ async def run_chain(  # noqa: C901
 
             # Re-wrap low-level errors in ChainExecutionError for consistent error handling
             if isinstance(e, ChainExecutionError):
+                # Emit error event
+                if event_bus:
+                    await event_bus.emit(
+                        WorkflowEvent(
+                            event_type="error",
+                            timestamp=datetime.now(UTC),
+                            spec_name=spec.name,
+                            pattern_type="chain",
+                            session_id=session_state.metadata.session_id if session_state else None,
+                            data={"error": str(e)},
+                        )
+                    )
                 raise
+            # Emit error event
+            if event_bus:
+                await event_bus.emit(
+                    WorkflowEvent(
+                        event_type="error",
+                        timestamp=datetime.now(UTC),
+                        spec_name=spec.name,
+                        pattern_type="chain",
+                        session_id=session_state.metadata.session_id if session_state else None,
+                        data={"error": str(e)},
+                    )
+                )
             raise ChainExecutionError(f"Chain execution failed: {e}") from e
         finally:
             # Phase 4: Clean up cached agents and HTTP clients
-            await cache.close()
+            # Phase 3: Only close if we created the cache (not shared from context manager)
+            if should_close:
+                await cache.close()
 
         completed_at = datetime.now(UTC).isoformat()
         started_dt = datetime.fromisoformat(started_at)
@@ -720,6 +824,24 @@ async def run_chain(  # noqa: C901
                 "cumulative_tokens": cumulative_tokens,
             },
         )
+
+        # Emit workflow_complete event
+        if event_bus:
+            await event_bus.emit(
+                WorkflowEvent(
+                    event_type="workflow_complete",
+                    timestamp=datetime.now(UTC),
+                    spec_name=spec.name,
+                    pattern_type="chain",
+                    session_id=session_state.metadata.session_id if session_state else None,
+                    data={
+                        "duration_seconds": duration,
+                        "steps_executed": len(step_history),
+                        "cumulative_tokens": cumulative_tokens,
+                        "last_response": final_response[:200],  # First 200 chars
+                    },
+                )
+            )
 
         # Phase 2: Mark session as completed if session persistence enabled
         if session_state and session_repo:

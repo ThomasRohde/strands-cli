@@ -76,7 +76,4 @@ def format_timeout_warning(timeout_at: str | None, default_response: str | None)
     """
     timeout_str = timeout_at if timeout_at else "unknown"
     fallback = default_response or "timeout_expired"
-    return (
-        f"⏱️ HITL timeout expired at {timeout_str}\n"
-        f"Using default response: {fallback}"
-    )
+    return f"⏱️ HITL timeout expired at {timeout_str}\nUsing default response: {fallback}"

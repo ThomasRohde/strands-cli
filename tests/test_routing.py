@@ -176,6 +176,7 @@ async def test_run_routing_success(
     chain_result.success = True
     chain_result.last_response = "FAQ answered"
     chain_result.duration = 1.5
+    chain_result.duration_seconds = 1.5
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
     chain_result.variables = {}
@@ -239,6 +240,7 @@ async def test_run_routing_retry_on_malformed_json(
     chain_result.success = True
     chain_result.last_response = "Research complete"
     chain_result.duration = 2.0
+    chain_result.duration_seconds = 2.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
     chain_result.variables = {}
@@ -286,6 +288,7 @@ async def test_run_routing_multi_step_route(
     chain_result.success = True
     chain_result.last_response = "Research and summary complete"
     chain_result.duration = 3.0
+    chain_result.duration_seconds = 3.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
     chain_result.variables = {}
@@ -318,6 +321,7 @@ async def test_run_routing_template_context(
     chain_result.success = True
     chain_result.last_response = "Done"
     chain_result.duration = 1.0
+    chain_result.duration_seconds = 1.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
     chain_result.variables = {}
@@ -408,6 +412,7 @@ async def test_run_routing_preserves_user_variables(
     chain_result.success = True
     chain_result.last_response = "Done"
     chain_result.duration = 1.0
+    chain_result.duration_seconds = 1.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
     chain_result.variables = {}
@@ -432,15 +437,14 @@ async def test_run_routing_router_response_in_artifacts(
     """Test router.response is available for artifact rendering."""
     # Router returns decision with reasoning
     router_reasoning = "I chose the FAQ route because the query is straightforward and doesn't require deep research."
-    mock_agent.invoke_async = AsyncMock(
-        return_value=f'{{"route": "faq"}}\n\n{router_reasoning}'
-    )
+    mock_agent.invoke_async = AsyncMock(return_value=f'{{"route": "faq"}}\n\n{router_reasoning}')
     mock_get_agent.return_value = mock_agent
 
     chain_result = Mock()
     chain_result.success = True
     chain_result.last_response = "FAQ answered"
     chain_result.duration = 1.0
+    chain_result.duration_seconds = 1.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {}
     chain_result.variables = {}
@@ -448,13 +452,16 @@ async def test_run_routing_router_response_in_artifacts(
 
     # Execute routing
     result = await run_routing(minimal_routing_spec, variables={"query": "test"})
+    result = await run_routing(
+        minimal_routing_spec, variables={"query": "test", "user_id": "user123"}
+    )
 
     # Verify router context includes response text for artifacts
     assert "router" in result.variables
     assert result.variables["router"]["chosen_route"] == "faq"
     assert result.variables["router"]["response"] != ""
     assert "faq" in result.variables["router"]["response"]
-    
+
     # Also verify route_variables passed to chain included response
     route_variables = mock_run_chain.call_args[0][1]
     assert "router" in route_variables
@@ -468,9 +475,10 @@ async def test_run_routing_router_response_restored_from_session(
     mock_run_chain, mock_get_agent, minimal_routing_spec, mock_agent
 ):
     """Test router.response is correctly restored from session state on resume."""
+    from datetime import UTC, datetime
+
     from strands_cli.session import SessionMetadata, SessionState, SessionStatus
     from strands_cli.session.file_repository import FileSessionRepository
-    from datetime import datetime, UTC
 
     # Mock session state with router decision already saved
     router_reasoning = "Selected FAQ route based on simple query pattern."
@@ -508,6 +516,7 @@ async def test_run_routing_router_response_restored_from_session(
     chain_result.success = True
     chain_result.last_response = "FAQ answered"
     chain_result.duration = 1.0
+    chain_result.duration_seconds = 1.0
     chain_result.pattern_type = PatternType.CHAIN
     chain_result.execution_context = {"steps": []}
     chain_result.variables = {}
@@ -531,10 +540,8 @@ async def test_run_routing_router_response_restored_from_session(
     assert "router" in result.variables
     assert result.variables["router"]["chosen_route"] == "faq"
     assert result.variables["router"]["response"] == router_reasoning
-    
+
     # Verify route_variables passed to chain included restored response
     route_variables = mock_run_chain.call_args[0][1]
     assert "router" in route_variables
     assert route_variables["router"]["response"] == router_reasoning
-
-

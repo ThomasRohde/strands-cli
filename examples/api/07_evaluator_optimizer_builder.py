@@ -67,20 +67,18 @@ async def main() -> None:
         .accept(min_score=85, max_iterations=3)
         # Configure custom revision prompt
         .revise_prompt(
-
-                "Your previous draft scored {{ evaluation.score }}/100.\n\n"
-                "Issues identified:\n"
-                "{% for issue in evaluation.issues %}\n"
-                "- {{ issue }}\n"
-                "{% endfor %}\n\n"
-                "Suggested fixes:\n"
-                "{% for fix in evaluation.fixes %}\n"
-                "- {{ fix }}\n"
-                "{% endfor %}\n\n"
-                "Please revise the draft to address these issues. "
-                "Maintain the topic (artificial intelligence) and professional blog post style.\n"
-                "Focus on improving the areas mentioned in the feedback."
-
+            "Your previous draft scored {{ evaluation.score }}/100.\n\n"
+            "Issues identified:\n"
+            "{% for issue in evaluation.issues %}\n"
+            "- {{ issue }}\n"
+            "{% endfor %}\n\n"
+            "Suggested fixes:\n"
+            "{% for fix in evaluation.fixes %}\n"
+            "- {{ fix }}\n"
+            "{% endfor %}\n\n"
+            "Please revise the draft to address these issues. "
+            "Maintain the topic (artificial intelligence) and professional blog post style.\n"
+            "Focus on improving the areas mentioned in the feedback."
         )
         .artifact("./refined-content.md", "{{ last_response }}")
         .build()

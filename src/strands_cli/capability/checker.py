@@ -840,7 +840,10 @@ def _validate_parallel_pattern(spec: Spec, issues: list[CapabilityIssue]) -> Non
     # Validate reduce step agent if present (skip HITL reduce)
     if spec.pattern.config.reduce:
         # Skip HITL reduce steps (they don't have agents)
-        is_hitl_reduce = hasattr(spec.pattern.config.reduce, "type") and spec.pattern.config.reduce.type == "hitl"
+        is_hitl_reduce = (
+            hasattr(spec.pattern.config.reduce, "type")
+            and spec.pattern.config.reduce.type == "hitl"
+        )
         if not is_hitl_reduce and spec.pattern.config.reduce.agent not in spec.agents:
             issues.append(
                 CapabilityIssue(

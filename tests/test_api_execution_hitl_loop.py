@@ -9,9 +9,9 @@ Tests cover:
 - Edge cases (empty responses, missing HITL state)
 """
 
-from datetime import UTC, datetime
 import hashlib
 import json
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -68,7 +68,9 @@ async def test_run_interactive_sets_spec_hash(minimal_chain_spec: Spec, mocker) 
 
     async def capture_save(state, spec_content):
         state_copy = state.model_copy(deep=True)
-        saved_states.append((state_copy.metadata.status, state_copy.metadata.spec_hash, spec_content))
+        saved_states.append(
+            (state_copy.metadata.status, state_copy.metadata.spec_hash, spec_content)
+        )
         return None
 
     mock_repo.save.side_effect = capture_save

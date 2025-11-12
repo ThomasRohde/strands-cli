@@ -1080,6 +1080,229 @@ workflow = (
 )
 ```
 
+## Phase 3: Event-Driven Workflows
+
+### Event Callbacks
+
+Add event listeners to monitor workflow execution:
+
+```python
+from strands_cli.api import FluentBuilder
+
+workflow = (
+    FluentBuilder("monitored-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("worker", "You are a helpful assistant")
+    .chain()
+    .step("worker", "Process {{task}}")
+    .build()
+)
+
+# Subscribe to events
+@workflow.on("workflow_start")
+def on_start(event):
+    print(f"🚀 Starting: {event.spec_name}")
+
+@workflow.on("step_complete")
+def on_step(event):
+    print(f"✓ Step {event.data.get('step_index')} completed")
+
+@workflow.on("workflow_complete")
+def on_complete(event):
+    print(f"✅ Finished in {event.data.get('duration_seconds'):.2f}s")
+
+# Run with event monitoring
+result = workflow.run_interactive(task="analyze data")
+```
+
+**Available Events:**
+- `workflow_start` - Workflow begins
+- `step_complete`, `task_complete`, `branch_complete`, `node_complete` - Pattern-specific completions
+- `hitl_pause` - HITL step encountered
+- `error` - Error occurred
+- `workflow_complete` - Workflow finished
+
+### Async Execution with Resource Management
+
+Use async context managers for automatic cleanup:
+
+```python
+import asyncio
+from strands_cli.api import FluentBuilder
+
+workflow = (
+    FluentBuilder("async-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("worker", "You are a helpful assistant")
+    .single_agent()
+    .prompt("worker", "Process {{task}}")
+    .build()
+)
+
+async def run_workflow():
+    # Context manager handles agent cache cleanup
+    async with workflow.async_executor() as executor:
+        result = await executor.run_async(task="analyze data")
+        return result
+    # Cache automatically cleaned up here
+
+result = asyncio.run(run_workflow())
+print(result.last_response)
+```
+
+### Streaming Responses
+
+Stream workflow execution for real-time progress:
+
+```python
+import asyncio
+from strands_cli.api import FluentBuilder
+
+workflow = (
+    FluentBuilder("streaming-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("writer", "You are a helpful writer")
+    .chain()
+    .step("writer", "Write about {{topic}}")
+    .step("writer", "Add conclusion")
+    .build()
+)
+
+async def stream_workflow():
+    async for chunk in workflow.stream_async(topic="AI"):
+        if chunk.chunk_type == "step_start":
+            print(f"\n→ Starting step...")
+        elif chunk.chunk_type == "step_complete":
+            response = chunk.data.get("response", "")
+            print(f"✓ {response[:100]}...")
+        elif chunk.chunk_type == "complete":
+            print("\n✅ Complete!")
+
+asyncio.run(stream_workflow())
+```
+
+**Note:** Token-by-token streaming not yet implemented. Chunks contain complete responses.
+
+### Webhook Integration
+
+Send workflow events to external services:
+
+```python
+from strands_cli.api import FluentBuilder
+from strands_cli.integrations.webhook_handler import GenericWebhookHandler
+
+workflow = (
+    FluentBuilder("webhook-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("processor", "Process data")
+    .chain()
+    .step("processor", "Process {{data}}")
+    .build()
+)
+
+# Setup webhook
+webhook = GenericWebhookHandler(
+    url="https://hooks.example.com/events",
+    headers={"Authorization": "Bearer TOKEN"}
+)
+
+# Send notifications
+@workflow.on("workflow_complete")
+def notify_completion(event):
+    webhook.send(event)
+
+@workflow.on("error")
+def notify_error(event):
+    webhook.send(event)
+
+result = workflow.run_interactive(data="sample")
+```
+
+### Session Management
+
+Programmatically manage workflow sessions:
+
+```python
+import asyncio
+from strands_cli.api import SessionManager, FluentBuilder
+from strands_cli.types import SessionStatus
+
+async def manage_workflow_sessions():
+    # Create workflow with HITL step
+    workflow = (
+        FluentBuilder("session-demo")
+        .runtime("openai", model="gpt-4o-mini")
+        .agent("worker", "You are a worker")
+        .chain()
+        .step("worker", "Task 1")
+        .hitl("Review task 1 results?")
+        .step("worker", "Task 2 with feedback: {{hitl_response}}")
+        .build()
+    )
+    
+    # Session manager
+    manager = SessionManager()
+    
+    # List paused sessions
+    paused = await manager.list(status=SessionStatus.PAUSED, limit=10)
+    print(f"Found {len(paused)} paused sessions")
+    
+    if paused:
+        session_id = paused[0].metadata["session_id"]
+        
+        # Get session details
+        session = await manager.get(session_id)
+        print(f"Workflow: {session.metadata['workflow_name']}")
+        
+        # Resume with response
+        result = await manager.resume(session_id, hitl_response="approved")
+        print(f"Resume success: {result.success}")
+    
+    # Cleanup old sessions (>7 days)
+    removed = await manager.cleanup(older_than_days=7)
+    print(f"Cleaned up {removed} old sessions")
+
+asyncio.run(manage_workflow_sessions())
+```
+
+### FastAPI Deployment
+
+Deploy builder-created workflows as REST APIs:
+
+```python
+from fastapi import FastAPI
+from strands_cli.api import FluentBuilder
+from strands_cli.integrations.fastapi_router import create_workflow_router
+
+# Build workflow
+workflow = (
+    FluentBuilder("api-workflow")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("processor", "You process requests")
+    .single_agent()
+    .prompt("processor", "Process: {{request}}")
+    .build()
+)
+
+# Create FastAPI app
+app = FastAPI(title="Workflow API")
+
+# Add workflow endpoints
+router = create_workflow_router(workflow, prefix="/workflow")
+app.include_router(router)
+
+# Run with: uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+**Endpoints:**
+- `POST /workflow/execute` - Execute workflow
+- `GET /workflow/sessions` - List sessions
+- `GET /workflow/sessions/{id}` - Get session
+- `POST /workflow/sessions/{id}/resume` - Resume session
+- `DELETE /workflow/sessions/{id}` - Delete session
+
+Requires: `pip install strands-cli[web]`
+
 ## Next Steps
 
 Now that you understand the builder API basics:

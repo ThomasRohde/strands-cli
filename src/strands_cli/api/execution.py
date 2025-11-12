@@ -1,17 +1,21 @@
 """Workflow execution engine with HITL support."""
 
+import asyncio
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import suppress
 from typing import Any
 
 from strands_cli.api.handlers import terminal_hitl_handler
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.chain import run_chain
 from strands_cli.exec.evaluator_optimizer import run_evaluator_optimizer
 from strands_cli.exec.graph import run_graph
 from strands_cli.exec.orchestrator_workers import run_orchestrator_workers
 from strands_cli.exec.parallel import run_parallel
 from strands_cli.exec.routing import run_routing
+from strands_cli.exec.utils import AgentCache
 from strands_cli.exec.workflow import run_workflow
 from strands_cli.exit_codes import EX_HITL_PAUSE
 from strands_cli.session import (
@@ -22,11 +26,18 @@ from strands_cli.session import (
 )
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.session.utils import generate_session_id, now_iso8601
-from strands_cli.types import HITLState, PatternType, RunResult, Spec
+from strands_cli.types import HITLState, PatternType, RunResult, Spec, StreamChunk, StreamChunkType
 
 
 class WorkflowExecutor:
-    """Executes workflows with optional interactive HITL."""
+    """Executes workflows with optional interactive HITL.
+
+    Supports async context manager protocol for automatic resource cleanup:
+        async with workflow.async_executor() as executor:
+            result = await executor.run(topic="AI safety")
+
+    Resources are automatically cleaned up on exit.
+    """
 
     def __init__(self, spec: Spec):
         """Initialize executor with workflow spec.
@@ -35,6 +46,67 @@ class WorkflowExecutor:
             spec: Validated workflow specification
         """
         self.spec = spec
+        self.event_bus = EventBus()
+        self._agent_cache: AgentCache | None = None
+
+    async def __aenter__(self) -> "WorkflowExecutor":
+        """Enter async context and initialize agent cache.
+
+        Returns:
+            Self for context manager usage
+        """
+        self._agent_cache = AgentCache()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
+        """Exit async context and cleanup resources.
+
+        Args:
+            exc_type: Exception type (if any)
+            exc_val: Exception value (if any)
+            exc_tb: Exception traceback (if any)
+
+        Returns:
+            False to propagate exceptions
+        """
+        if self._agent_cache:
+            await self._agent_cache.close()
+            self._agent_cache = None  # Clear reference after cleanup
+        return False
+
+    def on(self, event_type: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Decorator to subscribe handlers to workflow events.
+
+        Supports both sync and async handlers.
+
+        Example:
+            >>> workflow = WorkflowExecutor(spec)
+            >>> @workflow.on("step_complete")
+            >>> def on_step(event: WorkflowEvent):
+            >>>     print(f"Step {event.data['step_index']} completed")
+            >>>
+            >>> @workflow.on("step_complete")
+            >>> async def on_step_async(event: WorkflowEvent):
+            >>>     await send_notification(event)
+
+        Args:
+            event_type: Event type to subscribe to
+
+        Returns:
+            Decorator function
+        """
+        from strands_cli.events import EventHandler
+
+        def decorator(handler: EventHandler) -> EventHandler:
+            self.event_bus.subscribe(event_type, handler)
+            return handler
+
+        return decorator
 
     async def run_interactive(
         self,
@@ -165,6 +237,22 @@ class WorkflowExecutor:
             await session_repo.save(session_state, spec_content)
             raise
 
+    async def run_async(
+        self,
+        variables: dict[str, Any],
+    ) -> RunResult:
+        """Run workflow asynchronously without interactive mode.
+
+        Async version of run() for use in async contexts.
+
+        Args:
+            variables: Runtime variable overrides
+
+        Returns:
+            RunResult with execution details (may indicate HITL pause)
+        """
+        return await self.run(variables)
+
     async def run(
         self,
         variables: dict[str, Any],
@@ -235,6 +323,112 @@ class WorkflowExecutor:
             await session_repo.save(session_state, spec_content)
             raise
 
+    async def stream_async(
+        self,
+        variables: dict[str, Any] | None = None,
+    ) -> AsyncGenerator[StreamChunk, None]:
+        """Stream workflow execution events as they occur.
+
+        Note: Token-by-token streaming not yet implemented in Phase 3.
+        Returns complete responses as chunks for now.
+
+        Args:
+            variables: Runtime variable overrides as dict
+
+        Yields:
+            StreamChunk objects with execution progress
+
+        Raises:
+            Exception: Any exception from workflow execution is propagated
+        """
+        if variables is None:
+            variables = {}
+
+        # Create queue for streaming chunks
+        chunks: asyncio.Queue[StreamChunk | None | Exception] = asyncio.Queue()
+
+        def _map_event_to_chunk_type(event_type: str) -> StreamChunkType:
+            """Map event types to chunk types."""
+            if event_type == "workflow_start":
+                return "workflow_start"
+            elif event_type in ["step_start", "task_start", "branch_start", "node_start"]:
+                return "step_start"
+            elif event_type in [
+                "step_complete",
+                "task_complete",
+                "branch_complete",
+                "node_complete",
+            ]:
+                return "step_complete"
+            elif event_type == "workflow_complete":
+                return "complete"
+            else:
+                return "step_complete"  # Default
+
+        def emit_chunk(event: WorkflowEvent) -> None:
+            """Convert event to chunk and add to queue."""
+            chunk = StreamChunk(
+                chunk_type=_map_event_to_chunk_type(event.event_type),
+                data=event.data,
+                timestamp=event.timestamp,
+            )
+            chunks.put_nowait(chunk)
+
+        # Subscribe to relevant events
+        self.event_bus.subscribe("workflow_start", emit_chunk)
+        self.event_bus.subscribe("step_start", emit_chunk)
+        self.event_bus.subscribe("step_complete", emit_chunk)
+        self.event_bus.subscribe("task_start", emit_chunk)
+        self.event_bus.subscribe("task_complete", emit_chunk)
+        self.event_bus.subscribe("branch_start", emit_chunk)
+        self.event_bus.subscribe("branch_complete", emit_chunk)
+        self.event_bus.subscribe("node_start", emit_chunk)
+        self.event_bus.subscribe("node_complete", emit_chunk)
+        self.event_bus.subscribe("workflow_complete", emit_chunk)
+
+        # Execute workflow in background
+        async def execute() -> None:
+            try:
+                await self.run_async(variables)
+            except Exception as exc:
+                await chunks.put(exc)
+                return
+            await chunks.put(None)  # Success sentinel
+
+        task = asyncio.create_task(execute())
+
+        # Yield chunks as they arrive
+        try:
+            while True:
+                item = await chunks.get()
+                if item is None:
+                    # Success sentinel
+                    break
+                elif isinstance(item, Exception):
+                    # Propagate exception to consumer
+                    raise item
+                else:
+                    # Regular chunk
+                    yield item
+        finally:
+            # Unsubscribe handlers to prevent duplicate callbacks
+            self.event_bus.unsubscribe("workflow_start", emit_chunk)
+            self.event_bus.unsubscribe("step_start", emit_chunk)
+            self.event_bus.unsubscribe("step_complete", emit_chunk)
+            self.event_bus.unsubscribe("task_start", emit_chunk)
+            self.event_bus.unsubscribe("task_complete", emit_chunk)
+            self.event_bus.unsubscribe("branch_start", emit_chunk)
+            self.event_bus.unsubscribe("branch_complete", emit_chunk)
+            self.event_bus.unsubscribe("node_start", emit_chunk)
+            self.event_bus.unsubscribe("node_complete", emit_chunk)
+            self.event_bus.unsubscribe("workflow_complete", emit_chunk)
+
+            # Ensure task completes even if consumer stops early
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
     async def _execute_pattern(
         self,
         variables: dict[str, Any],
@@ -262,6 +456,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         elif pattern == PatternType.WORKFLOW:
             return await run_workflow(
@@ -270,6 +466,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         elif pattern == PatternType.ROUTING:
             return await run_routing(
@@ -278,6 +476,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         elif pattern == PatternType.PARALLEL:
             return await run_parallel(
@@ -286,6 +486,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         elif pattern == PatternType.EVALUATOR_OPTIMIZER:
             return await run_evaluator_optimizer(
@@ -294,6 +496,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         elif pattern == PatternType.ORCHESTRATOR_WORKERS:
             return await run_orchestrator_workers(
@@ -302,6 +506,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         elif pattern == PatternType.GRAPH:
             return await run_graph(
@@ -310,6 +516,8 @@ class WorkflowExecutor:
                 session_state,
                 session_repo,
                 hitl_response,
+                self.event_bus,
+                self._agent_cache,
             )
         else:
             raise ValueError(f"Unsupported pattern type: {pattern}")

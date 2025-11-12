@@ -18,7 +18,6 @@ from strands_cli.loader import LoadError
 from strands_cli.schema.validator import SchemaValidationError
 from strands_cli.types import HITLState, PatternType, RunResult, Spec
 
-
 # ============================================================================
 # Test Helpers
 # ============================================================================

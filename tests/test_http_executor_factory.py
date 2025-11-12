@@ -42,9 +42,7 @@ def test_resolve_secret_placeholders_with_spec(mocker: Any) -> None:
     # Create mock spec with secrets
     spec = mocker.Mock(spec=Spec)
     env = mocker.Mock()
-    env.secrets = [
-        Secret(name="GITHUB_TOKEN", source="env", key="MY_GITHUB_PAT")
-    ]
+    env.secrets = [Secret(name="GITHUB_TOKEN", source="env", key="MY_GITHUB_PAT")]
     spec.env = env
 
     # Set environment variable
@@ -367,9 +365,7 @@ def test_create_http_executor_tool_function_timeout_error(mocker: Any) -> None:
     module = create_http_executor_tool(config)
 
     # Mock timeout exception
-    module._http_client.request = mocker.Mock(
-        side_effect=httpx.TimeoutException("Request timeout")
-    )
+    module._http_client.request = mocker.Mock(side_effect=httpx.TimeoutException("Request timeout"))
 
     tool_function = getattr(module, config.id)
     result = tool_function(
@@ -393,9 +389,7 @@ def test_create_http_executor_tool_function_http_error(mocker: Any) -> None:
     module = create_http_executor_tool(config)
 
     # Mock HTTP error
-    module._http_client.request = mocker.Mock(
-        side_effect=httpx.HTTPError("Connection failed")
-    )
+    module._http_client.request = mocker.Mock(side_effect=httpx.HTTPError("Connection failed"))
 
     tool_function = getattr(module, config.id)
     result = tool_function(
@@ -419,9 +413,7 @@ def test_create_http_executor_tool_function_unexpected_error(mocker: Any) -> Non
     module = create_http_executor_tool(config)
 
     # Mock unexpected exception
-    module._http_client.request = mocker.Mock(
-        side_effect=ValueError("Unexpected error")
-    )
+    module._http_client.request = mocker.Mock(side_effect=ValueError("Unexpected error"))
 
     tool_function = getattr(module, config.id)
     result = tool_function(
@@ -510,9 +502,7 @@ def test_create_http_executor_tool_resolves_secrets(mocker: Any) -> None:
     """Test tool creation resolves secret placeholders in headers."""
     spec = mocker.Mock(spec=Spec)
     env = mocker.Mock()
-    env.secrets = [
-        Secret(name="API_KEY", source="env", key="MY_API_KEY")
-    ]
+    env.secrets = [Secret(name="API_KEY", source="env", key="MY_API_KEY")]
     spec.env = env
 
     os.environ["MY_API_KEY"] = "secret123"

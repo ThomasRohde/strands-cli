@@ -33,6 +33,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.chain import run_chain
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
@@ -516,6 +517,8 @@ async def run_routing(  # noqa: C901
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute a routing pattern workflow with optional session persistence.
 
@@ -641,7 +644,8 @@ async def run_routing(  # noqa: C901
             logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
 
         # Create AgentCache for this execution
-        cache = AgentCache()
+        cache = agent_cache or AgentCache()
+        should_close = agent_cache is None
 
         try:
             # Phase 1: Handle HITL resume if session is paused for router review
@@ -700,7 +704,7 @@ async def run_routing(  # noqa: C901
                         # Parse router review response: "approved" or "route:<name>"
                         router_decision = session_state.pattern_state.get("router_decision", {})
                         original_route = router_decision.get("chosen_route")
-                        
+
                         # CRITICAL: Restore router_response from session state
                         # This ensures {{ router.response }} is available for artifact rendering
                         router_response = router_decision.get("response", "")
@@ -715,7 +719,9 @@ async def run_routing(  # noqa: C901
                             )
                         elif hitl_response.strip().lower().startswith("route:"):
                             # User override with specific route
-                            override_route = hitl_response.strip().lower().replace("route:", "").strip()
+                            override_route = (
+                                hitl_response.strip().lower().replace("route:", "").strip()
+                            )
 
                             # Validate override route exists
                             if spec.pattern.config.routes:
@@ -763,9 +769,9 @@ async def run_routing(  # noqa: C901
                         span.add_event(
                             "router_review_hitl_resume",
                             {
-                                "original_route": original_route or "",
-                                "final_route": chosen_route,
-                                "response": hitl_response,
+                                "original_route": str(original_route) if original_route else "",
+                                "final_route": str(chosen_route),
+                                "response": str(hitl_response),
                             },
                         )
 
@@ -774,12 +780,12 @@ async def run_routing(  # noqa: C901
                 if session_state and session_state.pattern_state.get("router_executed"):
                     # Resume: router decision already made (non-HITL path)
                     chosen_route = session_state.pattern_state["chosen_route"]
-                    
+
                     # CRITICAL: Restore router_response from session state
                     # This ensures {{ router.response }} is available for artifact rendering
                     router_decision_state = session_state.pattern_state.get("router_decision", {})
                     router_response = router_decision_state.get("response", "")
-                    
+
                     logger.info(
                         "routing_router_restored",
                         route=chosen_route,
@@ -788,7 +794,7 @@ async def run_routing(  # noqa: C901
                     )
                     span.add_event(
                         "router_restored",
-                        {"chosen_route": chosen_route, "router_agent": router_agent_id},
+                        {"chosen_route": str(chosen_route), "router_agent": str(router_agent_id)},
                     )
                 else:
                     # Fresh execution: run router with retry logic
@@ -846,10 +852,36 @@ async def run_routing(  # noqa: C901
 
             logger.info("route_selected", route=chosen_route)
             span.add_event(
-                "route_selected", {"chosen_route": chosen_route, "router_agent": router_agent_id}
+                "route_selected",
+                {"chosen_route": str(chosen_route), "router_agent": str(router_agent_id)},
             )
 
+            # Phase 3: Emit routing_decision event after route selection
+            if event_bus:
+                await event_bus.emit(
+                    WorkflowEvent(
+                        event_type="routing_decision",
+                        timestamp=datetime.now(UTC),
+                        session_id=session_state.metadata.session_id if session_state else None,
+                        spec_name=spec.name,
+                        pattern_type="routing",
+                        data={
+                            "selected_route": chosen_route,
+                            "router_agent": str(router_agent_id),
+                            "available_routes": list(spec.pattern.config.routes.keys())
+                            if spec.pattern.config.routes
+                            else [],
+                        },
+                    )
+                )
+                logger.debug(
+                    "routing_decision_event_emitted",
+                    route=chosen_route,
+                    router=router_agent_id,
+                )
+
             # Create spec for route execution
+            assert chosen_route is not None, "chosen_route must be set at this point"
             route_spec = _create_route_spec(spec, chosen_route)
 
             # Inject router decision and response into context for route execution
@@ -864,7 +896,7 @@ async def run_routing(  # noqa: C901
 
             route_variables["router"] = {
                 "chosen_route": chosen_route,
-                "response": router_response,  # Always available from above execution paths
+                "response": router_response or "",  # Always available from above execution paths
             }
 
             # Build chain session state if resuming route
@@ -918,14 +950,17 @@ async def run_routing(  # noqa: C901
             # Ensure router context is available for artifact rendering
             if result.variables is None:
                 result.variables = {}
-            
+
             # Use the router context that was already built for route execution
             # This includes router response from either fresh execution or session state
-            result.variables["router"] = route_variables.get("router", {
-                "chosen_route": chosen_route,
-                "response": "",
-            })
-            
+            result.variables["router"] = route_variables.get(
+                "router",
+                {
+                    "chosen_route": chosen_route,
+                    "response": "",
+                },
+            )
+
             logger.info(
                 "routing_result_variables_set",
                 variables_keys=list(result.variables.keys()) if result.variables else [],
@@ -941,8 +976,8 @@ async def run_routing(  # noqa: C901
             span.add_event(
                 "execution_complete",
                 {
-                    "chosen_route": chosen_route,
-                    "duration_seconds": result.duration_seconds,
+                    "chosen_route": str(chosen_route),
+                    "duration_seconds": float(result.duration_seconds),
                 },
             )
 
@@ -965,4 +1000,5 @@ async def run_routing(  # noqa: C901
             raise RoutingExecutionError(f"Routing execution failed: {e}") from e
         finally:
             # Clean up cached resources
-            await cache.close()
+            if should_close:
+                await cache.close()

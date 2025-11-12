@@ -73,9 +73,7 @@ def parallel_spec_branch_hitl() -> Spec:
                     ),
                     ParallelBranch(
                         id="docs_research",
-                        steps=[
-                            ChainStep(agent="docs_reader", input="Read docs for {{ topic }}")
-                        ],
+                        steps=[ChainStep(agent="docs_reader", input="Read docs for {{ topic }}")],
                     ),
                 ],
             ),
@@ -194,9 +192,7 @@ class TestBranchHITLPauseAndResume:
 
         # Mock agent execution
         mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(
-            side_effect=["Web scraped data", "Docs summary"]
-        )
+        mock_agent.invoke_async = AsyncMock(side_effect=["Web scraped data", "Docs summary"])
 
         mock_cache = mocker.AsyncMock()
         mock_cache.get_or_build_agent = AsyncMock(return_value=mock_agent)
@@ -381,7 +377,14 @@ class TestBranchHITLPauseAndResume:
             pattern_state={
                 "branch_states": {
                     "web_research": {
-                        "step_history": [{"index": 0, "agent": "web_scraper", "response": "Data", "tokens_estimated": 4}],
+                        "step_history": [
+                            {
+                                "index": 0,
+                                "agent": "web_scraper",
+                                "response": "Data",
+                                "tokens_estimated": 4,
+                            }
+                        ],
                         "current_step": 1,
                         "cumulative_tokens": 4,
                     }
@@ -665,11 +668,15 @@ class TestHITLTemplateVariables:
             pattern_state={
                 "branch_states": {
                     "web_research": {
-                        "step_history": [{"index": 0, "agent": "web_scraper", "response": "Web data"}],
+                        "step_history": [
+                            {"index": 0, "agent": "web_scraper", "response": "Web data"}
+                        ],
                         "current_step": 1,
                     },
                     "docs_research": {
-                        "step_history": [{"index": 0, "agent": "docs_reader", "response": "Docs data"}],
+                        "step_history": [
+                            {"index": 0, "agent": "docs_reader", "response": "Docs data"}
+                        ],
                         "current_step": 1,
                     },
                 },
@@ -964,7 +971,9 @@ class TestHITLCheckpointSafety:
 
         # Mock agent to fail immediately after resume (simulate crash)
         mock_agent = MagicMock()
-        mock_agent.invoke_async = AsyncMock(side_effect=Exception("Simulated crash during validation"))
+        mock_agent.invoke_async = AsyncMock(
+            side_effect=Exception("Simulated crash during validation")
+        )
 
         mock_cache = mocker.AsyncMock()
         mock_cache.get_or_build_agent = AsyncMock(return_value=mock_agent)
@@ -1000,7 +1009,9 @@ class TestHITLCheckpointSafety:
 
         # CRITICAL ASSERTION: The checkpoint happened BEFORE the crash
         # We captured it via our mock
-        assert checkpoint_after_hitl is not None, "Checkpoint after HITL resume should have been captured"
+        assert checkpoint_after_hitl is not None, (
+            "Checkpoint after HITL resume should have been captured"
+        )
 
         # Verify the checkpointed state contains HITL response
         hitl_state_dict = checkpoint_after_hitl.pattern_state.get("hitl_state")
@@ -1027,8 +1038,9 @@ class TestHITLCheckpointSafety:
         # in-progress branch state. The critical proof is that the checkpoint
         # HAPPENED before the crash (we captured it), which prevents infinite
         # data loss scenarios. Users can re-provide the HITL response if needed.
-        assert checkpoint_after_hitl is not None, \
+        assert checkpoint_after_hitl is not None, (
             "The checkpoint proves HITL response was persisted before crash"
+        )
 
     @pytest.mark.asyncio
     async def test_reduce_hitl_resume_persists_response_before_crash(
@@ -1108,8 +1120,9 @@ class TestHITLCheckpointSafety:
 
         # Final response should be persisted (checkpointed during resume)
         final_resp = checkpointed_state.pattern_state.get("final_response", "")
-        assert final_resp == "approved - proceed with aggregation", \
+        assert final_resp == "approved - proceed with aggregation", (
             f"Expected 'approved - proceed with aggregation', got '{final_resp}'"
+        )
 
     @pytest.mark.asyncio
     async def test_branch_hitl_checkpoint_includes_user_response(
@@ -1207,14 +1220,17 @@ class TestHITLCheckpointSafety:
 
         # Assert - Checkpoint event was logged
         checkpoint_calls = [
-            call for call in mock_logger.info.call_args_list
+            call
+            for call in mock_logger.info.call_args_list
             if "branch_hitl_resume_checkpointed" in str(call)
         ]
         assert len(checkpoint_calls) >= 1
 
         # Verify checkpoint includes session_id, branch_id, step, and response_length
         checkpoint_call = checkpoint_calls[0]
-        checkpoint_kwargs = checkpoint_call[1] if len(checkpoint_call) > 1 else checkpoint_call.kwargs
+        checkpoint_kwargs = (
+            checkpoint_call[1] if len(checkpoint_call) > 1 else checkpoint_call.kwargs
+        )
         assert checkpoint_kwargs.get("session_id") == "test-checkpoint-content-789"
         assert checkpoint_kwargs.get("branch_id") == "web_research"
         assert checkpoint_kwargs.get("step") == 1
@@ -1227,11 +1243,15 @@ class TestHITLCheckpointSafety:
 
         # After workflow completes, HITL state may be cleared to None (which is valid)
         # The critical proof is in the branch_states step_history
-        branch_state = checkpointed_state.pattern_state.get("branch_states", {}).get("web_research", {})
+        branch_state = checkpointed_state.pattern_state.get("branch_states", {}).get(
+            "web_research", {}
+        )
         step_history = branch_state.get("step_history", [])
 
         # Should have original step + HITL step + validation step
-        assert len(step_history) >= 2, f"Expected at least 2 steps in history, got {len(step_history)}"
+        assert len(step_history) >= 2, (
+            f"Expected at least 2 steps in history, got {len(step_history)}"
+        )
 
         # Find the HITL step (may not be at index 1 if there were retries)
         hitl_steps = [step for step in step_history if step.get("type") == "hitl"]
@@ -1351,7 +1371,9 @@ class TestHITLCheckpointSafety:
 
         # Assert - Workflow completed successfully without re-pausing at HITL
         assert result.success is True
-        assert result.agent_id != "hitl", "Should not pause at HITL again - response was checkpointed"
+        assert result.agent_id != "hitl", (
+            "Should not pause at HITL again - response was checkpointed"
+        )
 
         # Verify validation step executed (proves we continued past HITL)
         assert "Validation complete" in result.last_response or any(

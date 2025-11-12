@@ -38,6 +38,7 @@ import structlog
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import NotesAppenderHook, ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -46,6 +47,7 @@ from strands_cli.exec.utils import (
     get_retry_config,
     invoke_agent_with_retry,
 )
+from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
 from strands_cli.loader import render_template
 from strands_cli.runtime.context_manager import create_from_policy
 from strands_cli.session import SessionState, SessionStatus
@@ -55,7 +57,6 @@ from strands_cli.session.utils import now_iso8601
 from strands_cli.telemetry import get_tracer
 from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import HITLState, ParallelBranch, PatternType, RunResult, Spec
-from strands_cli.exit_codes import EX_HITL_PAUSE, EX_OK
 
 try:
     from strands_agents.agent import AgentResult  # type: ignore[import-not-found]
@@ -135,6 +136,7 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
 ) -> tuple[str, int, list[dict[str, Any]]] | dict[str, Any]:
     """Execute all steps in a branch sequentially with optional resume and HITL support.
 
@@ -188,36 +190,34 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
 
         if timed_out and hitl_response is None:
             # Auto-resume with default response
-                hitl_state_dict = session_state.pattern_state.get("hitl_state")
-                if (
-                    hitl_state_dict
-                    and hitl_state_dict.get("step_type") == "branch"
-                    and hitl_state_dict.get("branch_id") == branch.id
-                ):
-                    console.print(
-                        Panel(
-                            format_timeout_warning(
-                                hitl_state_dict.get("timeout_at"),
-                                timeout_default,
-                            ),
-                            border_style="yellow",
-                        )
+            hitl_state_dict = session_state.pattern_state.get("hitl_state")
+            if (
+                hitl_state_dict
+                and hitl_state_dict.get("step_type") == "branch"
+                and hitl_state_dict.get("branch_id") == branch.id
+            ):
+                console.print(
+                    Panel(
+                        format_timeout_warning(
+                            hitl_state_dict.get("timeout_at"),
+                            timeout_default,
+                        ),
+                        border_style="yellow",
                     )
-                    hitl_response = timeout_default
+                )
+                hitl_response = timeout_default
 
-                    # Record timeout metadata in pattern_state and session metadata
-                    session_state.pattern_state["hitl_timeout_occurred"] = True
-                    session_state.pattern_state["hitl_timeout_at"] = hitl_state_dict.get(
-                        "timeout_at"
-                    )
-                    session_state.pattern_state["hitl_default_used"] = timeout_default
+                # Record timeout metadata in pattern_state and session metadata
+                session_state.pattern_state["hitl_timeout_occurred"] = True
+                session_state.pattern_state["hitl_timeout_at"] = hitl_state_dict.get("timeout_at")
+                session_state.pattern_state["hitl_default_used"] = timeout_default
 
-                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
-                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state_dict.get(
-                        "timeout_at"
-                    )
-                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
-            # If user provided explicit response, that overrides timeout
+                session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                session_state.metadata.metadata["hitl_timeout_at"] = hitl_state_dict.get(
+                    "timeout_at"
+                )
+                session_state.metadata.metadata["hitl_default_used"] = timeout_default
+        # If user provided explicit response, that overrides timeout
 
         hitl_state_dict = session_state.pattern_state.get("hitl_state")
         if (
@@ -229,9 +229,7 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
             # - Use new response from parameter if provided
             # - Otherwise use persisted response from previous checkpoint
             effective_hitl_response = (
-                hitl_response
-                if hitl_response is not None
-                else hitl_state_dict.get("user_response")
+                hitl_response if hitl_response is not None else hitl_state_dict.get("user_response")
             )
 
             if effective_hitl_response is not None:
@@ -413,6 +411,33 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
             worker_index=None,
         )
 
+        # Phase 3: Emit branch_start event before agent invocation
+        if event_bus:
+            await event_bus.emit(
+                WorkflowEvent(
+                    event_type="branch_start",
+                    timestamp=datetime.now(UTC),
+                    session_id=session_state.metadata.session_id if session_state else None,
+                    spec_name=spec.name,
+                    pattern_type="parallel",
+                    data={
+                        "branch_id": branch.id,
+                        "step_index": step_index,
+                        "agent_id": step.agent,
+                        "branch_count": len(spec.pattern.config.branches)
+                        if spec.pattern.config.branches
+                        else 0,
+                        "input_preview": step_input[:200] if step_input else "",
+                    },
+                )
+            )
+            logger.debug(
+                "branch_start_event_emitted",
+                branch=branch.id,
+                step=step_index,
+                agent=step.agent,
+            )
+
         # Execute with retry logic
         try:
             response = await invoke_agent_with_retry(
@@ -460,6 +485,23 @@ async def _execute_branch(  # noqa: C901 - Complexity acceptable for HITL suppor
         total_steps=len(step_history),
         cumulative_tokens=cumulative_tokens,
     )
+
+    # Emit branch_complete event
+    if event_bus:
+        await event_bus.emit(
+            WorkflowEvent(
+                event_type="branch_complete",
+                timestamp=datetime.now(UTC),
+                session_id=session_state.metadata.session_id if session_state else None,
+                spec_name=spec.name,
+                pattern_type="parallel",
+                data={
+                    "branch_id": branch.id,
+                    "response_length": len(final_response),
+                    "cumulative_tokens": cumulative_tokens,
+                },
+            )
+        )
 
     return final_response, cumulative_tokens, step_history
 
@@ -574,6 +616,7 @@ async def _execute_all_branches_async(
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
 ) -> list[tuple[str, tuple[str, int, list[dict[str, Any]]] | dict[str, Any]]]:
     """Execute all branches with semaphore control, resume support, and HITL support.
 
@@ -646,6 +689,7 @@ async def _execute_all_branches_async(
                     session_state=session_state,
                     session_repo=session_repo,
                     hitl_response=hitl_response,
+                    event_bus=event_bus,
                 )
         else:
             result = await _execute_branch(
@@ -664,6 +708,7 @@ async def _execute_all_branches_async(
                 session_state=session_state,
                 session_repo=session_repo,
                 hitl_response=hitl_response,
+                event_bus=event_bus,
             )
         return (branch.id, result)
 
@@ -681,6 +726,8 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute parallel pattern with concurrent branches, optional session persistence, and HITL support.
 
@@ -841,7 +888,8 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
             logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
 
         # Create AgentCache for this execution
-        cache = AgentCache()
+        cache = agent_cache or AgentCache()
+        should_close = agent_cache is None
 
         try:
             # Execute all branches concurrently (skip already completed branches on resume)
@@ -863,6 +911,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                     session_state,
                     session_repo,
                     hitl_response,
+                    event_bus,
                 )
             except Exception as e:
                 end_time = datetime.now(UTC)
@@ -1003,7 +1052,7 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                             "branch_id": branch_id,
                             "step_index": hitl_info["step_index"],
                         },
-                    )            # Clear hitl_state after successful branch resume
+                    )  # Clear hitl_state after successful branch resume
             if session_state and hitl_response and session_state.pattern_state.get("hitl_state"):
                 hitl_state_dict = session_state.pattern_state["hitl_state"]
                 if hitl_state_dict.get("step_type") == "branch":
@@ -1106,8 +1155,8 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
 
                             # Record timeout metadata in pattern_state and session metadata
                             session_state.pattern_state["hitl_timeout_occurred"] = True
-                            session_state.pattern_state["hitl_timeout_at"] = (
-                                hitl_state_dict.get("timeout_at")
+                            session_state.pattern_state["hitl_timeout_at"] = hitl_state_dict.get(
+                                "timeout_at"
                             )
                             session_state.pattern_state["hitl_default_used"] = timeout_default
 
@@ -1413,4 +1462,5 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
             raise ParallelExecutionError(f"Parallel execution failed: {e}") from e
         finally:
             # Clean up cached resources
-            await cache.close()
+            if should_close:
+                await cache.close()

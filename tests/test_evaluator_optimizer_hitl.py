@@ -109,7 +109,9 @@ async def test_evaluator_optimizer_review_gate_pause(
     """Test evaluator-optimizer pauses at review gate after first evaluation."""
     # Mock producer and evaluator responses
     mock_producer_response = "Draft version 1 content"
-    mock_evaluator_response = '{"score": 65, "issues": ["Needs more detail"], "fixes": ["Add examples"]}'
+    mock_evaluator_response = (
+        '{"score": 65, "issues": ["Needs more detail"], "fixes": ["Add examples"]}'
+    )
 
     call_count = [0]
 
@@ -485,9 +487,7 @@ async def test_evaluator_optimizer_no_review_gate_no_pause(
 
 
 @pytest.mark.asyncio
-async def test_evaluator_optimizer_hitl_requires_session(
-    evaluator_spec_with_review_gate, mocker
-):
+async def test_evaluator_optimizer_hitl_requires_session(evaluator_spec_with_review_gate, mocker):
     """Test that review gate requires session persistence enabled."""
     # Mock responses to get to HITL pause point
     mock_draft = "Draft v1"
@@ -751,4 +751,3 @@ async def test_evaluator_optimizer_resume_integration(
     final_hitl_state = HITLState(**final_state.pattern_state["hitl_state"])
     assert final_hitl_state.active is False
     assert final_hitl_state.user_response == "continue"
-

@@ -857,7 +857,9 @@ class WorkflowBuilder:
 
         self._validate_task_dependencies(id, depends_on)
 
-        task_config = self._build_task_config(id, agent, input, description, depends_on, vars, tool_overrides)
+        task_config = self._build_task_config(
+            id, agent, input, description, depends_on, vars, tool_overrides
+        )
         self.tasks.append(task_config)
         self._task_ids.add(id)
 
@@ -942,7 +944,9 @@ class WorkflowBuilder:
 
         self._validate_task_dependencies(id, depends_on)
 
-        hitl_config = self._build_hitl_task_config(id, prompt, show, default, timeout_seconds, depends_on)
+        hitl_config = self._build_hitl_task_config(
+            id, prompt, show, default, timeout_seconds, depends_on
+        )
         self.tasks.append(hitl_config)
         self._task_ids.add(id)
 
@@ -1155,7 +1159,9 @@ class ParallelBuilder:
         """
         # Validate reduce not already defined
         if self._reduce_step is not None:
-            raise BuildError("Reduce step already defined. Only one reduce step allowed per workflow.")
+            raise BuildError(
+                "Reduce step already defined. Only one reduce step allowed per workflow."
+            )
 
         # Validate agent exists
         self._validate_agent_exists(agent)
@@ -1376,7 +1382,9 @@ class _BranchBuilder:
 
         self.steps.append(step_config)
 
-        logger.debug("branch_step_added", branch_id=self.id, agent=agent, step_index=len(self.steps) - 1)
+        logger.debug(
+            "branch_step_added", branch_id=self.id, agent=agent, step_index=len(self.steps) - 1
+        )
         return self
 
     def hitl(
@@ -1440,7 +1448,7 @@ class _BranchBuilder:
         self.parent._finalize_branch(self)
         return self.parent
 
-    def build(self) -> "Workflow":
+    def build(self) -> Workflow:
         """Delegate build to parent parallel builder."""
 
         return self.parent.build()
@@ -1590,7 +1598,9 @@ class GraphBuilder:
         """
         # Validate nodes exist
         if from_node not in self.nodes:
-            raise BuildError(f"Source node '{from_node}' not found. Define nodes before adding edges.")
+            raise BuildError(
+                f"Source node '{from_node}' not found. Define nodes before adding edges."
+            )
 
         to_nodes = [to_node] if isinstance(to_node, str) else to_node
         for node_id in to_nodes:
@@ -1636,7 +1646,9 @@ class GraphBuilder:
         """
         # Validate source node exists
         if from_node not in self.nodes:
-            raise BuildError(f"Source node '{from_node}' not found. Define nodes before adding edges.")
+            raise BuildError(
+                f"Source node '{from_node}' not found. Define nodes before adding edges."
+            )
 
         # Validate choices not empty
         if not choices:
@@ -1735,7 +1747,9 @@ class GraphBuilder:
             raise BuildError("Graph must have at least one node. Call .node() or .hitl_node().")
 
         if not self.edges:
-            raise BuildError("Graph must have at least one edge. Call .edge() or .conditional_edge().")
+            raise BuildError(
+                "Graph must have at least one edge. Call .edge() or .conditional_edge()."
+            )
 
         # Convert to GraphNode objects (Pydantic validates)
         try:
@@ -2088,7 +2102,9 @@ class _RouteBuilder:
 
         self.steps.append(step_config)
 
-        logger.debug("route_step_added", route_id=self.id, agent=agent, step_index=len(self.steps) - 1)
+        logger.debug(
+            "route_step_added", route_id=self.id, agent=agent, step_index=len(self.steps) - 1
+        )
         return self
 
     def hitl(
@@ -2299,7 +2315,11 @@ class EvaluatorOptimizerBuilder:
         self._min_score = min_score
         self._max_iterations = max_iterations
 
-        logger.debug("evaluator_optimizer_accept_configured", min_score=min_score, max_iterations=max_iterations)
+        logger.debug(
+            "evaluator_optimizer_accept_configured",
+            min_score=min_score,
+            max_iterations=max_iterations,
+        )
         return self
 
     def revise_prompt(self, template: str) -> EvaluatorOptimizerBuilder:
@@ -2571,11 +2591,7 @@ class OrchestratorWorkersBuilder:
             raise BuildError("min_workers must be >= 1")
         if max_workers is not None and max_workers < 1:
             raise BuildError("max_workers must be >= 1")
-        if (
-            min_workers is not None
-            and max_workers is not None
-            and min_workers > max_workers
-        ):
+        if min_workers is not None and max_workers is not None and min_workers > max_workers:
             raise BuildError("min_workers cannot be greater than max_workers")
         if max_rounds is not None and max_rounds < 1:
             raise BuildError("max_rounds must be >= 1")
@@ -2618,7 +2634,9 @@ class OrchestratorWorkersBuilder:
         """
         # Validate decomposition review not already defined
         if self._decomposition_review is not None:
-            raise BuildError("Decomposition review already defined. Only one review per orchestrator.")
+            raise BuildError(
+                "Decomposition review already defined. Only one review per orchestrator."
+            )
 
         # Validate templates
         _validate_template_syntax(prompt)
@@ -2667,7 +2685,9 @@ class OrchestratorWorkersBuilder:
         """
         # Validate worker not already defined
         if self._worker_agent is not None:
-            raise BuildError("Worker template already defined. Only one worker template per workflow.")
+            raise BuildError(
+                "Worker template already defined. Only one worker template per workflow."
+            )
 
         # Validate agent exists
         self._validate_agent_exists(agent)
@@ -2862,7 +2882,9 @@ class OrchestratorWorkersBuilder:
             raise BuildError("Orchestrator not configured. Call .orchestrator() before .build().")
 
         if self._worker_agent is None:
-            raise BuildError("Worker template not configured. Call .worker_template() before .build().")
+            raise BuildError(
+                "Worker template not configured. Call .worker_template() before .build()."
+            )
 
         # Build config
         try:
@@ -2900,4 +2922,3 @@ class OrchestratorWorkersBuilder:
             PatternType.ORCHESTRATOR_WORKERS
         """
         return PatternType.ORCHESTRATOR_WORKERS
-

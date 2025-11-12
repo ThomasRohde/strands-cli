@@ -42,6 +42,7 @@ import structlog
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.conditions import ConditionEvaluationError, evaluate_condition
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.utils import (
@@ -336,7 +337,7 @@ def _get_next_node(
 
     # Conditional 'choose' edge: evaluate in order
     if current_edge.choose:
-        context = {"nodes": node_results}
+        context: dict[str, Any] = {"nodes": node_results}
         hitl_responses = [
             result.get("response")
             for result in node_results.values()
@@ -429,6 +430,8 @@ async def _execute_graph_node(
     node_results: dict[str, dict[str, Any]],
     variables: dict[str, str] | None,
     iteration_count: int,
+    event_bus: EventBus | None = None,
+    session_state: SessionState | None = None,
 ) -> tuple[str, int]:
     """Execute a single graph node and return response and token count.
 
@@ -491,6 +494,30 @@ async def _execute_graph_node(
         agent_config=agent_config,
         tool_overrides=None,  # Graph nodes don't support tool overrides
     )
+
+    # Phase 3: Emit node_start event before agent invocation
+    if event_bus:
+        await event_bus.emit(
+            WorkflowEvent(
+                event_type="node_start",
+                timestamp=datetime.now(UTC),
+                session_id=session_state.metadata.session_id if session_state else None,
+                spec_name=spec.name,
+                pattern_type="graph",
+                data={
+                    "node_id": node_id,
+                    "agent_id": node.agent,
+                    "iteration": iteration_count,
+                    "input_preview": input_text[:200] if input_text else "",
+                },
+            )
+        )
+        logger.debug(
+            "node_start_event_emitted",
+            node=node_id,
+            agent=node.agent,
+            iteration=iteration_count,
+        )
 
     # Execute agent with retry
     max_attempts, wait_min, wait_max = get_retry_config(spec)
@@ -571,6 +598,8 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute a graph pattern workflow with optional session persistence.
 
@@ -640,13 +669,14 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
         node_results: dict[str, dict[str, Any]] = {}
 
         # Pre-populate all nodes with None to avoid template errors for unexecuted nodes
-        for node_id in spec.pattern.config.nodes:
-            node_results[node_id] = {
-                "response": None,
-                "agent": spec.pattern.config.nodes[node_id].agent,
-                "status": "not_executed",
-                "iteration": 0,
-            }
+        if spec.pattern.config.nodes:
+            for node_id in spec.pattern.config.nodes:
+                node_results[node_id] = {
+                    "response": None,
+                    "agent": spec.pattern.config.nodes[node_id].agent,
+                    "status": "not_executed",
+                    "iteration": 0,
+                }
 
         # Track the last successfully executed node (actual terminal node)
         last_executed_node: str | None = None
@@ -663,7 +693,7 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
         if session_state and session_repo:
             pattern_state = session_state.pattern_state
             current_node_id = pattern_state.get("current_node", start_node)
-            restored_node_results = pattern_state.get("node_results", {})
+            restored_node_results: dict[str, dict[str, Any]] = pattern_state.get("node_results", {})
             iteration_counts = pattern_state.get("iteration_counts", {})
             total_steps = pattern_state.get("total_steps", 0)
             execution_path = pattern_state.get("execution_path", [])
@@ -680,31 +710,30 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
             # Check for timeout BEFORE checking for hitl_response
             timed_out, timeout_default = check_hitl_timeout(session_state)
 
-            if timed_out:
+            if timed_out and hitl_response is None:
                 # Auto-resume with default response
-                if hitl_response is None:
-                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
-                    if hitl_state_dict:
-                        hitl_state = HITLState(**hitl_state_dict)
-                        console.print(
-                            Panel(
-                                format_timeout_warning(
-                                    hitl_state.timeout_at,
-                                    timeout_default,
-                                ),
-                                border_style="yellow",
-                            )
+                hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                if hitl_state_dict:
+                    hitl_state = HITLState(**hitl_state_dict)
+                    console.print(
+                        Panel(
+                            format_timeout_warning(
+                                hitl_state.timeout_at,
+                                timeout_default,
+                            ),
+                            border_style="yellow",
                         )
-                        hitl_response = timeout_default
+                    )
+                    hitl_response = timeout_default
 
-                        # Record timeout metadata in pattern_state and session metadata
-                        session_state.pattern_state["hitl_timeout_occurred"] = True
-                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.pattern_state["hitl_default_used"] = timeout_default
+                    # Record timeout metadata in pattern_state and session metadata
+                    session_state.pattern_state["hitl_timeout_occurred"] = True
+                    session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.pattern_state["hitl_default_used"] = timeout_default
 
-                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
-                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
                 # If user provided explicit response, that overrides timeout
 
             hitl_state_dict = session_state.pattern_state.get("hitl_state")
@@ -828,7 +857,8 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
             logger.info("graph_entry_node", node=current_node_id)
 
         # Create AgentCache
-        cache = AgentCache()
+        cache = agent_cache or AgentCache()
+        should_close = agent_cache is None
 
         try:
             # Execute nodes until terminal or limits reached
@@ -871,6 +901,8 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                     node_results=node_results,
                     variables=variables,
                     iteration_count=iteration_counts[current_node_id],
+                    event_bus=event_bus,
+                    session_state=session_state,
                 )
 
                 # Track budget
@@ -1031,4 +1063,5 @@ async def run_graph(  # noqa: C901 - Complexity acceptable for graph state machi
                 raise
             raise GraphExecutionError(f"Graph execution failed: {e}") from e
         finally:
-            await cache.close()
+            if should_close:
+                await cache.close()

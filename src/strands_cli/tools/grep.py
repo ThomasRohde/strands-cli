@@ -135,7 +135,7 @@ def _build_output(
     return "\n".join(output_lines)
 
 
-def grep(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:  # noqa: C901
+def grep(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
     """Search for pattern in file with context lines.
 
     Cross-platform implementation using pure Python (no subprocess/shell).

@@ -478,7 +478,9 @@ async def test_orchestrator_both_review_gates_sequence(
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_hitl_requires_session(orchestrator_spec_with_decomposition_review, mocker):
+async def test_orchestrator_hitl_requires_session(
+    orchestrator_spec_with_decomposition_review, mocker
+):
     """Test that HITL gates require session persistence enabled."""
     # Mock orchestrator response
     mock_orchestrator_response = '[{"task": "Task 1"}]'  # Valid JSON string

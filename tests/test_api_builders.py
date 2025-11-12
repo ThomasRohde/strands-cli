@@ -255,7 +255,9 @@ class TestFluentBuilderBuild:
 
     def test_build_missing_runtime_raises_error(self) -> None:
         """Test build without runtime raises BuildError."""
-        builder = FluentBuilder("test").agent("researcher", "Prompt").chain().step("researcher", "Input")
+        builder = (
+            FluentBuilder("test").agent("researcher", "Prompt").chain().step("researcher", "Input")
+        )
         with pytest.raises(BuildError, match="Runtime not configured"):
             builder.build()
 
@@ -268,7 +270,9 @@ class TestFluentBuilderBuild:
     def test_build_missing_pattern_raises_error(self) -> None:
         """Test build without pattern raises BuildError."""
         builder = (
-            FluentBuilder("test").runtime("openai", model="gpt-4o-mini").agent("researcher", "Prompt")
+            FluentBuilder("test")
+            .runtime("openai", model="gpt-4o-mini")
+            .agent("researcher", "Prompt")
         )
         with pytest.raises(BuildError, match="No pattern defined"):
             builder.build()
@@ -452,7 +456,9 @@ class TestWorkflowBuilder:
             .runtime("openai", model="gpt-4o-mini")
             .agent("researcher", "Prompt", tools=["tool1", "tool2"])
             .workflow()
-            .task("task1", "researcher", "Input", vars={"depth": "detailed"}, tool_overrides=["tool1"])
+            .task(
+                "task1", "researcher", "Input", vars={"depth": "detailed"}, tool_overrides=["tool1"]
+            )
         )
         assert builder.tasks[0]["vars"] == {"depth": "detailed"}
         assert builder.tasks[0]["tool_overrides"] == ["tool1"]
@@ -465,7 +471,12 @@ class TestWorkflowBuilder:
             .agent("researcher", "Prompt")
             .workflow()
             .task("research", "researcher", "Research")
-            .hitl_task("review", "Review the research?", show="{{ tasks.research.response }}", depends_on=["research"])
+            .hitl_task(
+                "review",
+                "Review the research?",
+                show="{{ tasks.research.response }}",
+                depends_on=["research"],
+            )
         )
         assert len(builder.tasks) == 2
         assert builder.tasks[1]["type"] == "hitl"
@@ -519,7 +530,12 @@ class TestWorkflowBuilder:
             .agent("analyst", "Analyst prompt")
             .workflow()
             .task("research", "researcher", "Research: {{topic}}")
-            .task("analyze", "analyst", "Analyze: {{ tasks.research.response }}", depends_on=["research"])
+            .task(
+                "analyze",
+                "analyst",
+                "Analyze: {{ tasks.research.response }}",
+                depends_on=["research"],
+            )
             .artifact("output.md", "# Results\n{{ tasks.analyze.response }}")
             .build()
         )
@@ -732,7 +748,12 @@ class TestWorkflowGoldenFile:
             .agent("analyst", "You are an analyst.")
             .workflow()
             .task("research", "researcher", "Research: {{topic}}")
-            .task("analyze", "analyst", "Analyze: {{ tasks.research.response }}", depends_on=["research"])
+            .task(
+                "analyze",
+                "analyst",
+                "Analyze: {{ tasks.research.response }}",
+                depends_on=["research"],
+            )
             .artifact("output.md", "# Results\n{{ tasks.analyze.response }}")
             .build()
         )
@@ -762,7 +783,10 @@ class TestParallelGoldenFile:
             FluentBuilder("parallel-simple-2-branches")
             .description("Simple parallel execution with 2 concurrent research branches")
             .runtime("openai", model="gpt-4o-mini")
-            .agent("researcher", "You are a research assistant. Provide concise, factual information about the requested topic.\n")
+            .agent(
+                "researcher",
+                "You are a research assistant. Provide concise, factual information about the requested topic.\n",
+            )
             .parallel()
             .branch("technical_analysis")
             .step("researcher", "Analyze the technical aspects of {{ topic }}")
@@ -1114,10 +1138,10 @@ class TestTemplateValidationEdgeCases:
         """Test multiline templates are accepted."""
         multiline_template = """
         Research: {{topic}}
-        
+
         Previous findings:
         {{ steps[0].response }}
-        
+
         Next steps:
         1. Analyze
         2. Summarize
@@ -1502,5 +1526,3 @@ class TestOrchestratorWorkersEdgeCases:
 
         with pytest.raises(BuildError, match="Orchestrator already configured"):
             builder.orchestrator("planner", "Plan 2")
-
-

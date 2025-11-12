@@ -12,11 +12,14 @@ Key Models:
     Tools: Tool configurations (Python callables, HTTP executors, MCP)
     CapabilityReport: Compatibility analysis results
     RunResult: Execution outcome with timing and artifacts
+    StreamChunk: Streaming response chunk for async execution
 """
 
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -37,6 +40,37 @@ DEFAULT_BLOCKED_URL_PATTERNS = [
     r"^ftp://.*$",  # FTP protocol
     r"^gopher://.*$",  # Gopher protocol
 ]
+
+
+# ===== Streaming Types (Phase 3) =====
+
+StreamChunkType = Literal["token", "workflow_start", "step_start", "step_complete", "complete"]
+
+
+@dataclass
+class StreamChunk:
+    """Streaming response chunk for async workflow execution.
+
+    Emitted during workflow execution to provide real-time progress updates.
+    Note: Token-by-token streaming not yet implemented in Phase 3.
+    Returns complete responses as 'complete' chunks for now.
+
+    Chunk Types:
+        - token: Individual token from LLM response (future)
+        - workflow_start: Workflow execution begins
+        - step_start: Step/task/branch/node begins
+        - step_complete: Step/task/branch/node completes
+        - complete: Workflow execution finishes
+
+    Attributes:
+        chunk_type: Type of chunk
+        data: Chunk-specific data (varies by chunk_type)
+        timestamp: When the chunk was generated
+    """
+
+    chunk_type: StreamChunkType
+    data: dict[str, Any]
+    timestamp: datetime
 
 
 class ProviderType(str, Enum):
@@ -379,14 +413,23 @@ class HITLState(BaseModel):
     node_id: str | None = Field(None, description="ID of HITL node (graph pattern)")
 
     # Evaluator-optimizer pattern fields
-    iteration_index: int | None = Field(None, description="Iteration index (evaluator-optimizer pattern)")
+    iteration_index: int | None = Field(
+        None, description="Iteration index (evaluator-optimizer pattern)"
+    )
 
     # Orchestrator-workers pattern fields
-    phase: str | None = Field(None, description="Orchestrator phase: 'decomposition' or 'reduce' (orchestrator-workers pattern)")
-    worker_count: int | None = Field(None, ge=0, description="Number of workers (orchestrator-workers pattern)")
+    phase: str | None = Field(
+        None,
+        description="Orchestrator phase: 'decomposition' or 'reduce' (orchestrator-workers pattern)",
+    )
+    worker_count: int | None = Field(
+        None, ge=0, description="Number of workers (orchestrator-workers pattern)"
+    )
 
     # Routing pattern fields
-    router_review: bool | None = Field(None, description="Router review HITL gate (routing pattern)")
+    router_review: bool | None = Field(
+        None, description="Router review HITL gate (routing pattern)"
+    )
 
     # Common fields
     prompt: str = Field(..., description="Prompt displayed to user")
@@ -407,15 +450,17 @@ class HITLState(BaseModel):
         has_routing_fields = self.router_review is not None
 
         # Count how many pattern field sets are present
-        pattern_count = sum([
-            has_chain_fields,
-            has_workflow_fields,
-            has_parallel_fields,
-            has_graph_fields,
-            has_evaluator_fields,
-            has_orchestrator_fields,
-            has_routing_fields
-        ])
+        pattern_count = sum(
+            [
+                has_chain_fields,
+                has_workflow_fields,
+                has_parallel_fields,
+                has_graph_fields,
+                has_evaluator_fields,
+                has_orchestrator_fields,
+                has_routing_fields,
+            ]
+        )
 
         if pattern_count == 0:
             raise ValueError(
@@ -863,9 +908,12 @@ class OrchestratorLimits(BaseModel):
     def _validate_worker_bounds(self) -> "OrchestratorLimits":
         """Ensure min/max worker bounds are consistent."""
 
-        if self.min_workers is not None and self.max_workers is not None:
-            if self.min_workers > self.max_workers:
-                raise ValueError("min_workers cannot be greater than max_workers")
+        if (
+            self.min_workers is not None
+            and self.max_workers is not None
+            and self.min_workers > self.max_workers
+        ):
+            raise ValueError("min_workers cannot be greater than max_workers")
         return self
 
 

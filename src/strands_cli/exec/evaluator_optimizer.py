@@ -43,6 +43,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 
+from strands_cli.events import EventBus, WorkflowEvent
 from strands_cli.exec.hitl_utils import check_hitl_timeout, format_timeout_warning
 from strands_cli.exec.hooks import ProactiveCompactionHook
 from strands_cli.exec.utils import (
@@ -295,6 +296,8 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
     session_state: SessionState | None = None,
     session_repo: FileSessionRepository | None = None,
     hitl_response: str | None = None,
+    event_bus: EventBus | None = None,
+    agent_cache: AgentCache | None = None,
 ) -> RunResult:
     """Execute evaluator-optimizer pattern workflow with optional session persistence.
 
@@ -469,31 +472,30 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
             # Check for timeout BEFORE checking for hitl_response
             timed_out, timeout_default = check_hitl_timeout(session_state)
 
-            if timed_out:
+            if timed_out and hitl_response is None:
                 # Auto-resume with default response
-                if hitl_response is None:
-                    hitl_state_dict = session_state.pattern_state.get("hitl_state")
-                    if hitl_state_dict:
-                        hitl_state = HITLState(**hitl_state_dict)
-                        console.print(
-                            Panel(
-                                format_timeout_warning(
-                                    hitl_state.timeout_at,
-                                    timeout_default,
-                                ),
-                                border_style="yellow",
-                            )
+                hitl_state_dict = session_state.pattern_state.get("hitl_state")
+                if hitl_state_dict:
+                    hitl_state = HITLState(**hitl_state_dict)
+                    console.print(
+                        Panel(
+                            format_timeout_warning(
+                                hitl_state.timeout_at,
+                                timeout_default,
+                            ),
+                            border_style="yellow",
                         )
-                        hitl_response = timeout_default
+                    )
+                    hitl_response = timeout_default
 
-                        # Record timeout metadata in pattern_state and session metadata
-                        session_state.pattern_state["hitl_timeout_occurred"] = True
-                        session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.pattern_state["hitl_default_used"] = timeout_default
+                    # Record timeout metadata in pattern_state and session metadata
+                    session_state.pattern_state["hitl_timeout_occurred"] = True
+                    session_state.pattern_state["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.pattern_state["hitl_default_used"] = timeout_default
 
-                        session_state.metadata.metadata["hitl_timeout_occurred"] = True
-                        session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
-                        session_state.metadata.metadata["hitl_default_used"] = timeout_default
+                    session_state.metadata.metadata["hitl_timeout_occurred"] = True
+                    session_state.metadata.metadata["hitl_timeout_at"] = hitl_state.timeout_at
+                    session_state.metadata.metadata["hitl_default_used"] = timeout_default
                 # If user provided explicit response, that overrides timeout
 
             hitl_state_dict = session_state.pattern_state.get("hitl_state")
@@ -550,7 +552,8 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                         # Return successful completion with early termination flag
                         completed_at = datetime.now(UTC).isoformat()
                         duration = (
-                            datetime.fromisoformat(completed_at) - datetime.fromisoformat(started_at)
+                            datetime.fromisoformat(completed_at)
+                            - datetime.fromisoformat(started_at)
                         ).total_seconds()
 
                         execution_context = {
@@ -613,7 +616,8 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
             )
 
         # Create AgentCache
-        cache = AgentCache()
+        cache = agent_cache or AgentCache()
+        should_close = agent_cache is None
         try:
             # Get or build agents (reuse cached agents)
             producer_agent = await cache.get_or_build_agent(
@@ -737,6 +741,30 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                 logger.info("iteration_start", iteration=iteration, phase="evaluation")
                 span.add_event("iteration_start", {"iteration_number": iteration})
 
+                # Phase 3: Emit iteration_start event at loop start
+                if event_bus:
+                    await event_bus.emit(
+                        WorkflowEvent(
+                            event_type="iteration_start",
+                            timestamp=datetime.now(UTC),
+                            session_id=session_state.metadata.session_id if session_state else None,
+                            spec_name=spec.name,
+                            pattern_type="evaluator_optimizer",
+                            data={
+                                "iteration": iteration,
+                                "evaluator_agent": evaluator_agent_id,
+                                "optimizer_agent": producer_agent_id,
+                                "max_iterations": start_iteration + max_iters - 1,
+                            },
+                        )
+                    )
+                    logger.debug(
+                        "iteration_start_event_emitted",
+                        iteration=iteration,
+                        evaluator=evaluator_agent_id,
+                        optimizer=producer_agent_id,
+                    )
+
                 # Execute evaluation phase
                 evaluator_response, estimated_tokens = await _run_evaluation_phase(
                     evaluator_agent,
@@ -815,7 +843,9 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                             "score": evaluation.score,
                             "issues": evaluation.issues or [],
                             "fixes": evaluation.fixes or [],
-                            "feedback": "; ".join(evaluation.issues or []) if evaluation.issues else "",
+                            "feedback": "; ".join(evaluation.issues or [])
+                            if evaluation.issues
+                            else "",
                         },
                     }
                 )
@@ -941,7 +971,9 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
                     session_state.pattern_state["iteration_history"] = iteration_history
                     session_state.pattern_state["final_score"] = final_score
                     session_state.pattern_state["accepted"] = False
-                    session_state.pattern_state["pending_revision"] = True  # Flag that revision step is needed on resume
+                    session_state.pattern_state["pending_revision"] = (
+                        True  # Flag that revision step is needed on resume
+                    )
                     session_state.pattern_state["hitl_state"] = new_hitl_state.model_dump()
                     session_state.metadata.status = SessionStatus.PAUSED
                     session_state.metadata.updated_at = now_iso8601()
@@ -1150,4 +1182,5 @@ async def run_evaluator_optimizer(  # noqa: C901 - Complexity acceptable for ite
             ) from e
         finally:
             # Cleanup HTTP clients
-            await cache.close()
+            if should_close:
+                await cache.close()

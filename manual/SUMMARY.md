@@ -5,6 +5,7 @@
 ## Tutorials
 - [Quickstart with Ollama](tutorials/quickstart-ollama.md)
 - [First Multi-Step Workflow](tutorials/first-multi-step.md)
+- [Builder API](tutorials/builder-api.md)
 
 ## How-To Guides
 - [Validate Workflows](howto/validate-workflows.md)
@@ -27,6 +28,7 @@
 - [Security Model](reference/security.md)
 - [Exit Codes](reference/exit-codes.md)
 - [Environment Variables](reference/environment.md)
+- [Integrations](reference/integrations.md)
 - [Examples](reference/examples.md)
 - [Troubleshooting](reference/troubleshooting.md)
 

@@ -117,7 +117,13 @@ def _spec_has_hitl_steps(spec: Spec) -> bool:
             if any(hasattr(step, "type") and step.type == "hitl" for step in branch.steps):
                 return True
         # Check reduce step for HITL
-        return bool(spec.pattern.config.reduce and (hasattr(spec.pattern.config.reduce, "type") and spec.pattern.config.reduce.type == "hitl"))
+        return bool(
+            spec.pattern.config.reduce
+            and (
+                hasattr(spec.pattern.config.reduce, "type")
+                and spec.pattern.config.reduce.type == "hitl"
+            )
+        )
     if spec.pattern.type == PatternType.GRAPH:
         # Check nodes for HITL
         nodes_dict: dict[str, Any] | None = spec.pattern.config.nodes
@@ -428,7 +434,7 @@ def _write_and_report_artifacts(
                 result_variables=result.variables,
             )
             merged_vars.update(result.variables)
-        
+
         logger.debug(
             "artifact_merged_variables",
             merged_vars_keys=list(merged_vars.keys()),

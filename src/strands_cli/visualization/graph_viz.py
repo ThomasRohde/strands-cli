@@ -10,7 +10,7 @@ from strands_cli.types import Spec
 logger = structlog.get_logger(__name__)
 
 
-def generate_dot(spec: Spec) -> str:  # noqa: C901
+def generate_dot(spec: Spec) -> str:
     """Generate Graphviz DOT format representation of graph pattern.
 
     Creates a directed graph showing:
@@ -93,7 +93,7 @@ def generate_dot(spec: Spec) -> str:  # noqa: C901
     return "\n".join(lines)
 
 
-def generate_text_visualization(spec: Spec) -> str:  # noqa: C901
+def generate_text_visualization(spec: Spec) -> str:
     """Generate simple text-based visualization of graph.
 
     Fallback for environments without Graphviz.
