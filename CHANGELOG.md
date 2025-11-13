@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - Python API (MVP - Interactive HITL Workflows)
+## [0.4.0] - 2025-11-13
+
+**Major Release: Python API & Fluent Builder API** 🐍
+
+Strands CLI is now a **first-class Python library** with complete programmatic control over workflow construction and execution. Build and run agentic workflows entirely in Python without writing YAML, with full type safety and IDE support.
+
+**Key Highlights:**
+- ✨ **Workflow Execution API** - Load and run workflows from Python with `Workflow.from_file()` and `workflow.run_interactive()`
+- 🔧 **Fluent Builder API** - Construct workflows programmatically with type-safe builders for all 7 patterns
+- 🤝 **Interactive HITL** - Run human-in-the-loop workflows as standalone Python programs (no CLI restart required)
+- ⚡ **Async Support** - High-performance async/await execution with `run_async()` methods
+- 📚 **11 Examples** - Complete examples for all patterns, FastAPI integration, webhooks, streaming
+- 🔒 **Zero Breaking Changes** - Existing CLI and YAML workflows work unchanged
+
+### Added - Python API (Complete Builder API & Interactive Workflows)
 
 #### Python API Module (`api/`)
 - **`Workflow` class** - First-class programmatic interface for workflow execution
@@ -71,6 +85,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Model client pooling: 10-step chain with same runtime → 1 client instance (not 10)
   - Concurrency control: `max_parallel` enforced via semaphore in parallel executor
   - <5% overhead vs CLI execution for interactive mode
+
+#### Fluent Builder API
+- **`FluentBuilder` class** - Programmatic workflow construction without YAML
+  - `FluentBuilder(name)` - Create new workflow builder
+  - `.runtime(provider, model, **config)` - Configure runtime (Bedrock/Ollama/OpenAI)
+  - `.agent(id, prompt, tools=[])` - Add agents with prompts and tools
+  - `.artifact(path, template)` - Define output artifacts
+  - `.build()` - Build final Workflow instance ready to execute
+  - Full type safety with IDE autocomplete support
+  - Validates configurations at build time with actionable error messages
+
+- **Pattern-specific builders** - Fluent APIs for all 7 workflow patterns:
+  - `ChainBuilder` - Sequential execution with `.step()` and `.hitl()`
+  - `WorkflowBuilder` - DAG execution with `.task()` and dependencies
+  - `ParallelBuilder` - Concurrent branches with `.branch()`, `.step()`, and `.reduce()`
+  - `GraphBuilder` - State machines with `.node()`, `.edge()`, and `.condition()`
+  - `RoutingBuilder` - Dynamic routing with `.router()` and `.route()`
+  - `EvaluatorOptimizerBuilder` - Iterative refinement with `.producer()`, `.evaluator()`, `.optimizer()`
+  - `OrchestratorBuilder` - Task delegation with `.orchestrator()`, `.worker_template()`, `.reduce_step()`
+
+#### Builder API Examples
+- **11 comprehensive examples** in `examples/api/`:
+  - `01_interactive_hitl.py` - Load YAML workflow and run interactively
+  - `02_chain_builder.py` - Build chain workflow with fluent API
+  - `03_workflow_builder.py` - Build DAG workflow with dependencies
+  - `04_parallel_builder.py` - Build parallel branches with reduce step
+  - `05_graph_builder.py` - Build state machine with conditional edges
+  - `06_routing_builder.py` - Build routing workflow with classifier
+  - `07_evaluator_optimizer_builder.py` - Build iterative refinement workflow
+  - `08_orchestrator_builder.py` - Build orchestrator-workers pattern
+  - `09_fastapi_integration.py` - Integrate workflows into FastAPI endpoints
+  - `10_webhook_notifications.py` - Custom HITL handler with webhook notifications
+  - `11_streaming_responses.py` - Stream workflow responses token-by-token
+
+#### Documentation
+- **Complete API documentation** in `manual/reference/api/`:
+  - `python-api.md` - Comprehensive Python API guide with quickstart
+  - `builders.md` - Builder API reference for all 7 patterns
+  - Tutorial sections with code examples for each pattern
+  - Migration guide from YAML to builder API
+  - Best practices and performance considerations
+
+#### Testing
+- **Comprehensive test suite** - Full coverage for API and builder functionality
+  - `tests/test_api_workflow.py` - Workflow class tests (loading, execution, interactive mode)
+  - `tests/test_api_builders.py` - Builder API unit tests for all 7 patterns
+  - `tests/test_api_builder_integration.py` - Integration tests (built specs == YAML equivalents)
+  - `tests/test_api_executor.py` - WorkflowExecutor and HITL handler tests
+  - All tests passing with maintained 83%+ code coverage
+  - Type safety verified with mypy strict mode
 
 ### Changed
 - **Package exports** - Added `Workflow` to main `strands_cli.__init__.py`

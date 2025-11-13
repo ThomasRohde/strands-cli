@@ -36,7 +36,7 @@ Display the current version of Strands CLI.
 strands version
 ```
 
-**Output**: Displays the semantic version number (e.g., `0.3.0`)
+**Output**: Displays the semantic version number (e.g., `0.4.0`)
 
 ---
 

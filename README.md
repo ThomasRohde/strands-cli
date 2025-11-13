@@ -6,9 +6,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen.svg)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-795+-success.svg)](#development)
-[![Coverage](https://img.shields.io/badge/coverage-82%25-yellow.svg)](#development)
+[![Version](https://img.shields.io/badge/version-0.4.0-brightgreen.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-1549+-success.svg)](#development)
+[![Coverage](https://img.shields.io/badge/coverage-83%25-yellow.svg)](#development)
 
 *Schema-validated • Multi-provider • Production-ready observability*
 
@@ -20,7 +20,7 @@
 
 ## Overview
 
-Strands CLI is a Python 3.12+ command-line tool that executes declarative agentic workflows defined in YAML or JSON. It provides enterprise-grade orchestration for AI agent workflows with comprehensive observability, strict schema validation, and multi-provider support.
+Strands CLI is a Python 3.12+ command-line tool that executes declarative agentic workflows defined in YAML. It provides enterprise-grade orchestration for AI agent workflows with comprehensive observability, strict schema validation, and multi-provider support.
 
 ### Key Features
 
@@ -32,6 +32,15 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 - **Evaluator-Optimizer**: Iterative refinement with quality gates
 - **Orchestrator-Workers**: Dynamic task delegation to worker pools
 - **Graph**: Explicit control flow with conditionals, loops, and cycle protection
+
+🐍 **Python API & Builder API**
+- **Programmatic workflow execution** - Run workflows directly from Python code
+- **Interactive HITL workflows** - Handle human-in-the-loop prompts in terminal without CLI restart
+- **Fluent builder API** - Construct workflows in Python without writing YAML
+- **Type-safe construction** - Full IDE autocomplete and type checking
+- **7 patterns supported** - Chain, Workflow, Parallel, Graph, Routing, Evaluator-Optimizer, Orchestrator
+- **Async execution** - High-performance async/await support
+- **Zero breaking changes** - Existing CLI and YAML workflows unchanged
 
 💾 **Durable Session Management**
 - Automatic session persistence with crash recovery
@@ -266,13 +275,11 @@ Example workflows:
 - **Context Isolation**: Parallel branch HITL only sees its own branch context
 - **Conditional Routing**: Graph pattern HITL enables dynamic workflow paths based on user decisions
 
-**📖 See [docs/HITL.md](docs/HITL.md) for complete guide with all patterns and examples.**
-
 ---
 
 ## Builder API (Code-First Workflows)
 
-**New in v0.14.0-alpha**: Build workflows programmatically in Python without YAML!
+Build workflows programmatically in Python without YAML!
 
 The **fluent builder API** provides type-safe, fail-fast workflow construction with full IDE autocomplete. Perfect for developers who prefer code over configuration.
 
@@ -425,22 +432,14 @@ uv run strands sessions delete <session-id> --force  # Skip confirmation
 
 ### Supported Patterns
 
-**Current Status (Phase 2 - Chain Pattern):**
-
 - ✅ **Chain**: Full resume support with step skipping and conversation restoration
   - Resumes from any step (0 to N-1)
   - Agent conversation history preserved via FileSessionManager
   - Token usage accumulates across resume sessions
   - Spec change detection with warnings
 
-**Planned Support (Phase 3 - Multi-Pattern):**
-
-- 🔜 **Workflow**: Multi-task DAG resume with dependency tracking
-- 🔜 **Parallel**: Branch completion tracking with partial failures
-- 🔜 **Routing**: Router decision preservation
-- 🔜 **Evaluator-Optimizer**: Iteration state and feedback loop restoration
-- 🔜 **Orchestrator-Workers**: Round state and task delegation tracking
-- 🔜 **Graph**: Node history, cycle detection, and conditional transitions
+- 🚧 **Other Patterns**: Multi-pattern support under development
+  - Workflow, Parallel, Routing, Graph patterns
 
 ### Example: Resume After Crash
 
@@ -472,8 +471,6 @@ uv run strands run --resume a1b2c3d4-e5f6-7890-abcd-ef1234567890
                 ├── message_1.json
                 └── ...
 ```
-
-**See [DURABLE.md](DURABLE.md) for complete architecture details and Phase 3+ roadmap.**
 
 ---
 
@@ -855,7 +852,7 @@ Show the CLI version.
 
 ```bash
 uv run strands version
-# Output: strands-cli version 0.3.0
+# Output: strands-cli version 0.4.0
 ```
 
 ### `strands sessions`
@@ -976,8 +973,6 @@ export STRANDS_HTTP_BLOCKED_PATTERNS='["^https://internal\.company\.com"]'
 # Enforce HTTP allowlist
 export STRANDS_HTTP_ALLOWED_DOMAINS='["^https://api\.openai\.com", "^https://api\.anthropic\.com"]'
 ```
-
-See [`docs/security.md`](docs/security.md) for comprehensive security documentation.
 
 ---
 
@@ -1286,11 +1281,6 @@ strands-cli/
 │   ├── test_graph.py
 │   └── test_e2e.py
 ├── examples/                 # 50+ workflow examples
-├── docs/                     # Documentation
-│   ├── strands-workflow-manual.md
-│   ├── security.md
-│   ├── TOOL_DEVELOPMENT.md
-│   └── STREAMING_DESIGN.md
 ├── scripts/                  # Automation
 │   └── dev.ps1               # PowerShell dev workflow
 ├── pyproject.toml            # Project config
@@ -1353,18 +1343,12 @@ def my_tool(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         }
 ```
 
-See [`docs/TOOL_DEVELOPMENT.md`](docs/TOOL_DEVELOPMENT.md) for comprehensive guide.
-
 ---
 
 ## Documentation
 
 ### Core Documentation
 
-- **[Workflow Manual](docs/strands-workflow-manual.md)** - Comprehensive spec reference for all 7 patterns
-- **[Durable Execution](docs/DURABLE.md)** - Session management architecture and resume capabilities
-- **[Security Guide](docs/security.md)** - Threat model, attack examples, configuration
-- **[Tool Development](docs/TOOL_DEVELOPMENT.md)** - Native tool creation guide
 - **[Contributing](CONTRIBUTING.md)** - Development workflow and code conventions
 - **[Changelog](CHANGELOG.md)** - Version history and migration guides
 
@@ -1376,8 +1360,6 @@ See [`docs/TOOL_DEVELOPMENT.md`](docs/TOOL_DEVELOPMENT.md) for comprehensive gui
 ### Additional Resources
 
 - **Examples**: [`examples/`](examples/) - 50+ workflow specifications
-- **Stack Decisions**: [`docs/stack.md`](docs/stack.md) - Dependency rationale
-- **Streaming Design**: [`docs/STREAMING_DESIGN.md`](docs/STREAMING_DESIGN.md) - Future JIT tool improvements
 
 ---
 
@@ -1459,36 +1441,32 @@ uv run strands doctor
 
 ---
 
-## Roadmap
+## Features
 
-### Current Version (v0.3.0)
+### Workflow Execution
+- **7 workflow patterns** - Chain, Workflow, Routing, Parallel, Evaluator-Optimizer, Orchestrator-Workers, Graph
+- **Multi-provider support** - AWS Bedrock, Ollama, OpenAI
+- **Python API & Builder API** - Programmatic workflow construction and execution
+- **Interactive HITL workflows** - Human-in-the-loop with pause/resume
+- **Durable session management** - Crash recovery and workflow resume (Chain pattern)
 
-✅ All 7 workflow patterns (chain, workflow, routing, parallel, evaluator-optimizer, orchestrator-workers, graph)  
-✅ Full OpenTelemetry tracing with OTLP export  
-✅ PII redaction and trace artifacts  
-✅ Multi-provider support (Bedrock, Ollama, OpenAI)  
-✅ Native tool registry with auto-discovery  
-✅ Comprehensive security controls  
-✅ Durable session management (Phase 2 - Chain pattern)  
-✅ Session save/resume with crash recovery  
-✅ Agent conversation restoration via Strands SDK  
+### Observability & Security
+- **OpenTelemetry tracing** - Full OTLP export support
+- **PII redaction** - Automatic sensitive data scrubbing
+- **Trace artifacts** - Export execution traces to JSON
+- **Security controls** - SSRF prevention, path traversal protection, sandboxed templates
 
-### In Progress
+### Tools & Integrations
+- **Native tool registry** - Auto-discovery with TOOL_SPEC pattern
+- **Built-in tools** - HTTP executors, file operations, calculator, time
+- **MCP support** - Model Context Protocol integration (experimental)
 
-🚧 Multi-pattern session resume (workflow, parallel, routing, graph, etc.)  
-🚧 MCP (Model Context Protocol) tools integration  
-🚧 Context management presets  
-🚧 JIT tools for dynamic codebase access  
+### Performance
+- **Agent caching** - 90% overhead reduction in multi-step workflows
+- **Model client pooling** - LRU cache for provider clients
+- **Async execution** - High-performance event loop architecture
 
-### Future
-
-🔮 Guardrails enforcement  
-🔮 Context policy execution  
-🔮 Streaming support for large files  
-🔮 Plugin system for custom executors  
-🔮 Web UI for workflow visualization  
-
-See [`CHANGELOG.md`](CHANGELOG.md) for detailed version history.
+See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 
@@ -1541,7 +1519,6 @@ Built with:
 
 - **Issues**: [GitHub Issues](https://github.com/ThomasRohde/strands-cli/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/ThomasRohde/strands-cli/discussions)
-- **Documentation**: [`docs/`](docs/)
 
 ---
 

@@ -399,6 +399,12 @@ allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
 - **User-facing docs**: Write in Markdown; reference actual file paths in backticks
 - **Code comments**: Explain *why*, not *what*; especially for capability checks and error codes
 - **Examples**: Always provide runnable examples in `examples/` directory
+- **README.md updates**: Focus on current capabilities only; avoid version history language like "New in vX.X" or "Coming soon"
+  - ❌ Bad: "New in v0.4.0: Python API support"
+  - ✅ Good: "Python API - Programmatic workflow execution"
+  - Remove "Roadmap", "In Progress", "Future" sections that describe planned work
+  - Use present tense to describe what the system does now
+  - Reference CHANGELOG.md and DURABLE.md for historical context and future plans
 
 ## Anti-Patterns to Avoid
 
