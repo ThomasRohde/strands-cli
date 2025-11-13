@@ -130,7 +130,8 @@ slack = SlackWebhookHandler(
 workflow.on("workflow_complete")(lambda event: slack.send(event))
 ```
 
-See [examples/api/10_webhook_notifications.py](../../examples/api/10_webhook_notifications.py) for more examples.
+!!! tip "Example Code"
+    See `examples/api/10_webhook_notifications.py` in the repository for more examples.
 
 ## FastAPI Deployment
 
@@ -188,7 +189,8 @@ curl -X POST http://localhost:8000/workflow/sessions/a1b2c3d4/resume \
   -d '{"hitl_response": "approved"}'
 ```
 
-See [examples/api/09_fastapi_integration.py](../../examples/api/09_fastapi_integration.py) for a complete example.
+!!! tip "Example Code"
+    See `examples/api/09_fastapi_integration.py` in the repository for a complete example.
 
 ## Security Best Practices
 
@@ -418,7 +420,6 @@ workflow.on("error")(sentry.handle_error)
 
 ## See Also
 
-- [API Reference](api/) - Complete API documentation
+- [API Reference](api/index.md) - Complete API documentation
 - [Session API](session-api.md) - Session management details
-- [Examples](../../examples/api/) - Working code examples
 - [Builder API Tutorial](../tutorials/builder-api.md) - Getting started guide

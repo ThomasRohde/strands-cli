@@ -79,6 +79,7 @@ nav:
       - Environment: reference/environment.md
       - Troubleshooting: reference/troubleshooting.md
       - Security: reference/security.md
+      - Integrations: reference/integrations.md
       - API:
           - Overview: reference/api/index.md
           - Python API: reference/api/python-api.md

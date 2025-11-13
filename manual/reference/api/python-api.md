@@ -935,7 +935,8 @@ Available event types:
 - `error` - Error occurred
 - `workflow_complete` - Workflow finished
 
-See [examples/api/06_event_callbacks.py](../../examples/api/06_event_callbacks.py) for complete example.
+!!! tip "Example Code"
+    See `examples/api/06_event_callbacks.py` in the repository for complete example.
 
 ### Session Management API
 
@@ -983,7 +984,8 @@ Features:
 - **Caching**: 5-minute TTL for improved performance
 - **Cleanup**: Age and status-based deletion
 
-See [examples/api/07_session_management.py](../../examples/api/07_session_management.py) for complete example.
+!!! tip "Example Code"
+    See `examples/api/07_session_management.py` in the repository for complete example.
 
 ### Async Context Manager
 
@@ -1007,7 +1009,8 @@ Benefits:
 - Reusable across multiple executions
 - Better performance (shared model clients)
 
-See [examples/api/08_async_execution.py](../../examples/api/08_async_execution.py) for complete example.
+!!! tip "Example Code"
+    See `examples/api/08_async_execution.py` in the repository for complete example.
 
 ### Streaming API (Alpha)
 
@@ -1040,7 +1043,8 @@ Chunk types:
 
 **Note**: Token-by-token streaming not yet implemented. Currently returns complete responses as chunks.
 
-See [examples/api/11_streaming_responses.py](../../examples/api/11_streaming_responses.py) for complete example.
+!!! tip "Example Code"
+    See `examples/api/11_streaming_responses.py` in the repository for complete example.
 
 ### FastAPI Integration
 
@@ -1069,7 +1073,8 @@ Endpoints:
 
 Install web extras: `pip install strands-cli[web]`
 
-See [examples/api/09_fastapi_integration.py](../../examples/api/09_fastapi_integration.py) and [manual/reference/integrations.md](integrations.md) for complete guide.
+!!! tip "Example Code"
+    See `examples/api/09_fastapi_integration.py` in the repository and the [Integrations Guide](../integrations.md) for complete details.
 
 ### Webhook Notifications
 
@@ -1101,7 +1106,8 @@ Features:
 - Error handling and logging
 - HTTPS support with auth headers
 
-See [examples/api/10_webhook_notifications.py](../../examples/api/10_webhook_notifications.py) and [manual/reference/integrations.md](integrations.md) for custom webhook handlers.
+!!! tip "Example Code"
+    See `examples/api/10_webhook_notifications.py` in the repository and the [Integrations Guide](../integrations.md) for custom webhook handlers.
 
 ## Limitations
 
@@ -1235,12 +1241,11 @@ else:
 
 ## See Also
 
-- [Integrations Guide](../reference/integrations.md) - Webhooks and FastAPI deployment
-- [HITL How-To Guide](../howto/hitl.md) - CLI-based HITL workflows
-- [Session API Reference](../reference/session-api.md) - Session persistence and resume
-- [Workflow Spec Reference](../reference/spec.md) - YAML specification format
-- [CLI Commands](../reference/cli.md) - Command-line interface
-- [API Examples](../../examples/api/) - Working code examples
+- [Integrations Guide](../integrations.md) - Webhooks and FastAPI deployment
+- [HITL How-To Guide](../../howto/hitl.md) - CLI-based HITL workflows
+- [Session API Reference](../session-api.md) - Session persistence and resume
+- [Workflow Spec Reference](../spec.md) - YAML specification format
+- [CLI Commands](../cli.md) - Command-line interface
 
 ---
 
