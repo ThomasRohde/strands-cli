@@ -849,13 +849,16 @@ Add HITL to specific branch (called on `_BranchBuilder`).
 
 #### `.hitl_in_reduce()`
 
-Add HITL before reduce step.
+**⚠️ NOT YET IMPLEMENTED** - Raises `BuildError`.
 
 ```python
+# This method is documented but not yet implemented
 .hitl_in_reduce("Review all branch results before synthesis",
                 show="{{ branches | tojson }}")
 .reduce("synthesizer", "Combine: {{ branches }}")
 ```
+
+**Note:** This feature is planned for a future release. Currently raises `BuildError` with message "hitl_in_reduce not yet implemented".
 
 ---
 
@@ -969,31 +972,32 @@ Add unconditional edge between nodes.
 
 #### `.conditional_edge()`
 
-Add conditional edge (transition only if condition is true).
+Add conditional edge with multiple choices.
 
 ```python
 .conditional_edge(
     from_node: str,
-    to_node: str,
-    when: str
+    choices: list[tuple[str, str]]
 ) -> GraphBuilder
 ```
 
 **Parameters:**
 
 - `from_node` (str, **required**) - Source node ID
-- `to_node` (str, **required**) - Target node ID
-- `when` (str, **required**) - Condition template (Jinja2 expression)
+- `choices` (list[tuple[str, str]], **required**) - List of (condition, target) tuples
+  - condition: Expression like `"type == 'tech'"` or `"else"` (catch-all)
+  - target: Target node ID
 
 **Returns:** `self` for chaining
 
 **Example:**
 
 ```python
-.conditional_edge("classify", "urgent",
-                  when="{{ nodes.classify.response | lower contains 'urgent' }}")
-.conditional_edge("classify", "normal",
-                  when="{{ nodes.classify.response | lower contains 'normal' }}")
+.conditional_edge("classify", [
+    ("{{ 'urgent' in nodes.classify.response | lower }}", "urgent"),
+    ("{{ 'normal' in nodes.classify.response | lower }}", "normal"),
+    ("else", "default")  # Fallback
+])
 ```
 
 ---
@@ -1288,8 +1292,9 @@ Configure the orchestrator agent (decomposes task into subtasks).
 .orchestrator(
     agent: str,
     input: str | None = None,
-    vars: dict[str, Any] | None = None,
-    tool_overrides: list[str] | None = None
+    min_workers: int | None = None,
+    max_workers: int | None = None,
+    max_rounds: int | None = None
 ) -> OrchestratorWorkersBuilder
 ```
 
@@ -1297,8 +1302,9 @@ Configure the orchestrator agent (decomposes task into subtasks).
 
 - `agent` (str, **required**) - Orchestrator agent ID
 - `input` (str, optional) - Decomposition prompt
-- `vars` (dict, optional) - Variables
-- `tool_overrides` (list[str], optional) - Tool overrides
+- `min_workers` (int, optional) - Minimum concurrent workers
+- `max_workers` (int, optional) - Maximum concurrent workers
+- `max_rounds` (int, optional) - Maximum orchestration rounds
 
 **Returns:** `self` for chaining
 
@@ -1306,7 +1312,10 @@ Configure the orchestrator agent (decomposes task into subtasks).
 
 ```python
 .orchestrator("planner",
-              "Break down this project into 3-5 independent tasks: {{project}}")
+              "Break down this project into 3-5 independent tasks: {{project}}",
+              min_workers=2,
+              max_workers=5,
+              max_rounds=3)
 ```
 
 ---
@@ -1362,32 +1371,6 @@ Configure worker agent template (executes subtasks).
 
 ```python
 .worker_template("executor", tools=["python", "http_get"])
-```
-
----
-
-#### `.limits()`
-
-Configure worker execution limits.
-
-```python
-.limits(
-    max_workers: int | None = None,
-    timeout_per_worker: int | None = None
-) -> OrchestratorWorkersBuilder
-```
-
-**Parameters:**
-
-- `max_workers` (int, optional) - Maximum concurrent workers
-- `timeout_per_worker` (int, optional) - Per-worker timeout (seconds)
-
-**Returns:** `self` for chaining
-
-**Example:**
-
-```python
-.limits(max_workers=5, timeout_per_worker=300)
 ```
 
 ---

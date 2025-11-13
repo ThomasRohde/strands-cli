@@ -509,7 +509,7 @@ pattern:
 - Resume with: `strands run --resume <session-id> --hitl-response "approved"`
 - Multiple HITL steps supported; `{{ hitl_response }}` returns most recent
 
-See [docs/HITL.md](HITL.md) for complete guide.
+See [manual/howto/hitl.md](../manual/howto/hitl.md) for complete guide.
 
 ---
 
@@ -601,6 +601,8 @@ pattern:
 - **Override**: `"route:<route_name>"` - force specific route (e.g., `"route:billing"`)
 
 **Example**: See `examples/routing-hitl-review-openai.yaml` for customer support triage with router review.
+
+See [manual/howto/hitl.md](../manual/howto/hitl.md) for complete guide.
 
 ---
 
@@ -703,7 +705,7 @@ pattern:
 - **Branch HITL**: `{{ steps[n].response }}` (own branch only), `{{ hitl_response }}`
 - **Reduce HITL**: `{{ branches.<id>.response }}` (all branches), `{{ hitl_response }}`
 
-See [docs/HITL.md](HITL.md) for complete guide and examples.
+See [manual/howto/hitl.md](../manual/howto/hitl.md) for complete guide and examples.
 
 ---
 
@@ -1288,7 +1290,7 @@ pattern:
 - HITL task pauses entire workflow (all parallel tasks wait)
 - After resume, workflow continues with dependent tasks
 
-See [docs/HITL.md](HITL.md) for complete guide.
+See [manual/howto/hitl.md](../manual/howto/hitl.md) for complete guide.
 
 ---
 
@@ -1938,8 +1940,6 @@ strands run --resume a1b2c3d4...
 - Manual approval gates (Slack/Jira integration)
 - Session pause points for review
 - Resume with modified variables
-
-See [DURABLE.md](DURABLE.md) for complete architecture details and roadmap.
 
 ---
 

@@ -709,7 +709,6 @@ print(f"\nFinal report:\n{result.last_response}")
 ```python
 from strands_cli.loader import LoadError
 from strands_cli.schema.validator import SchemaValidationError
-from strands_cli.capability.checker import CapabilityError
 from strands_cli.exec.utils import ExecutionError
 
 try:
@@ -723,14 +722,14 @@ except SchemaValidationError as e:
     print(f"Invalid spec: {e}")
     print(f"Location: {e.json_pointer}")
     
-except CapabilityError as e:
-    print(f"Unsupported features: {e}")
-    
 except ExecutionError as e:
     print(f"Execution failed: {e}")
     
 except KeyboardInterrupt:
     print("Workflow interrupted by user")
+
+# Note: CapabilityError is raised during load_spec(), caught as BuildError
+# Unsupported features cause sys.exit(EX_UNSUPPORTED) before Workflow creation
 ```
 
 ### Graceful Degradation
@@ -1078,7 +1077,7 @@ Send workflow events to external services:
 
 ```python
 from strands import Workflow
-from strands.integrations.webhook_handler import GenericWebhookHandler
+from strands_cli.integrations.webhook_handler import GenericWebhookHandler
 
 workflow = Workflow.from_file("workflow.yaml")
 

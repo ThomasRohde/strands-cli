@@ -253,7 +253,7 @@ repo = FileSessionRepository(storage_dir=Path("/tmp/sessions"))
 ##### exists()
 
 ```python
-def exists(self, session_id: str) -> bool:
+async def exists(self, session_id: str) -> bool:
     """Check if session exists.
 
     Args:
@@ -266,7 +266,7 @@ def exists(self, session_id: str) -> bool:
 
 **Example:**
 ```python
-if repo.exists("abc123"):
+if await repo.exists("abc123"):
     print("Session found")
 ```
 
@@ -275,17 +275,31 @@ if repo.exists("abc123"):
 ##### save()
 
 ```python
-def save(self, state: SessionState, spec_content: str) -> None:
+async def save(self, state: SessionState, spec_content: str | None = None) -> None:
     """Save complete session state.
+
+    Writes three files atomically with file locking to prevent
+    concurrent corruption:
+    1. session.json: Metadata, variables, runtime, usage, artifacts
+    2. pattern_state.json: Pattern-specific execution state
+    3. spec_snapshot.yaml: Original workflow spec for comparison (only if spec_content is provided)
+
+    Uses atomic writes (temp file + rename) and file locking for safety.
 
     Args:
         state: Session state to persist
-        spec_content: Original workflow spec YAML/JSON content
+        spec_content: Original workflow spec YAML/JSON content (optional, None = skip spec update)
 
-    Side Effects:
-        Creates session directory if not exists
-        Writes session.json, pattern_state.json, spec_snapshot.yaml
-        Logs "session_saved" event
+    Raises:
+        SessionCorruptedError: If file write fails
+        TimeoutError: If lock cannot be acquired within 10s
+
+    Example:
+        >>> state = SessionState(...)
+        >>> spec_content = Path("workflow.yaml").read_text()
+        >>> await repo.save(state, spec_content)
+        >>> # For checkpoints (don't update spec):
+        >>> await repo.save(state, None)
     """
 ```
 
@@ -297,7 +311,7 @@ from pathlib import Path
 state = SessionState(...)
 spec_content = Path("workflow.yaml").read_text()
 
-repo.save(state, spec_content)
+await repo.save(state, spec_content)
 # Session saved to ~/.strands/sessions/session_<uuid>/
 ```
 
@@ -306,7 +320,7 @@ repo.save(state, spec_content)
 ##### load()
 
 ```python
-def load(self, session_id: str) -> SessionState | None:
+async def load(self, session_id: str) -> SessionState | None:
     """Load session state from disk.
 
     Args:
@@ -323,7 +337,7 @@ def load(self, session_id: str) -> SessionState | None:
 
 **Example:**
 ```python
-state = repo.load("abc123-def456-...")
+state = await repo.load("abc123-def456-...")
 if state:
     print(f"Loaded session: {state.metadata.workflow_name}")
 else:
@@ -335,7 +349,7 @@ else:
 ##### delete()
 
 ```python
-def delete(self, session_id: str) -> None:
+async def delete(self, session_id: str) -> None:
     """Delete session completely.
 
     Args:
@@ -350,7 +364,7 @@ def delete(self, session_id: str) -> None:
 
 **Example:**
 ```python
-repo.delete("abc123-def456-...")
+await repo.delete("abc123-def456-...")
 # Session directory removed
 ```
 
@@ -359,7 +373,7 @@ repo.delete("abc123-def456-...")
 ##### list_sessions()
 
 ```python
-def list_sessions(self) -> list[SessionMetadata]:
+async def list_sessions(self) -> list[SessionMetadata]:
     """List all sessions in storage.
 
     Returns:
@@ -373,7 +387,7 @@ def list_sessions(self) -> list[SessionMetadata]:
 
 **Example:**
 ```python
-sessions = repo.list_sessions()
+sessions = await repo.list_sessions()
 for session in sessions:
     print(f"{session.session_id}: {session.workflow_name} ({session.status})")
 ```

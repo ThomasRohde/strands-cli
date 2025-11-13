@@ -6,7 +6,20 @@ Core Pydantic models and type definitions for Strands CLI.
 
 All types and models are defined in `strands_cli.types` using Pydantic v2 with strict validation.
 
-## Core Models
+## Enumerations
+
+::: strands_cli.types
+    options:
+      show_root_heading: true
+      heading_level: 3
+      members:
+        - ProviderType
+        - PatternType
+        - SecretSource
+        - ToolType
+        - StreamChunkType
+
+## Core Workflow Models
 
 ::: strands_cli.types
     options:
@@ -16,18 +29,69 @@ All types and models are defined in `strands_cli.types` using Pydantic v2 with s
         - Spec
         - Runtime
         - Agent
-        - AgentConfig
         - Pattern
         - PatternConfig
-        - ChainConfig
-        - WorkflowConfig
-        - RoutingConfig
-        - ParallelConfig
-        - EvaluatorOptimizerConfig
-        - OrchestratorWorkersConfig
-        - GraphConfig
+
+## Pattern Step/Task Models
+
+::: strands_cli.types
+    options:
+      show_root_heading: true
+      heading_level: 3
+      members:
+        - ChainStep
+        - WorkflowTask
+        - HITLStep
+        - Route
+        - ParallelBranch
+        - GraphNode
+        - GraphEdge
+
+## Tool Models
+
+::: strands_cli.types
+    options:
+      show_root_heading: true
+      heading_level: 3
+      members:
+        - PythonTool
+        - HttpExecutor
+        - McpServer
+
+## Configuration Models
+
+::: strands_cli.types
+    options:
+      show_root_heading: true
+      heading_level: 3
+      members:
+        - Secret
+        - Skill
+        - Artifact
+        - Outputs
+        - RouterConfig
+        - EvaluatorConfig
+        - AcceptConfig
+        - WorkerTemplate
+        - OrchestratorConfig
+        - OrchestratorLimits
+
+## Result Models
+
+::: strands_cli.types
+    options:
+      show_root_heading: true
+      heading_level: 3
+      members:
         - RunResult
-        - StepResult
-        - TaskResult
-        - BranchResult
-        - NodeResult
+        - StreamChunk
+
+## Capability Analysis
+
+::: strands_cli.types
+    options:
+      show_root_heading: true
+      heading_level: 3
+      members:
+        - CapabilityReport
+        - CapabilityIssue
