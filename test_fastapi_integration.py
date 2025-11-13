@@ -6,8 +6,6 @@ Tests all endpoints and functionality of the FastAPI workflow server.
 
 import asyncio
 import json
-import time
-from typing import Any
 
 import httpx
 
@@ -56,7 +54,7 @@ class TestRunner:
 
     def print_info(self, message: str) -> None:
         """Print info message."""
-        print(f"  {Colors.BLUE}ℹ{Colors.RESET} {message}")
+        print(f"  {Colors.BLUE}i{Colors.RESET} {message}")
 
     def print_summary(self) -> None:
         """Print test summary."""
@@ -67,7 +65,7 @@ class TestRunner:
         print(f"Total tests: {total}")
         print(f"{Colors.GREEN}Passed: {self.passed}{Colors.RESET}")
         print(f"{Colors.RED}Failed: {self.failed}{Colors.RESET}")
-        
+
         if self.failed == 0:
             print(f"\n{Colors.GREEN}{Colors.BOLD}All tests passed! ✓{Colors.RESET}")
         else:
@@ -167,13 +165,13 @@ class TestRunner:
         try:
             payload = {"variables": {"topic": "quantum computing"}}
             self.print_info(f"Payload: {json.dumps(payload, indent=2)}")
-            
+
             response = await client.post(
                 "/workflows/execute",
                 json=payload,
                 timeout=120.0  # Allow time for LLM calls
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if "session_id" in data and "status" in data:
@@ -184,7 +182,7 @@ class TestRunner:
                     if data.get("last_response"):
                         preview = data["last_response"][:100] + "..." if len(data["last_response"]) > 100 else data["last_response"]
                         self.print_info(f"Response preview: {preview}")
-                    
+
                     # Store session ID for later tests
                     self.session_ids.append(data["session_id"])
                 else:
@@ -203,7 +201,7 @@ class TestRunner:
                 json=payload,
                 timeout=120.0
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get("status") == "completed":
@@ -304,7 +302,7 @@ class TestRunner:
                     self.print_info(f"Status: {session.get('status', 'N/A')}")
                     self.print_info(f"Created: {session.get('created_at', 'N/A')}")
                 else:
-                    self.print_fail(f"Session ID mismatch")
+                    self.print_fail("Session ID mismatch")
             else:
                 self.print_fail(f"Status code {response.status_code}")
         except Exception as e:
@@ -336,7 +334,7 @@ class TestRunner:
             response = await client.delete(f"/workflows/sessions/{session_id}")
             if response.status_code == 204:
                 self.print_pass("Session deleted successfully")
-                
+
                 # Verify deletion
                 verify_response = await client.get(f"/workflows/sessions/{session_id}")
                 if verify_response.status_code == 404:
@@ -383,12 +381,12 @@ class TestRunner:
         """Run all tests."""
         print(f"\n{Colors.BOLD}FastAPI Integration Test Suite{Colors.RESET}")
         print(f"{Colors.BOLD}Base URL: {self.base_url}{Colors.RESET}")
-        
+
         async with httpx.AsyncClient(base_url=self.base_url) as client:
             # Check if server is running
             try:
                 await client.get("/health", timeout=5.0)
-            except Exception as e:
+            except Exception:
                 print(f"\n{Colors.RED}Error: Could not connect to server at {self.base_url}{Colors.RESET}")
                 print(f"{Colors.RED}Make sure the server is running with: uv run python examples/api/09_fastapi_integration.py{Colors.RESET}")
                 return
@@ -410,7 +408,7 @@ async def main():
     """Main entry point."""
     runner = TestRunner()
     await runner.run_all_tests()
-    
+
     # Return exit code based on results
     return 0 if runner.failed == 0 else 1
 
