@@ -1472,6 +1472,90 @@ See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ---
 
+## Schema Implementation Status
+
+**Strands CLI implements 63% of the JSON Schema** features across 10 categories. While all 7 workflow patterns are fully functional, some schema features are parsed but not yet enforced.
+
+### ✅ Fully Implemented (40 features, 63%)
+
+- **All 7 workflow patterns** - Chain, Workflow, Routing, Parallel, Evaluator-Optimizer, Orchestrator-Workers, Graph
+- **Multi-provider runtime** - Bedrock, Ollama, OpenAI with model client pooling
+- **Token budget enforcement** - 80% warning, 100% abort with `BudgetExceededError`
+- **Full HITL support** - All patterns with context display and template access
+- **Context management** - Compaction, notes, JIT tools (grep, head, tail, search)
+- **Complete telemetry** - OTLP tracing, PII redaction, span instrumentation
+- **MCP integration** - Both stdio and HTTPS transports with cleanup
+- **Session persistence** - Checkpointing, resume, conversation restoration (Chain pattern)
+
+### ⚠️ Parsed But Not Enforced (13 features, 21%)
+
+**Runtime Configuration:**
+- `budgets.max_steps` / `max_duration_s` - Logged but not enforced
+- `failure_policy.wait_min` / `wait_max` - Hardcoded values used instead
+- `agents.<id>.provider` - Agent-level provider override ignored
+
+**Context Policy:**
+- `notes.format: json` - Only markdown implemented
+- `retrieval.mcp_servers` - Must use `tools.mcp` explicitly
+
+**HITL Features:**
+- `timeout_seconds` - No timeout enforcement
+- `default` - Not applied on timeout
+- `validation.pattern` - No regex validation
+
+**HTTP Executor Metadata:**
+- `description`, `examples`, `common_endpoints` - Not injected into agent prompts
+
+### ❌ Not Implemented (10 features, 16%)
+
+**Security:**
+- `security.guardrails.*` - All fields parsed but not enforced (high priority gap)
+
+**Environment:**
+- `env.secrets[].source: secrets_manager|ssm|file` - Only `env` supported
+- `env.mounts` - No file mounting/path aliasing
+
+**Patterns:**
+- `orchestrator_workers.max_rounds > 1` - Explicitly blocked (MVP limitation)
+- Graph `edges[].to` multiple targets - Only first target executes
+
+**Skills:**
+- Executable code assets - Metadata injection only, no execution
+- `preload_metadata` flag - No visible effect
+
+**Input Validation:**
+- Type checking (`integer`, `enum`, etc.) - Not validated at runtime
+- Default values - Not applied when missing
+
+### 🔴 Critical Gaps for Production
+
+| Gap | Impact | Priority |
+|-----|--------|----------|
+| **Guardrails enforcement** | Security risk (network access, tool allowlists) | High |
+| **Step/duration budgets** | Runaway workflows | High |
+| **HITL timeout/validation** | UX inconsistency | Medium |
+| **AWS Secrets Manager/SSM** | Production credential management | Medium |
+| **Multi-round orchestration** | Pattern limitation | Medium |
+
+**📖 Full details in [`RESIDUAL.md`](RESIDUAL.md)** - Comprehensive audit of 63 schema features with implementation status, code references, and remediation guidance.
+
+### Silent Acceptance Warning
+
+These features are **accepted by the schema validator but not implemented** (no `EX_UNSUPPORTED` error):
+
+- `runtime.budgets.max_steps` / `max_duration_s`
+- `runtime.failure_policy.wait_min` / `wait_max`
+- `agents.<id>.provider`
+- `env.mounts`
+- `context_policy.notes.format: json`
+- `security.guardrails.*`
+- HTTP executor metadata fields
+- HITL `default`, `timeout_seconds`, `validation`
+
+**Recommendation:** Test workflows thoroughly; use `--debug` to verify expected behavior.
+
+---
+
 ## Contributing
 
 We welcome contributions! Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
