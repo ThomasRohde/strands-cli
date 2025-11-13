@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="strands_logo.svg" alt="Strands CLI Logo" width="150" height="150" />
+
 **Execute declarative agentic workflows on AWS Bedrock, Ollama, and OpenAI**
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
