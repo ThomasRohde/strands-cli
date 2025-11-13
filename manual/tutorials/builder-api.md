@@ -21,7 +21,7 @@ This tutorial teaches you how to build complete Strands workflows in Python code
 Before starting, ensure you have:
 
 - **Python 3.12 or higher** installed
-- **Strands CLI 0.14.0+** installed (`uv pip install strands-cli`)
+- **Strands CLI** installed (`uv pip install strands-cli`)
 - Basic understanding of Strands workflow concepts
 - Familiarity with one provider (Bedrock, Ollama, or OpenAI)
 

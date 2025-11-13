@@ -2,10 +2,8 @@
 
 **Created:** 2025-11-11  
 **Owner:** Thomas Rohde  
-**Target Version:** v0.14.0  
-**Status:** 📋 Ready for Implementation  
-**Complexity:** Medium-High  
-**Duration:** 3 weeks (MVP = 1 week, Phases 2-3 = 2 weeks)
+**Status:** ✅ Implemented  
+**Complexity:** Medium-High
 
 ---
 
@@ -890,7 +888,7 @@ app.include_router(router)
 - [ ] API reference documentation
 - [ ] Production deployment guide
 - [ ] Migration guide from CLI to API
-- [ ] Release notes for v0.14.0
+- [x] Release notes
 
 ---
 
@@ -1158,7 +1156,7 @@ Interactive walkthrough:
 
 ---
 
-## Future Enhancements (Post-v0.14.0)
+## Future Enhancements
 
 ### Streaming API
 

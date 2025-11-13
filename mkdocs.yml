@@ -10,6 +10,7 @@ docs_dir: manual
 
 theme:
   name: material
+  custom_dir: overrides
   features:
     - content.code.copy
     - content.code.annotate

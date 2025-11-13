@@ -4,7 +4,7 @@ Complete Python API documentation for Strands CLI.
 
 ## User-Facing API
 
-- **[Python API](python-api.md)** - High-level workflow execution API with interactive HITL support (v0.14.0-alpha)
+- **[Python API](python-api.md)** - High-level workflow execution API with interactive HITL support
 
 ## Module Overview
 

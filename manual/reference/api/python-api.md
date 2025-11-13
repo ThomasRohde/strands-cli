@@ -1,6 +1,6 @@
 # Python API Guide
 
-**Status:** MVP (v0.14.0-alpha)  
+**Status:** Production Ready  
 **Complexity:** Medium  
 **Use Case:** Interactive HITL workflows, programmatic execution
 
@@ -896,7 +896,7 @@ result = workflow.run_interactive()
 
 ---
 
-## Phase 3 Features (v0.14.0+)
+## Advanced Features
 
 ### Event System
 
@@ -1012,7 +1012,7 @@ Benefits:
 !!! tip "Example Code"
     See `examples/api/08_async_execution.py` in the repository for complete example.
 
-### Streaming API (Alpha)
+### Streaming API
 
 Stream workflow execution events as they occur:
 
