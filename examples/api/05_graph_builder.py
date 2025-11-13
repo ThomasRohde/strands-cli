@@ -99,6 +99,7 @@ async def main() -> None:
             [("{{ 'high' in nodes.intake.response.lower() }}", "escalate")],
         )
         .max_iterations(5)
+        .output_dir("./artifacts")
         .artifact(
             "./support_transcript.md",
             (

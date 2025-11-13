@@ -49,14 +49,21 @@ class Workflow:
     Supports both interactive (terminal prompts) and async execution.
     """
 
-    def __init__(self, spec: Spec):
+    def __init__(
+        self,
+        spec: Spec,
+        output_dir: str | None = None,
+        force_overwrite: bool = True,
+    ):
         """Create workflow from validated Spec.
 
         Args:
             spec: Validated workflow specification
+            output_dir: Optional output directory for artifacts
+            force_overwrite: Whether to overwrite existing artifact files (default: True)
         """
         self.spec = spec
-        self._executor = WorkflowExecutor(spec)
+        self._executor = WorkflowExecutor(spec, output_dir=output_dir, force_overwrite=force_overwrite)
 
     def on(self, event_type: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Subscribe to workflow events.

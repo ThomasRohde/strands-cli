@@ -298,6 +298,7 @@ class TestFluentBuilderBuild:
             .step("researcher", "Research: {{topic}}")
             .step("researcher", "Analyze: {{ steps[0].response }}")
             .artifact("output.md", "# Report\n{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -354,6 +355,7 @@ class TestGoldenFileComparison:
                 "# Research Report: {{topic}}\n\n## Initial Research\n{{ steps[0].response }}\n\n"
                 "## Analysis\n{{ steps[1].response }}\n\n## Summary\n{{ last_response }}",
             )
+            .output_dir("artifacts")
             .build()
         )
 
@@ -537,6 +539,7 @@ class TestWorkflowBuilder:
                 depends_on=["research"],
             )
             .artifact("output.md", "# Results\n{{ tasks.analyze.response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -701,6 +704,7 @@ class TestParallelBuilder:
             .done()
             .reduce("writer", "Synthesize both")
             .artifact("output.md", "{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -755,6 +759,7 @@ class TestWorkflowGoldenFile:
                 depends_on=["research"],
             )
             .artifact("output.md", "# Results\n{{ tasks.analyze.response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -800,6 +805,7 @@ class TestParallelGoldenFile:
                 "## Technical Analysis\n{{ branches.technical_analysis.response }}\n\n"
                 "## Business Impact\n{{ branches.business_impact.response }}\n",
             )
+            .output_dir("artifacts")
             .build()
         )
 

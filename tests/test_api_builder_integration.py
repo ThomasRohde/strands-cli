@@ -33,6 +33,7 @@ class TestBuilderChaining:
             .hitl("Review step 1?", context_display="{{ steps[0].response }}", timeout_seconds=120)
             .step("analyst", "Analyze: {{ steps[0].response }}")
             .artifact("report.md", "# Report\n{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -69,6 +70,7 @@ class TestBuilderChaining:
                 depends_on=["process_a", "process_b"],
             )
             .artifact("result.txt", "{{ tasks.merge.response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -104,6 +106,7 @@ class TestBuilderChaining:
                 "Combine: {{ branches.branch_a.response }} + {{ branches.branch_b.response }}",
             )
             .artifact("synthesis.md", "{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -168,6 +171,7 @@ class TestBuilderChaining:
             .step("analyst", "Quick answer: {{query}}")
             .done()
             .artifact("answer.md", "{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -192,6 +196,7 @@ class TestBuilderChaining:
             .revise_prompt("Fix: {{ evaluation_response.issues }}\n\nCode: {{ current_response }}")
             .review_gate("Continue iteration?", show="Score: {{ evaluation_response.score }}")
             .artifact("code.py", "{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -217,6 +222,7 @@ class TestBuilderChaining:
             .reduce_review("Review worker results?", show="{{workers}}")
             .reduce_step("synthesizer", "Synthesize: {{workers}}")
             .artifact("project-result.md", "{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -419,6 +425,7 @@ class TestWorkflowObjectCreation:
             .artifact("report.md", "# Report\n{{ last_response }}")
             .artifact("summary.txt", "{{ last_response | truncate(100) }}")
             .artifact("data.json", '{"result": "{{ last_response }}"}')
+            .output_dir("artifacts")
             .build()
         )
 

@@ -93,6 +93,7 @@ class TestChainGoldenFiles:
                 "# Research Report: {{topic}}\n\n## Initial Research\n{{ steps[0].response }}\n\n"
                 "## Analysis\n{{ steps[1].response }}\n\n## Summary\n{{ last_response }}",
             )
+            .output_dir("artifacts")
             .build()
         )
 
@@ -145,7 +146,7 @@ class TestChainGoldenFiles:
             )
 
         chain_builder = chain_builder.artifact(artifacts[0].path, artifacts[0].from_)
-        api_workflow = chain_builder.build()
+        api_workflow = chain_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -201,7 +202,7 @@ class TestWorkflowGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -254,7 +255,7 @@ class TestWorkflowGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -303,6 +304,7 @@ class TestParallelGoldenFiles:
                 "## Technical Analysis\n{{ branches.technical_analysis.response }}\n\n"
                 "## Business Impact\n{{ branches.business_impact.response }}\n",
             )
+            .output_dir("artifacts")
             .build()
         )
 
@@ -351,6 +353,7 @@ class TestParallelGoldenFiles:
                 "Social: {{ branches.social.response }}",
             )
             .artifact("parallel-reduce-{{topic}}.md", "# Synthesis\n{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -392,6 +395,7 @@ class TestParallelGoldenFiles:
                 "## Market\n{{ branches.market_research.response }}\n\n"
                 "## Technical\n{{ branches.technical_specs.response }}",
             )
+            .output_dir("artifacts")
             .build()
         )
 
@@ -455,7 +459,7 @@ class TestGraphGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -516,7 +520,7 @@ class TestGraphGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -577,7 +581,7 @@ class TestRoutingGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -632,7 +636,7 @@ class TestRoutingGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -686,7 +690,7 @@ class TestEvaluatorOptimizerGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -727,6 +731,7 @@ class TestEvaluatorOptimizerGoldenFiles:
                 "Current code:\n{{ current_response }}"
             )
             .artifact("code-{{language}}-{{task}}.py", "{{ last_response }}")
+            .output_dir("artifacts")
             .build()
         )
 
@@ -781,7 +786,7 @@ class TestOrchestratorWorkersGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -862,7 +867,7 @@ class TestOrchestratorWorkersGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -920,7 +925,7 @@ class TestMixedPatternsGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec
@@ -978,7 +983,7 @@ class TestMixedPatternsGoldenFiles:
         for artifact in artifacts:
             fluent_builder = fluent_builder.artifact(artifact.path, artifact.from_)
 
-        api_workflow = fluent_builder.build()
+        api_workflow = fluent_builder.output_dir("artifacts").build()
 
         # Compare specs structurally
         api_spec = api_workflow.spec

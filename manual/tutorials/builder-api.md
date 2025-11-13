@@ -97,6 +97,7 @@ workflow = (
     )
     .single_agent()
     .prompt("researcher", "Explain {{topic}} in simple terms with 2-3 examples.")
+    .output_dir("./artifacts")
     .artifact("{{topic}}-explanation.md", "# {{topic}}\n\n{{ last_response }}")
     .build()
 )
@@ -702,6 +703,59 @@ workflow = (
     max_tokens=4000,                         # Override runtime max_tokens
 )
 ```
+
+### Output Directory Configuration
+
+**When using artifacts, you MUST configure an output directory using `.output_dir()`:**
+
+```python
+.output_dir("./artifacts")              # Required before .artifact()
+.artifact("report.md", "{{ last_response }}")
+```
+
+**Failure to set output_dir:**
+```python
+# ❌ This will raise BuildError
+workflow = (
+    FluentBuilder("test")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("writer", "You write")
+    .single_agent()
+    .prompt("writer", "Write {{topic}}")
+    .artifact("output.md", "{{ last_response }}")  # Error: no output_dir!
+    .build()
+)
+
+# ✅ Correct - set output_dir first
+workflow = (
+    FluentBuilder("test")
+    .runtime("openai", model="gpt-4o-mini")
+    .agent("writer", "You write")
+    .single_agent()
+    .prompt("writer", "Write {{topic}}")
+    .output_dir("./artifacts")  # Must come before artifact
+    .artifact("output.md", "{{ last_response }}")
+    .build()
+)
+```
+
+**Control file overwrite behavior:**
+```python
+# Default: overwrite existing files (force_overwrite=True)
+.output_dir("./artifacts")
+.artifact("report.md", "{{ last_response }}")
+
+# Prevent overwriting (raises error if file exists)
+.output_dir("./artifacts")
+.force_overwrite(False)
+.artifact("report.md", "{{ last_response }}")
+```
+
+**Why this design?**
+- **Explicit**: No silent file operations
+- **Safe**: Prevents accidental overwrites when `force_overwrite(False)`
+- **Consistent**: Matches CLI `--out` flag behavior
+- **Fail-fast**: Build-time validation catches missing config
 
 ### Artifact Output Templates
 

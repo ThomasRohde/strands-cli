@@ -80,6 +80,7 @@ async def main() -> None:
             "Maintain the topic (artificial intelligence) and professional blog post style.\n"
             "Focus on improving the areas mentioned in the feedback."
         )
+        .output_dir("./artifacts")
         .artifact("./refined-content.md", "{{ last_response }}")
         .build()
     )

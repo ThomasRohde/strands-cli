@@ -38,6 +38,7 @@ async def main() -> None:
             "Analysis:\n{{ steps[1].response }}\n\n"
             "Write a 2-paragraph summary combining both insights.",
         )
+        .output_dir("./artifacts")
         .artifact(
             "{{topic}}-research.md",
             "# Research Report: {{topic}}\n\n"

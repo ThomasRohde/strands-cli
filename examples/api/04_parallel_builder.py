@@ -57,6 +57,7 @@ async def main() -> None:
                 "Regulatory: {{ branches.regulatory_perspective.response }}"
             ),
         )
+        .output_dir("./artifacts")
         .artifact("./parallel-synthesis.md", "{{ last_response }}")
         .build()
     )

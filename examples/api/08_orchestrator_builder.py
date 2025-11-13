@@ -68,6 +68,7 @@ async def main() -> None:
         .worker_template("researcher", tools=["http_executors"])
         # Configure final writeup/report step
         .reduce_step("report_writer")
+        .output_dir("./artifacts")
         .artifact("./research-report.md", "{{ last_response }}")
         .build()
     )

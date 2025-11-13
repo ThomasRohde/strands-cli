@@ -70,6 +70,7 @@ async def main() -> None:
             description="Synthesize findings into final report",
             depends_on=["technical", "applications"],
         )
+        .output_dir("./artifacts")
         .artifact(
             "{{topic}}-workflow.md",
             (

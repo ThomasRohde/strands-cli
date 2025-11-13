@@ -174,7 +174,7 @@ Define an agent for use in workflow steps.
 
 #### `.artifact()`
 
-Define output artifact with content template.
+Define output artifact with content template. **Requires `.output_dir()` to be set first.**
 
 ```python
 .artifact(path: str, template: str) -> FluentBuilder
@@ -187,7 +187,12 @@ Define output artifact with content template.
 
 **Returns:** `self` for chaining
 
-**Raises:** `BuildError` if template syntax is invalid
+**Raises:** 
+- `BuildError` if template syntax is invalid
+- `BuildError` at build time if `.output_dir()` not called
+
+**Prerequisites:**
+- **Must call `.output_dir()` before using `.artifact()`**
 
 **Template Variables:**
 
@@ -249,6 +254,104 @@ Set workflow description.
 ```python
 .description("Three-step research workflow with iterative refinement")
 ```
+
+---
+
+#### `.output_dir()`
+
+**Required when using artifacts.** Configure the directory where artifact files will be written.
+
+```python
+.output_dir(path: str) -> FluentBuilder
+```
+
+**Parameters:**
+
+- `path` (str, **required**) - Output directory path (relative or absolute)
+
+**Returns:** `self` for chaining
+
+**Raises:** 
+- `BuildError` if called more than once
+- `BuildError` at build time if artifacts defined without output_dir
+
+**Examples:**
+
+```python
+# Relative path (created if doesn't exist)
+.output_dir("./artifacts")
+
+# Absolute path
+.output_dir("/tmp/workflow-outputs")
+
+# User home directory
+.output_dir("~/workflows/outputs")
+```
+
+**Important:**
+- Must be called **before** `.artifact()` calls
+- Can only be called **once** per workflow
+- Directory is created automatically if it doesn't exist
+- Path is resolved relative to current working directory
+
+**Error scenarios:**
+
+```python
+# ❌ Multiple calls raise BuildError
+.output_dir("./artifacts")
+.output_dir("./outputs")  # BuildError: output_dir already set
+
+# ❌ Artifact without output_dir raises BuildError at build()
+.artifact("report.md", "...")  # BuildError: output_dir required
+
+# ✅ Correct usage
+.output_dir("./artifacts")
+.artifact("report.md", "...")
+.artifact("summary.json", "...")
+```
+
+---
+
+#### `.force_overwrite()`
+
+Control whether to overwrite existing artifact files. **Default is True (overwrite enabled).**
+
+```python
+.force_overwrite(enabled: bool = True) -> FluentBuilder
+```
+
+**Parameters:**
+
+- `enabled` (bool, optional) - Whether to overwrite existing files (default: `True`)
+
+**Returns:** `self` for chaining
+
+**Examples:**
+
+```python
+# Default behavior: overwrite existing files
+.output_dir("./artifacts")
+.artifact("report.md", "{{ last_response }}")
+# If report.md exists, it will be overwritten
+
+# Prevent overwriting (raises error if file exists)
+.output_dir("./artifacts")
+.force_overwrite(False)
+.artifact("report.md", "{{ last_response }}")
+# If report.md exists, workflow execution fails with error
+
+# Explicitly enable overwriting (same as default)
+.output_dir("./artifacts")
+.force_overwrite(True)
+.artifact("report.md", "{{ last_response }}")
+```
+
+**When to use `force_overwrite(False)`:**
+- Prevent accidental data loss
+- Ensure unique outputs (add timestamps to filenames)
+- Multi-run environments where each run should produce unique files
+
+**Note:** Overwrite checking happens at **execution time**, not build time.
 
 ---
 
@@ -1581,6 +1684,7 @@ workflow = (
           """Research: {{ steps[0].response }}
           Analysis: {{ steps[2].response }}
           Write a comprehensive report.""")
+    .output_dir("./artifacts")
     .artifact("{{topic}}-report.md",
               "# {{topic}} Report\n\n{{ last_response }}")
     .build()
@@ -1615,6 +1719,7 @@ workflow = (
           Charts: {{ tasks.visualize.response }}
           Write executive summary.""",
           depends_on=["process", "visualize"])
+    .output_dir("./artifacts")
     .artifact("{{dataset}}-report.html",
               "<h1>{{dataset}}</h1>{{ tasks.report.response }}")
     .build()
@@ -1648,6 +1753,7 @@ workflow = (
             Security: {{ branches.security.response }}
             
             Create unified recommendation.""")
+    .output_dir("./artifacts")
     .artifact("{{topic}}-analysis.md",
               "# Analysis: {{topic}}\n\n{{ last_response }}")
     .build()

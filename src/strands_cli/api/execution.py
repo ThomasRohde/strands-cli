@@ -39,13 +39,22 @@ class WorkflowExecutor:
     Resources are automatically cleaned up on exit.
     """
 
-    def __init__(self, spec: Spec):
+    def __init__(
+        self,
+        spec: Spec,
+        output_dir: str | None = None,
+        force_overwrite: bool = True,
+    ):
         """Initialize executor with workflow spec.
 
         Args:
             spec: Validated workflow specification
+            output_dir: Optional output directory for artifacts
+            force_overwrite: Whether to overwrite existing artifact files (default: True)
         """
         self.spec = spec
+        self.output_dir = output_dir
+        self.force_overwrite = force_overwrite
         self.event_bus = EventBus()
         self._agent_cache: AgentCache | None = None
 
@@ -209,9 +218,31 @@ class WorkflowExecutor:
                     continue
                 else:
                     # Workflow completed successfully (no more HITL pauses)
-                    # Mark session as completed and return result
+                    # Mark session as completed
                     session_state.metadata.status = SessionStatus.COMPLETED
                     session_state.metadata.updated_at = now_iso8601()
+
+                    # Write artifacts if configured
+                    if self.output_dir and self.spec.outputs and self.spec.outputs.artifacts:
+                        from strands_cli.artifacts.io import write_artifacts
+
+                        # Merge variables for template rendering
+                        merged_vars: dict[str, Any] = {**variables}
+                        if result.variables:
+                            merged_vars.update(result.variables)
+
+                        written_files = write_artifacts(
+                            self.spec.outputs.artifacts,
+                            result.last_response or "",
+                            self.output_dir,
+                            self.force_overwrite,
+                            variables=merged_vars,
+                            execution_context=result.execution_context,
+                            spec_name=self.spec.name,
+                            pattern_type=self.spec.pattern.type.value,
+                        )
+                        result.artifacts_written = written_files
+
                     await session_repo.save(session_state, spec_content)
                     return result
 
@@ -311,6 +342,27 @@ class WorkflowExecutor:
                 session_state.metadata.status = SessionStatus.PAUSED
             else:
                 session_state.metadata.status = SessionStatus.COMPLETED
+
+                # Write artifacts if configured and workflow completed successfully
+                if self.output_dir and self.spec.outputs and self.spec.outputs.artifacts:
+                    from strands_cli.artifacts.io import write_artifacts
+
+                    # Merge variables for template rendering
+                    merged_vars: dict[str, Any] = {**variables}
+                    if result.variables:
+                        merged_vars.update(result.variables)
+
+                    written_files = write_artifacts(
+                        self.spec.outputs.artifacts,
+                        result.last_response or "",
+                        self.output_dir,
+                        self.force_overwrite,
+                        variables=merged_vars,
+                        execution_context=result.execution_context,
+                        spec_name=self.spec.name,
+                        pattern_type=self.spec.pattern.type.value,
+                    )
+                    result.artifacts_written = written_files
 
             await session_repo.save(session_state, spec_content)
             return result

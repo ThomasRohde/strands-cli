@@ -121,6 +121,8 @@ class FluentBuilder:
         self._runtime: dict[str, Any] | None = None
         self._agents: dict[str, dict[str, Any]] = {}
         self._artifacts: list[dict[str, str]] = []
+        self._output_dir: str | None = None
+        self._force_overwrite: bool = True
         self._pattern_builder: (
             ChainBuilder
             | WorkflowBuilder
@@ -284,6 +286,50 @@ class FluentBuilder:
         self._artifacts.append({"path": path, "from": template})
 
         logger.debug("artifact_defined", path=path)
+        return self
+
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifact files.
+
+        Required when .artifact() is used. Artifacts will be written to this
+        directory after workflow execution completes.
+
+        Args:
+            path: Directory path for artifacts (e.g., "./artifacts")
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            BuildError: If output_dir already set
+
+        Example:
+            >>> builder.output_dir("./artifacts")
+        """
+        if self._output_dir is not None:
+            raise BuildError(
+                f"Output directory already set to '{self._output_dir}'. "
+                "Call .output_dir() only once."
+            )
+
+        self._output_dir = path
+        logger.debug("output_dir_set", path=path)
+        return self
+
+    def force_overwrite(self, enabled: bool = True) -> FluentBuilder:
+        """Control whether to overwrite existing artifact files.
+
+        Args:
+            enabled: If True, overwrite existing files; if False, error on conflict (default: True)
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> builder.force_overwrite(False)  # Error if file exists
+        """
+        self._force_overwrite = enabled
+        logger.debug("force_overwrite_set", enabled=enabled)
         return self
 
     def chain(self) -> ChainBuilder:
@@ -476,6 +522,13 @@ class FluentBuilder:
         if self._pattern_builder is None:
             raise BuildError("No pattern defined. Call .chain(), .workflow(), etc. before .build()")
 
+        # Validate output_dir is set if artifacts are defined
+        if self._artifacts and self._output_dir is None:
+            raise BuildError(
+                "Output directory not configured but artifacts are defined. "
+                "Call .output_dir(path) before .build() when using .artifact()."
+            )
+
         # Build pattern config (delegates to pattern builder)
         pattern_config = self._pattern_builder._build_config()
 
@@ -520,7 +573,7 @@ class FluentBuilder:
             # Import Workflow here to avoid circular dependency
             from strands_cli.api import Workflow
 
-            return Workflow(spec)
+            return Workflow(spec, output_dir=self._output_dir, force_overwrite=self._force_overwrite)
 
         except Exception as e:
             # Wrap Pydantic validation errors in BuildError
@@ -660,6 +713,19 @@ class ChainBuilder:
             Parent FluentBuilder for continued chaining
         """
         return self.parent.artifact(path, template)
+
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Convenience method to set output directory without breaking chain.
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
 
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).
@@ -967,6 +1033,19 @@ class WorkflowBuilder:
         """
         return self.parent.artifact(path, template)
 
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Convenience method to set output directory without breaking workflow chain.
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
+
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).
 
@@ -1231,6 +1310,19 @@ class ParallelBuilder:
             Parent FluentBuilder for continued chaining
         """
         return self.parent.artifact(path, template)
+
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Convenience method to set output directory without breaking parallel chain.
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
 
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).
@@ -1705,6 +1797,17 @@ class GraphBuilder:
         """
         return self.parent.artifact(path, template)
 
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
+
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).
 
@@ -1945,6 +2048,17 @@ class RoutingBuilder:
             Parent FluentBuilder for continued chaining
         """
         return self.parent.artifact(path, template)
+
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
 
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).
@@ -2417,6 +2531,17 @@ class EvaluatorOptimizerBuilder:
         """
         return self.parent.artifact(path, template)
 
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
+
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).
 
@@ -2813,6 +2938,17 @@ class OrchestratorWorkersBuilder:
             Parent FluentBuilder for continued chaining
         """
         return self.parent.artifact(path, template)
+
+    def output_dir(self, path: str) -> FluentBuilder:
+        """Set output directory for artifacts (delegates to parent builder).
+
+        Args:
+            path: Directory path for artifacts
+
+        Returns:
+            Parent FluentBuilder for continued chaining
+        """
+        return self.parent.output_dir(path)
 
     def build(self) -> Workflow:
         """Build workflow (delegates to parent builder).

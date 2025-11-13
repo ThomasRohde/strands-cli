@@ -31,7 +31,11 @@ def main():
     print("Starting interactive workflow...")
     print("You will be prompted for input at HITL steps.\n")
 
-    result = workflow.run_interactive(topic="quantum computing applications in cryptography")
+    result = workflow.run_interactive(
+        business_concept="Quantum Computing Security Platform",
+        target_market="Enterprise cybersecurity and financial services",
+        geographic_scope="North America and Europe"
+    )
 
     # Access results
     print("\n" + "=" * 60)

@@ -105,6 +105,7 @@ async def main() -> None:
             ),
         )
         .done()
+        .output_dir("./artifacts")
         .artifact("./task-output.md", "{{ last_response }}")
         .build()
     )

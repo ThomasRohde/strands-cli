@@ -231,7 +231,9 @@ class TestWorkflowRunInteractiveAsync:
             result = await workflow.run_interactive_async(topic="AI")
 
             # Verify executor created with spec
-            mock_executor_cls.assert_called_once_with(mock_spec)
+            mock_executor_cls.assert_called_once_with(
+                mock_spec, output_dir=None, force_overwrite=True
+            )
             mock_executor.run_interactive.assert_called_once_with(
                 {"topic": "AI"}, hitl_handler=None
             )
@@ -276,7 +278,9 @@ class TestWorkflowRunAsync:
             result = await workflow.run_async(topic="AI")
 
             # Verify executor.run called (not run_interactive)
-            mock_executor_cls.assert_called_once_with(mock_spec)
+            mock_executor_cls.assert_called_once_with(
+                mock_spec, output_dir=None, force_overwrite=True
+            )
             mock_executor.run.assert_called_once_with({"topic": "AI"})
             assert result.exit_code == EX_OK
 
