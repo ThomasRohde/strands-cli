@@ -27,9 +27,8 @@ description: |
 
 runtime:
   provider: openai
-  model_id: gpt-4o-mini
-  temperature: 0.7
-  max_tokens: 2000
+  model_id: gpt-5-nano
+
 
 agents:
   analyst:

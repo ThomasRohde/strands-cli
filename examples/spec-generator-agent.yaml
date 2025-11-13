@@ -1,30 +1,46 @@
 version: 0
 name: spec-generator-agent
 description: |
-  Agentic workflow that generates valid Strands workflow specification files.
-  Uses the spec_verify native tool to iteratively refine generated specs until valid.
-  Demonstrates spec generation with validation feedback loops.
+  Advanced workflow specification generator with MVP compliance verification.
+  
+  **Three-Agent Architecture**:
+  1. **Architect**: Generates initial spec from requirements
+  2. **Validator**: Uses spec_verify tool + RESIDUAL.md knowledge to check compliance  
+  3. **Documenter**: Creates comprehensive usage documentation
+  
+  **Features**:
+  - Schema/Pydantic/capability tri-level validation
+  - RESIDUAL.md feature restriction enforcement (12 unsupported, 14 parsed-only, 5 partial)
+  - Iterative refinement with spec_verify tool feedback
+  - Production-ready, immediately runnable workflow generation
 
 runtime:
   provider: openai
-  model_id: gpt-5-nano
+  model_id: gpt-5
   budgets:
-    max_steps: 5
-    max_tokens: 100000
-    max_duration_s: 60
+    max_tokens: 150000
   failure_policy:
     retries: 3
     backoff: exponential
-    wait_min: 1
-    wait_max: 60
 
 inputs:
   values:
     use_case: "customer support routing workflow"
     provider: "openai"
-    model: "gpt-4o-mini"
-    num_agents: 3
-    pattern_type: "routing"
+    model: "gpt-5-nano"
+    num_agents: 2
+    pattern_type: "chain"
+    include_tools: false
+
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 30000
+    summary_ratio: 0.3
+    preserve_recent_messages: 6
+  notes:
+    file: ./spec-generation-notes.md
+    include_last: 4
 
 tools:
   python:
@@ -32,295 +48,261 @@ tools:
 
 agents:
   spec_architect:
+    model_id: gpt-5
     prompt: |
-      You are an expert Strands workflow specification architect. You design and generate 
-      workflow specs that follow the official JSON Schema and best practices.
+      You are an expert Strands workflow specification architect with deep knowledge of
+      the schema, all 7 patterns, and MVP implementation constraints.
       
-      # COMPLETE WORKING EXAMPLES
+      # CRITICAL MVP CONSTRAINTS
       
-      ## Example 1: Workflow Pattern (DAG with dependencies)
+      **🔴 COMPLETELY UNSUPPORTED** (Will break or be ignored):
+      - `runtime.budgets.max_steps` - Logged only, NOT enforced
+      - `runtime.budgets.max_duration_s` - Logged only, NOT enforced  
+      - `env.secrets[].source: secrets_manager|ssm|file` - Only `env` works (triggers EX_UNSUPPORTED)
+      - `env.mounts` - No file mounting
+      - `security.guardrails.*` - All fields ignored
+      - `agents.{id}.provider` - Per-agent provider override ignored
+      - `orchestrator.limits.max_rounds > 1` - Single-round only (triggers EX_UNSUPPORTED)
+      - `inputs.{var}.type` - Type validation not enforced
+      - `inputs.{var}.default` - Defaults not applied
+      
+      **⚠️ PARSED BUT NOT ENFORCED** (Silently ignored):
+      - `runtime.failure_policy.wait_min/wait_max` - Hardcoded 2-30s
+      - `agents.{id}.inference` - Only works for OpenAI provider
+      - `context_policy.notes.format: json` - Only markdown works
+      - `tools.http_executors[].description/examples` - Not shown to agents
+      - HITL `default`, `timeout_seconds`, `validation.pattern` - Not enforced
+      
+      **🟡 PARTIALLY IMPLEMENTED** (Works with limitations):
+      - `runtime.budgets.max_tokens` - Enforced AFTER compaction (set conservative values)
+      - `graph.edges[].to: [multiple]` - Only first target executes
+      - MCP tools - Startup timeout not enforced
+      
+      # PATTERN EXAMPLES
+      
+      ## Chain Pattern
       ```yaml
       version: 0
-      name: data-analysis-workflow
-      description: Multi-task data analysis with dependencies
-      
+      name: content-workflow
       runtime:
         provider: openai
-        model_id: gpt-4o-mini
-        temperature: 0.7
-        max_tokens: 2000
-      
-      agents:
-        analyst:
-          prompt: "You are a data analyst. Provide structured responses."
-        recommender:
-          prompt: "You provide actionable recommendations."
-      
-      pattern:
-        type: workflow
-        config:
-          tasks:
-            - id: collect
-              agent: analyst
-              input: "Collect data about {{ topic }}"
-            
-            - id: analyze
-              agent: analyst
-              deps: [collect]
-              input: |
-                Data: {{ tasks.collect.response }}
-                Analyze and identify trends.
-            
-            - id: recommend
-              agent: recommender
-              deps: [analyze]
-              input: |
-                Analysis: {{ tasks.analyze.response }}
-                Provide 3 recommendations.
-      
-      inputs:
-        values:
-          topic: "sales data"
-      
-      outputs:
-        artifacts:
-          - path: "./report.md"
-            from: "{{ tasks.recommend.response }}"
-      ```
-      
-      ## Example 2: Routing Pattern
-      ```yaml
-      version: 0
-      name: customer-support-routing
-      description: Route customer queries to specialized agents
-      
-      runtime:
-        provider: openai
-        model_id: gpt-4o-mini
-      
-      agents:
-        billing_agent:
-          prompt: "You handle billing and payment issues."
-        technical_agent:
-          prompt: "You handle technical support issues."
-        general_agent:
-          prompt: "You handle general inquiries."
-      
-      pattern:
-        type: routing
-        config:
-          user_input: "{{ customer_query }}"
-          routes:
-            - agent: billing_agent
-              condition: "Questions about billing, payments, invoices, or charges"
-            - agent: technical_agent
-              condition: "Technical issues, bugs, or feature questions"
-            - agent: general_agent
-              condition: "General inquiries or anything else"
-      
-      inputs:
-        values:
-          customer_query: "How do I reset my password?"
-      
-      outputs:
-        artifacts:
-          - path: "./response.txt"
-            from: "{{ last_response }}"
-      ```
-      
-      ## Example 3: Chain Pattern
-      ```yaml
-      version: 0
-      name: content-creation-chain
-      description: Multi-step content creation workflow
-      
-      runtime:
-        provider: openai
-        model_id: gpt-4o-mini
-        temperature: 0.8
+        model_id: gpt-5-nano
+        budgets:
+          max_tokens: 50000  # Only enforced budget
       
       agents:
         writer:
-          prompt: "You are a creative writer."
+          prompt: "You write content"
         editor:
-          prompt: "You are an editor who improves clarity."
+          prompt: "You edit for clarity"
       
       pattern:
         type: chain
         config:
           steps:
             - agent: writer
-              input: "Write a 200-word article about {{ topic }}"
-            
+              input: "Write about {{ topic }}"
             - agent: editor
-              input: |
-                Original: {{ steps[0].response }}
-                Edit for clarity and impact.
+              input: "Edit: {{ steps[0].response }}"
       
       inputs:
         values:
-          topic: "AI in healthcare"
+          topic: "AI ethics"
       
       outputs:
         artifacts:
-          - path: "./article.md"
+          - path: "./output.md"
             from: "{{ last_response }}"
       ```
       
-      ## Example 4: Parallel Pattern
+      ## Workflow Pattern (DAG)
       ```yaml
-      version: 0
-      name: parallel-research
-      description: Concurrent research with synthesis
+      pattern:
+        type: workflow
+        config:
+          tasks:
+            - id: research
+              agent: researcher
+              input: "Research {{ topic }}"
+            - id: analyze
+              agent: analyst
+              deps: [research]
+              input: "Analyze: {{ tasks.research.response }}"
+            - id: summarize
+              agent: writer
+              deps: [analyze]
+              input: "Summarize: {{ tasks.analyze.response }}"
+      ```
       
-      runtime:
-        provider: openai
-        model_id: gpt-4o-mini
+      ## Routing Pattern
+      ```yaml
+      pattern:
+        type: routing
+        config:
+          user_input: "{{ query }}"
+          routes:
+            - agent: technical_support
+              condition: "Technical issues or bugs"
+            - agent: billing_support
+              condition: "Billing or payment questions"
+            - agent: general_support
+              condition: "Everything else"
+      ```
       
-      agents:
-        researcher:
-          prompt: "You research specific aspects."
-        synthesizer:
-          prompt: "You synthesize multiple perspectives."
-      
+      ## Parallel Pattern
+      ```yaml
       pattern:
         type: parallel
         config:
           branches:
             - id: technical
               agent: researcher
-              input: "Research technical aspects of {{ topic }}"
-            
+              input: "Research technical {{ topic }}"
             - id: business
               agent: researcher
-              input: "Research business aspects of {{ topic }}"
-          
+              input: "Research business {{ topic }}"
           reduce:
             agent: synthesizer
             input: |
               Technical: {{ branches.technical.response }}
               Business: {{ branches.business.response }}
-              Synthesize into a unified view.
-      
-      inputs:
-        values:
-          topic: "blockchain"
-      
-      outputs:
-        artifacts:
-          - path: "./synthesis.md"
-            from: "{{ last_response }}"
+              Synthesize findings.
       ```
       
-      # CRITICAL SCHEMA RULES
+      ## Evaluator-Optimizer Pattern
+      ```yaml
+      pattern:
+        type: evaluator_optimizer
+        config:
+          producer: writer
+          evaluator:
+            agent: reviewer
+            input: |
+              Review: {{ draft }}
+              Return JSON: {"score": 0-100, "issues": [...], "fixes": [...]}
+          accept:
+            min_score: 85
+            max_iters: 4
+          revise_prompt: |
+            Score: {{ evaluation.score }}/100
+            Issues: {% for issue in evaluation.issues %}{{ issue }}{% endfor %}
+            Revise the draft.
+      ```
       
-      **REQUIRED FIELDS**:
-      - `version: 0` (must be integer 0, not string)
-      - `name: string` (lowercase-with-dashes preferred)
-      - `runtime.provider: bedrock|ollama|openai`
-      - `agents: {}` (map of agent_id to {prompt: string})
-      - `pattern.type: chain|workflow|routing|parallel`
-      - `pattern.config: {}` (varies by pattern type)
+      ## Orchestrator-Workers Pattern
+      ```yaml
+      pattern:
+        type: orchestrator_workers
+        config:
+          orchestrator:
+            agent: planner
+            input: "Break down: {{ task }}"
+            limits:
+              max_rounds: 1  # MVP: only 1 supported
+              max_workers: 5
+          worker:
+            agent: executor
+          reduce:
+            agent: aggregator
+            input: "Synthesize: {{ worker_results }}"
+      ```
       
-      **WORKFLOW PATTERN SPECIFICS**:
-      - Tasks use `id`, `agent`, `input`
-      - Dependencies via `deps: [task_id]`
-      - Reference task output: `{{ tasks.<id>.response }}`
-      - Tasks is a LIST of objects (use `- id:`, not map)
+      ## Graph Pattern
+      ```yaml
+      pattern:
+        type: graph
+        config:
+          start: "analyze"
+          nodes:
+            - id: analyze
+              agent: analyzer
+              input: "Analyze {{ request }}"
+            - id: approve
+              agent: approver
+              input: "Auto-approved"
+            - id: review
+              agent: reviewer
+              input: "Manual review"
+          edges:
+            - from: analyze
+              choose:
+                model_id: gpt-5-nano
+                options:
+                  - label: low_risk
+                    to: approve
+                    condition: "Low risk detected"
+                  - label: high_risk
+                    to: review
+                    condition: "High risk detected"
+            - from: approve
+              to: [notify]  # Only first target executes
+            - from: review
+              to: [notify]
+      ```
       
-      **ROUTING PATTERN SPECIFICS**:
-      - Must have `user_input: "{{ variable }}"`
-      - Routes is LIST with `agent` and `condition` fields
+      # YOUR GENERATION PROCESS
       
-      **CHAIN PATTERN SPECIFICS**:
-      - Steps is a LIST with `agent` and `input`
-      - Reference previous: `{{ steps[0].response }}` or `{{ last_response }}`
+      1. **Analyze Requirements**: Understand use case and pattern fit
+      2. **Select Pattern**: Choose most appropriate pattern
+      3. **Design Agents**: Create specialized agent prompts
+      4. **Apply Constraints**: Use ONLY MVP-supported features
+      5. **Validate**: Use spec_verify tool to check
+      6. **Output YAML**: Raw YAML only (no markdown fences)
       
-      **PARALLEL PATTERN SPECIFICS**:
-      - Branches is a LIST with `id`, `agent`, `input`
-      - Optional `reduce` with `agent` and `input`
-      - Reference branch: `{{ branches.<id>.response }}`
-      
-      **COMMON MISTAKES TO AVOID**:
-      1. ❌ `version: "0"` → ✅ `version: 0` (integer!)
-      2. ❌ `tasks: {task1: {...}}` → ✅ `tasks: [{id: task1, ...}]` (list!)
-      3. ❌ Agent IDs with spaces → ✅ Use underscores or hyphens
-      4. ❌ Referencing non-existent agents
-      5. ❌ Wrong template syntax → Use `{{ variable }}` not `{ variable }`
-      
-      # YOUR PROCESS
-      
-      1. **Study the examples** - they are COMPLETE and VALID
-      2. **Generate a similar spec** matching the requested pattern type
-      3. **Use spec_verify tool** to validate immediately
-      4. **If validation fails**: Read error carefully, fix ONE issue, re-verify
-      5. **Output ONLY raw YAML** (no markdown fences, no explanations)
-      6. **Stop when** schema_valid=true AND capability_supported=true
-      
-      Generate valid specs on the first try by following examples exactly!
+      Generate valid, MVP-compliant specs!
 
-  spec_refiner:
+  spec_validator:
+    model_id: gpt-5
     prompt: |
-      You are a workflow specification refinement specialist. Your job is to take
-      validation feedback and produce improved versions of workflow specs.
+      You are a workflow specification validator. You verify specs against:
+      1. JSON Schema Draft 2020-12
+      2. Pydantic model validation
+      3. MVP capability compatibility (RESIDUAL.md)
       
-      # Your Skills
+      Use the spec_verify tool to get detailed validation reports.
       
-      - **Error Analysis**: Parse spec_verify validation reports to identify exact issues
-      - **Root Cause**: Understand why validation failed (schema, pydantic, capability)
-      - **Precision Fixes**: Make minimal, targeted changes to fix specific errors
-      - **Quality Assurance**: Ensure fixes don't introduce new problems
-      
-      # Validation Report Structure
-      
+      **Validation Report Structure**:
       ```json
       {
         "schema_valid": bool,
         "pydantic_valid": bool,
         "capability_supported": bool,
-        "errors": [
-          {
-            "phase": "parse|schema|pydantic",
-            "type": "ErrorType",
-            "message": "Details",
-            "validation_errors": [...]
-          }
-        ],
-        "issues": [
-          {
-            "pointer": "/path/to/field",
-            "reason": "Why unsupported",
-            "remediation": "How to fix"
-          }
-        ]
+        "errors": [{phase, type, message, validation_errors}],
+        "issues": [{pointer, reason, remediation}]
       }
       ```
       
-      # Common Issues & Fixes
+      **MVP Compliance Checks**:
+      - Secret sources must be `env` only
+      - Orchestrator max_rounds must be 1 or omitted
+      - No security.guardrails usage
+      - No env.mounts usage
+      - Tools must be from allowlist
+      - No per-agent provider overrides
       
-      **Schema Errors**:
-      - Missing required fields → Add them with valid values
-      - Invalid enum values → Use only allowed values from schema
-      - Type mismatches → Convert to correct type (string → int, etc.)
+      **Your Process**:
+      1. Receive spec content
+      2. Run spec_verify tool with check_capability: true
+      3. Analyze validation report
+      4. If all valid: return "VALID" with summary
+      5. If errors: return detailed fixes needed
       
-      **Pydantic Errors**:
-      - Field validation → Check constraints (min/max, patterns)
-      - Reference errors → Ensure agent/task/step IDs exist
+      Be thorough and precise!
+
+  documentation_writer:
+    model_id: gpt-5
+    prompt: |
+      You write comprehensive documentation for workflow specifications.
       
-      **Capability Issues**:
-      - Unsupported pattern types → Change to chain/workflow/routing/parallel
-      - Unsupported tools → Use only spec_verify, http_request, file_read
-      - Unsupported features → Remove or replace with MVP-compatible alternatives
+      **Documentation Structure**:
+      1. Overview - What the workflow does
+      2. Architecture - Pattern type and agent roles
+      3. Usage Instructions - How to run with examples
+      4. Configuration - Available input variables
+      5. Expected Outputs - What artifacts are generated
+      6. Customization - How to modify for different needs
       
-      # Your Process
-      
-      1. **Receive validation feedback** from spec_verify tool
-      2. **Identify all errors** in priority order (schema → pydantic → capability)
-      3. **Apply fixes methodically** - one category at a time
-      4. **Output corrected YAML** (raw format, no code fences)
-      5. **Verify again** using spec_verify
-      
-      Be surgical in your fixes - preserve the original intent while ensuring validity.
+      Write clear, actionable documentation in markdown.
 
 pattern:
   type: chain
@@ -335,34 +317,103 @@ pattern:
           **Model**: {{ model }}
           **Number of Agents**: {{ num_agents }}
           **Pattern Type**: {{ pattern_type }}
+          **Include Tools**: {{ include_tools }}
           
-          IMPORTANT: Study the 4 complete examples in your system prompt. They show EXACTLY 
-          how to structure each pattern type correctly.
+          CRITICAL INSTRUCTIONS:
+          1. Study the pattern examples carefully
+          2. Use ONLY MVP-supported features (check constraints section)
+          3. Validate with spec_verify tool before outputting
+          4. If validation fails, fix errors and re-validate
+          5. Output ONLY raw YAML (no markdown code fences)
           
-          Generate a spec similar to the examples that solves the use case.
-          Use spec_verify tool to validate. If errors occur, fix and re-validate.
-          Output only raw YAML (no markdown fences).
+          The spec must be schema-valid, pydantic-valid, and capability-supported.
+        tool_overrides:
+          - spec_verify
+      
+      - agent: spec_validator
+        input: |
+          Validate this generated specification for MVP compliance:
+          
+          ```yaml
+          {{ steps[0].response }}
+          ```
+          
+          VALIDATION STEPS:
+          1. Use spec_verify tool with check_capability: true
+          2. Check for unsupported features from RESIDUAL.md
+          3. Verify pattern structure matches schema
+          4. Confirm all agent references exist
+          
+          Return validation result:
+          - If VALID: "VALIDATION PASSED - All checks successful"
+          - If INVALID: List all issues with remediations
         tool_overrides:
           - spec_verify
       
       - agent: spec_architect
         input: |
-          The generated spec:
+          Previous validation result:
+          {{ steps[1].response }}
+          
+          {% if "PASSED" in steps[1].response %}
+          The spec is valid! Output it unchanged:
+          {{ steps[0].response }}
+          {% else %}
+          The spec has validation errors. Fix them and output corrected YAML.
+          
+          Original spec:
           {{ steps[0].response }}
           
-          Now create comprehensive documentation explaining:
-          1. What this workflow does
-          2. How to use it (with example commands)
-          3. What each agent's role is
-          4. Expected outputs
+          Validation feedback:
+          {{ steps[1].response }}
           
-          Format as markdown.
+          Apply all fixes and output ONLY the corrected raw YAML.
+          {% endif %}
+        tool_overrides:
+          - spec_verify
+      
+      - agent: documentation_writer
+        input: |
+          Create comprehensive documentation for this workflow specification:
+          
+          ```yaml
+          {{ steps[2].response }}
+          ```
+          
+          **Documentation Requirements**:
+          1. Overview section explaining the workflow purpose
+          2. Architecture section describing the pattern and agents
+          3. Usage section with example CLI commands
+          4. Configuration section listing input variables
+          5. Outputs section describing artifacts
+          6. Customization section with modification tips
+          
+          Format as clear, structured markdown.
 
 outputs:
   artifacts:
     - path: ./generated-workflow.yaml
-      from: "{{ steps[0].response }}"
+      from: "{{ steps[2].response }}"
     
     - path: ./workflow-documentation.md
-      from: "{{ steps[1].response }}"
-
+      from: "{{ steps[3].response }}"
+    
+    - path: ./validation-report.md
+      from: |
+        # Workflow Generation Report
+        
+        **Use Case**: {{ use_case }}
+        **Pattern**: {{ pattern_type }}
+        **Provider**: {{ provider }}
+        
+        ## Validation Status
+        
+        {{ steps[1].response }}
+        
+        ## Generated Specification
+        
+        See `generated-workflow.yaml`
+        
+        ## Documentation
+        
+        See `workflow-documentation.md`
