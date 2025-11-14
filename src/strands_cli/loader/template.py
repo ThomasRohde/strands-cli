@@ -140,34 +140,32 @@ def _filter_regex_search(text: str, pattern: str) -> str:
     return ""
 
 
-def render_template(
+def _create_sandboxed_environment() -> SandboxedEnvironment:
+    """Create a sandboxed Jinja2 environment with approved filters."""
+    env = SandboxedEnvironment(
+        loader=BaseLoader(),
+        autoescape=False,
+        undefined=StrictUndefined,
+    )
+    env.filters.clear()
+    env.filters["truncate"] = _filter_truncate
+    env.filters["tojson"] = _filter_tojson
+    env.filters["title"] = _filter_title
+    env.filters["regex_search"] = _filter_regex_search
+    env.globals.clear()
+    return env
+
+
+def _render_with_environment(
+    env: SandboxedEnvironment,
     template_str: str,
     variables: dict[str, Any],
     max_output_chars: int | None = None,
 ) -> str:
-    """Render a Jinja2 template with safety controls.
-
-    Creates an isolated Jinja2 environment (no file system access) and renders
-    the template with strict undefined variable checking. Output is sanitized
-    to remove control characters and optionally truncated for token budget control.
-
-    Args:
-        template_str: Template string with Jinja2 syntax (e.g., "{{ variable }}")
-        variables: Dictionary of variables to inject into template
-        max_output_chars: Optional max output length for token budget enforcement.
-                          Output is truncated (not errored) if exceeded.
-
-    Returns:
-        Rendered and sanitized template string
-
-    Raises:
-        TemplateError: If template syntax is invalid, variable is undefined,
-                      or rendering fails for any reason
-    """
+    """Render using a provided sandboxed environment with safety controls."""
     debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
 
     if debug:
-        # Log template before rendering (truncate for readability)
         template_preview = template_str[:200] if len(template_str) > 200 else template_str
         logger.debug(
             "template_render_start",
@@ -176,24 +174,6 @@ def render_template(
             variable_keys=list(variables.keys()),
             variable_count=len(variables),
         )
-
-    # Create a sandboxed Jinja2 environment to prevent code execution
-    # SandboxedEnvironment blocks access to Python internals (__class__, __mro__, etc.)
-    env = SandboxedEnvironment(
-        loader=BaseLoader(),
-        autoescape=False,  # We're generating prompts, not HTML
-        undefined=StrictUndefined,  # Raise on undefined variables
-    )
-
-    # Explicitly whitelist only safe filters (clear defaults, add only approved)
-    env.filters.clear()
-    env.filters["truncate"] = _filter_truncate
-    env.filters["tojson"] = _filter_tojson
-    env.filters["title"] = _filter_title
-    env.filters["regex_search"] = _filter_regex_search
-
-    # Clear globals to prevent access to builtins
-    env.globals.clear()
 
     try:
         template = env.from_string(template_str)
@@ -210,7 +190,6 @@ def render_template(
         rendered = template.render(**variables)
 
         if debug:
-            # Log rendered output (truncate for readability)
             rendered_preview = rendered[:200] if len(rendered) > 200 else rendered
             logger.debug(
                 "template_rendered",
@@ -221,7 +200,6 @@ def render_template(
     except UndefinedError as e:
         raise TemplateError(f"Undefined variable in template: {e}") from e
     except SecurityError as e:
-        # SandboxedEnvironment raises SecurityError on unsafe operations
         logger.warning(
             "template_security_violation",
             violation_type="unsafe_operation",
@@ -232,14 +210,22 @@ def render_template(
     except Exception as e:
         raise TemplateError(f"Template rendering failed: {e}") from e
 
-    # Apply safety controls
     rendered = _strip_control_chars(rendered)
 
-    # Enforce token budget if specified
     if max_output_chars is not None and len(rendered) > max_output_chars:
         rendered = rendered[:max_output_chars]
 
     return rendered
+
+
+def render_template(
+    template_str: str,
+    variables: dict[str, Any],
+    max_output_chars: int | None = None,
+) -> str:
+    """Render a Jinja2 template with safety controls."""
+    env = _create_sandboxed_environment()
+    return _render_with_environment(env, template_str, variables, max_output_chars)
 
 
 class TemplateRenderer:
@@ -256,19 +242,7 @@ class TemplateRenderer:
             max_output_chars: Optional max output length for all renders
         """
         self.max_output_chars = max_output_chars
-        self.env = SandboxedEnvironment(
-            loader=BaseLoader(),
-            autoescape=False,
-            undefined=StrictUndefined,
-        )
-        # Explicitly whitelist only safe filters
-        self.env.filters.clear()
-        self.env.filters["truncate"] = _filter_truncate
-        self.env.filters["tojson"] = _filter_tojson
-        self.env.filters["title"] = _filter_title
-        self.env.filters["regex_search"] = _filter_regex_search
-        # Clear globals to prevent access to builtins
-        self.env.globals.clear()
+        self.env = _create_sandboxed_environment()
 
     def render(self, template_str: str, variables: dict[str, Any]) -> str:
         """Render a template.
@@ -283,4 +257,4 @@ class TemplateRenderer:
         Raises:
             TemplateError: If rendering fails
         """
-        return render_template(template_str, variables, self.max_output_chars)
+        return _render_with_environment(self.env, template_str, variables, self.max_output_chars)

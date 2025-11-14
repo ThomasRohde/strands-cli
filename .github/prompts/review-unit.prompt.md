@@ -3,7 +3,7 @@ name: review-unit
 description: Review a specific review unit (e.g., Layer 1.1, Layer 5.2)
 argument-hint: "unit ID (e.g., '1.1', '5.2') from REVIEW.md"
 agent: agent
-tools: ['search', 'usages']
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'Context7/*', 'Ref tools/*', 'usages', 'vscodeAPI', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos', 'runSubagent', 'runTests']
 ---
 
 # Review Unit: ${input:unit}

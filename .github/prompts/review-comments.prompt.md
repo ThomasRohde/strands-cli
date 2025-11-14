@@ -2,7 +2,7 @@
 name: review-comments
 description: Review code comments and documentation quality
 agent: agent
-tools: ['search']
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'Ref tools/*', 'usages', 'vscodeAPI', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos', 'runSubagent', 'runTests']
 ---
 
 # Comment & Documentation Review: ${fileBasename}

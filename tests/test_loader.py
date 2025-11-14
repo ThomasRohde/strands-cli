@@ -255,6 +255,71 @@ outputs:
         assert "values" in spec.inputs
         assert spec.inputs["values"]["key"] == "value"
 
+    def test_variable_resolution_invalid_inputs_structure_raises(self, temp_output_dir: Path) -> None:
+        """Test that malformed inputs structures trigger LoadError when merging variables."""
+        spec_file = temp_output_dir / "spec-invalid-inputs.yaml"
+        spec_content = """
+version: 0
+name: test
+runtime:
+  provider: ollama
+  model_id: gpt
+  host: http://localhost:11434
+inputs: []
+agents:
+  test:
+    prompt: "Test"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+
+        with pytest.raises(LoadError) as exc_info:
+            load_spec(spec_file, variables={"topic": "value"})
+
+        assert "inputs" in str(exc_info.value)
+
+    def test_variable_resolution_invalid_values_structure_raises(self, temp_output_dir: Path) -> None:
+        """Test that malformed inputs.values structures trigger LoadError when merging variables."""
+        spec_file = temp_output_dir / "spec-invalid-values.yaml"
+        spec_content = """
+version: 0
+name: test
+runtime:
+  provider: ollama
+  model_id: gpt
+  host: http://localhost:11434
+inputs:
+  values: []
+agents:
+  test:
+    prompt: "Test"
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file.write_text(spec_content, encoding="utf-8")
+
+        with pytest.raises(LoadError) as exc_info:
+            load_spec(spec_file, variables={"topic": "value"})
+
+        assert "inputs.values" in str(exc_info.value)
+
 
 @pytest.mark.unit
 class TestParseVariables:

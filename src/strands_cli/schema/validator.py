@@ -14,6 +14,7 @@ Schema Location:
     Loaded via importlib.resources for proper packaging support
 """
 
+import copy
 import json
 from importlib.resources import files
 from typing import Any
@@ -123,4 +124,4 @@ def get_schema() -> dict[str, Any]:
     Returns:
         The strands-workflow.schema.json as a dict (copied to prevent mutation)
     """
-    return _SCHEMA.copy()
+    return copy.deepcopy(_SCHEMA)

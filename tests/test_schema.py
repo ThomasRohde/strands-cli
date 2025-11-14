@@ -189,6 +189,16 @@ class TestSchemaValidation:
         schema1["modified"] = True
         assert "modified" not in schema2
 
+        # Nested mutation should also be isolated (deep copy)
+        runtime_props = schema1["$defs"]["runtime"]["properties"]
+        original_provider_description = runtime_props["provider"]["description"]
+        runtime_props["provider"]["description"] = "mutated"
+        schema3 = get_schema()
+        assert (
+            schema3["$defs"]["runtime"]["properties"]["provider"]["description"]
+            == original_provider_description
+        )
+
     def test_schema_has_required_sections(self) -> None:
         """Test that the schema contains all required top-level sections."""
         schema = get_schema()

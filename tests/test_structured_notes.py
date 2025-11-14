@@ -387,48 +387,27 @@ class TestNotesManager:
         assert "session1-agent" in all_notes
         assert "session2-agent" in all_notes
 
-    def test_file_write_error_raises_manager_error(self, tmp_path: Path) -> None:
+    def test_file_write_error_raises_manager_error(self, tmp_path: Path, mocker) -> None:
         """Test that file write errors are wrapped in NotesManagerError."""
-        import sys
-
-        # Skip on Windows as chmod doesn't work the same way for directories
-        if sys.platform == "win32":
-            pytest.skip("chmod-based test not reliable on Windows")
-
-        import contextlib
-        import stat
-
-        # Create a read-only directory to force write error
-        readonly_dir = tmp_path / "readonly"
-        readonly_dir.mkdir()
-
-        notes_path = readonly_dir / "notes.md"
+        # Use mock to simulate file write error (cross-platform)
+        notes_path = tmp_path / "notes.md"
         manager = NotesManager(str(notes_path))
 
-        # Make directory read-only (Unix: chmod 555)
-        try:
-            readonly_dir.chmod(
-                stat.S_IRUSR
-                | stat.S_IXUSR
-                | stat.S_IRGRP
-                | stat.S_IXGRP
-                | stat.S_IROTH
-                | stat.S_IXOTH
+        # Mock the open() call to raise an OSError
+        mock_open = mocker.patch("builtins.open", side_effect=OSError("Permission denied"))
+
+        with pytest.raises(NotesManagerError, match="Failed to append note entry"):
+            manager.append_entry(
+                timestamp="2025-11-07T14:32:00Z",
+                agent_name="test-agent",
+                step_index=1,
+                input_summary="Test",
+                tools_used=[],
+                outcome="Done",
             )
 
-            with pytest.raises(NotesManagerError, match="Failed to append note entry"):
-                manager.append_entry(
-                    timestamp="2025-11-07T14:32:00Z",
-                    agent_name="test-agent",
-                    step_index=1,
-                    input_summary="Test",
-                    tools_used=[],
-                    outcome="Done",
-                )
-        finally:
-            # Restore permissions for cleanup
-            with contextlib.suppress(Exception):
-                readonly_dir.chmod(stat.S_IRWXU)
+        # Verify open was called
+        mock_open.assert_called_once()
 
     def test_empty_tools_list_formats_as_none(self, tmp_path: Path) -> None:
         """Test that empty tools list formats as 'None'."""

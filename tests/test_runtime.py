@@ -928,7 +928,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_file_protocol(self):
         """Test that file:// protocol is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern"):
+        with pytest.raises(ValueError, match="must use http or https"):
             HttpExecutor(
                 id="malicious",
                 base_url="file:///etc/passwd",
@@ -936,7 +936,7 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_ftp_protocol(self):
         """Test that ftp:// protocol is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern"):
+        with pytest.raises(ValueError, match="must use http or https"):
             HttpExecutor(
                 id="malicious",
                 base_url="ftp://internal-server/data",
@@ -944,10 +944,34 @@ class TestHttpExecutorSecurity:
 
     def test_blocks_gopher_protocol(self):
         """Test that gopher:// protocol is blocked."""
-        with pytest.raises(ValueError, match="blocked pattern"):
+        with pytest.raises(ValueError, match="must use http or https"):
             HttpExecutor(
                 id="malicious",
                 base_url="gopher://internal-server:70",
+            )
+
+    def test_blocks_unspecified_ip(self):
+        """Test that 0.0.0.0 is blocked even without explicit pattern."""
+        with pytest.raises(ValueError, match=r"blocked host '0\.0\.0\.0'"):
+            HttpExecutor(
+                id="malicious",
+                base_url="http://0.0.0.0:8080",
+            )
+
+    def test_blocks_urls_with_credentials(self):
+        """Test that URLs containing credentials are rejected."""
+        with pytest.raises(ValueError, match="must not include credentials"):
+            HttpExecutor(
+                id="malicious",
+                base_url="https://user:pass@api.example.com",
+            )
+
+    def test_blocks_obfuscated_loopback_with_userinfo(self):
+        """Test that loopback disguised via userinfo is detected."""
+        with pytest.raises(ValueError, match="must not include credentials"):
+            HttpExecutor(
+                id="malicious",
+                base_url="https://example.com@127.0.0.1:8080",
             )
 
     def test_allows_public_https_urls(self):

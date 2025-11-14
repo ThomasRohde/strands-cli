@@ -15,11 +15,13 @@ Key Models:
     StreamChunk: Streaming response chunk for async execution
 """
 
+import ipaddress
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
+from urllib.parse import SplitResult, urlsplit
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -40,6 +42,12 @@ DEFAULT_BLOCKED_URL_PATTERNS = [
     r"^ftp://.*$",  # FTP protocol
     r"^gopher://.*$",  # Gopher protocol
 ]
+
+BLOCKED_HOSTNAMES = {
+    "localhost",
+    "localhost.localdomain",
+    "metadata.google.internal",
+}
 
 
 # ===== Streaming Types (Phase 3) =====
@@ -207,6 +215,76 @@ class HttpExecutor(BaseModel):
         description="Information about authentication requirements (for documentation, not credentials)",
     )
 
+    @classmethod
+    def _check_scheme_and_credentials(cls, v: str, parsed: SplitResult) -> None:
+        """Check URL scheme and credentials."""
+        scheme = parsed.scheme.lower()
+        if scheme not in {"http", "https"}:
+            logger.warning(
+                "http_url_blocked",
+                violation_type="unsupported_scheme",
+                blocked_url=v,
+                scheme=scheme or "",
+            )
+            raise ValueError(f"base_url '{v}' must use http or https")
+
+        if parsed.username or parsed.password:
+            logger.warning(
+                "http_url_blocked",
+                violation_type="url_credentials_present",
+                blocked_url=v,
+            )
+            raise ValueError(f"base_url '{v}' must not include credentials")
+
+    @classmethod
+    def _check_blocked_patterns(
+        cls, v: str, pattern_candidates: list[str], blocked_patterns: list[str]
+    ) -> None:
+        """Check if URL matches any blocked patterns."""
+        def _matches(pattern: str) -> bool:
+            return any(re.match(pattern, candidate, re.IGNORECASE) for candidate in pattern_candidates)
+
+        for pattern in blocked_patterns:
+            if _matches(pattern):
+                logger.warning(
+                    "http_url_blocked",
+                    violation_type="ssrf_attempt",
+                    blocked_url=v,
+                    matched_pattern=pattern,
+                )
+                raise ValueError(
+                    f"base_url '{v}' matches blocked pattern (potential SSRF): {pattern}"
+                )
+
+    @classmethod
+    def _check_ip_restrictions(cls, v: str, host_lower: str) -> None:
+        """Check if hostname is a blocked IP address."""
+        try:
+            ip = ipaddress.ip_address(host_lower)
+        except ValueError:
+            return  # Not an IP address
+
+        violation = ""
+        if ip.is_loopback:
+            violation = "loopback"
+        elif ip.is_private:
+            violation = "private_network"
+        elif ip.is_link_local or host_lower == "169.254.169.254":
+            violation = "link_local"
+        elif ip.is_unspecified:
+            violation = "unspecified"
+
+        if violation:
+            logger.warning(
+                "http_url_blocked",
+                violation_type=violation,
+                blocked_url=v,
+                hostname=host_lower,
+            )
+            raise ValueError(
+                f"base_url '{v}' resolves to blocked host '{host_lower}' (potential SSRF)"
+            )
+
     @field_validator("base_url")
     @classmethod
     def validate_base_url(cls, v: str) -> str:
@@ -227,30 +305,49 @@ class HttpExecutor(BaseModel):
         from strands_cli.config import StrandsConfig
 
         config = StrandsConfig()
+        parsed = urlsplit(v)
 
-        # Combine default blocked patterns with user-configured ones
+        # Check scheme and credentials
+        cls._check_scheme_and_credentials(v, parsed)
+
+        hostname = parsed.hostname
+        if hostname is None:
+            raise ValueError(f"base_url '{v}' is missing a hostname")
+
+        host_lower = hostname.lower()
+        hostname_for_url = hostname if ":" not in hostname else f"[{hostname}]"
+        host_with_scheme = f"{parsed.scheme.lower()}://{hostname_for_url}"
+        host_with_port = (
+            host_with_scheme if parsed.port is None else f"{host_with_scheme}:{parsed.port}"
+        )
+        pattern_candidates = [v, host_with_scheme, host_with_port]
+
+        # Check blocked patterns
         blocked_patterns = DEFAULT_BLOCKED_URL_PATTERNS + config.http_blocked_patterns
+        cls._check_blocked_patterns(v, pattern_candidates, blocked_patterns)
 
-        # Check against blocked patterns
-        for pattern in blocked_patterns:
-            if re.match(pattern, v, re.IGNORECASE):
-                logger.warning(
-                    "http_url_blocked",
-                    violation_type="ssrf_attempt",
-                    blocked_url=v,
-                    matched_pattern=pattern,
-                )
-                raise ValueError(
-                    f"base_url '{v}' matches blocked pattern (potential SSRF): {pattern}"
-                )
+        # Block well-known unsafe hostnames
+        if host_lower in BLOCKED_HOSTNAMES:
+            logger.warning(
+                "http_url_blocked",
+                violation_type="blocked_hostname",
+                blocked_url=v,
+                hostname=host_lower,
+            )
+            raise ValueError(
+                f"base_url '{v}' resolves to blocked host '{host_lower}' (potential SSRF)"
+            )
+
+        # Check IP restrictions
+        cls._check_ip_restrictions(v, host_lower)
 
         # If allowed domains are configured, enforce allowlist
         if config.http_allowed_domains:
-            allowed = False
-            for pattern in config.http_allowed_domains:
-                if re.match(pattern, v, re.IGNORECASE):
-                    allowed = True
-                    break
+            allowed = any(
+                re.match(pattern, candidate, re.IGNORECASE)
+                for pattern in config.http_allowed_domains
+                for candidate in pattern_candidates
+            )
             if not allowed:
                 logger.warning(
                     "http_url_not_allowed",

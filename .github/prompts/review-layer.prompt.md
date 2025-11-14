@@ -3,7 +3,7 @@ name: review-layer
 description: Review a complete architectural layer from REVIEW.md
 argument-hint: "layer number (1-9) or name (e.g., 'foundation', 'execution')"
 agent: agent
-tools: ['search', 'fetch', 'usages']
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'Context7/*', 'Ref tools/*', 'usages', 'vscodeAPI', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos', 'runSubagent', 'runTests']
 ---
 
 # Layer Review Task

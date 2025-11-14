@@ -2,7 +2,7 @@
 name: review-checklist
 description: Run review checklists on the current file/selection
 agent: agent
-tools: ['search']
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'Context7/*', 'Ref tools/*', 'usages', 'vscodeAPI', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'extensions', 'todos', 'runSubagent', 'runTests']
 ---
 
 # Review Checklist for ${fileBasename}
