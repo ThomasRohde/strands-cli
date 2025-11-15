@@ -2556,7 +2556,7 @@ wheels = [
 
 [[package]]
 name = "strands-agents"
-version = "1.14.0"
+version = "1.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -2571,9 +2571,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/dd/a2dc96614bb1dd7c1623cbdf6df268eb307038b2fe27bc5a6148f4223f59/strands_agents-1.14.0.tar.gz", hash = "sha256:f86dd2b92d50196acd0c5ff5404fcd1b6c3715ae56fcceb2a78210ab47860585", size = 471216 }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/bd/160ad34c1b635ee534f0dd8de009097fff849101a847a0ae160b73f7aa41/strands_agents-1.16.0.tar.gz", hash = "sha256:661e1fcf7e86e11277b5b15c827ca5abe00dfc425bb39036f85c0ebffedd11d7", size = 512502 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/08/848c26d917d8f75bc10edeea63578af218df5c6efeb69e3cf91eb8fd396e/strands_agents-1.14.0-py3-none-any.whl", hash = "sha256:d2ebc1b991c37e891cfe79cf5dea1bfa021c3e6d93e4d2f238042ea688019bf3", size = 238974 },
+    { url = "https://files.pythonhosted.org/packages/93/a3/f5a2f9810f51f7d204ec395d6ba324680b5d4b3c6589b22ebd4082bcba0b/strands_agents-1.16.0-py3-none-any.whl", hash = "sha256:6668771902b26fdd40ee616f9ba023199defc5d2e0b084c3705c918b6788c507", size = 253753 },
 ]
 
 [[package]]
@@ -2720,7 +2720,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = "==1.2.1" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "ruamel-yaml", specifier = "==0.18.10" },
-    { name = "strands-agents", specifier = ">=1.14.0" },
+    { name = "strands-agents", specifier = ">=1.16.0" },
     { name = "strands-agents-tools", specifier = ">=0.1" },
     { name = "structlog", specifier = "==25.5.0" },
     { name = "tenacity", specifier = ">=9.0" },
