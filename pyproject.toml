@@ -58,6 +58,7 @@ dependencies = [
   "platformdirs>=4.2",
   "filelock>=3.14",
   "tiktoken>=0.5.0",
+  "ddgs>=9.9.1",
 ]
 
 # Optional feature groups exposed as extras (install with: uv pip install .[docs])

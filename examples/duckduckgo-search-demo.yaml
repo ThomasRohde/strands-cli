@@ -1,0 +1,50 @@
+version: 0
+name: duckduckgo-search-demo
+description: |
+  Demonstrate DuckDuckGo search tool with text and news searches.
+  Shows different parameter configurations and JSON result handling.
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+  
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant with access to DuckDuckGo search.
+      
+      When asked to search, use the duckduckgo_search tool to find relevant information.
+      The tool returns JSON results with a list of search results, each containing:
+      - title: The page title
+      - href: The URL
+      - body: A snippet of the content
+      
+      For news searches, results also include:
+      - date: Publication date
+      - source: News source name
+      
+      Analyze the search results and provide a clear, concise summary of the most
+      relevant findings. Include URLs for key sources.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: |
+          Search for recent information about "AI agents and automation" using text search.
+          Use max_results=5 to keep it focused.
+      
+      - agent: researcher
+        input: |
+          Now search for recent news about "artificial intelligence breakthroughs" 
+          from the past week. Use search_type="news" and timelimit="w" with max_results=3.
+
+tools:
+  python:
+    - duckduckgo_search  # Native DuckDuckGo search tool
+
+outputs:
+  artifacts:
+    - path: ./duckduckgo-search-results.txt
+      from: "{{ last_response }}"
