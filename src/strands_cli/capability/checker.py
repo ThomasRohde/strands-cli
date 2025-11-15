@@ -178,7 +178,7 @@ def _validate_provider(spec: Spec, issues: list[CapabilityIssue]) -> None:
             )
 
 
-def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue]) -> None:
+def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue]) -> None:  # noqa: C901
     """Validate inference parameter compatibility with provider.
 
     Issues always-on warnings when inference parameters are used with

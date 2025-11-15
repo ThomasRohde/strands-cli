@@ -8,7 +8,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.2-brightgreen.svg)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/tests-1549+-success.svg)](#development)
 [![Coverage](https://img.shields.io/badge/coverage-83%25-yellow.svg)](#development)
 
@@ -944,7 +944,7 @@ Show the CLI version.
 
 ```bash
 uv run strands version
-# Output: strands-cli version 0.4.1
+# Output: strands-cli version 0.4.2
 ```
 
 ### `strands sessions`

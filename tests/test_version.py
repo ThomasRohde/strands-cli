@@ -5,4 +5,4 @@ import strands_cli
 
 def test_version() -> None:
     """Test that version is defined."""
-    assert strands_cli.__version__ == "0.4.1"
+    assert strands_cli.__version__ == "0.4.2"

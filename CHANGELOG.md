@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Variable detection module: `src/strands_cli/loader/variable_detector.py`
   - Interactive prompting module: `src/strands_cli/loader/variable_prompter.py`
   - Comprehensive test coverage: `tests/test_variable_detector.py`, `tests/test_variable_prompter.py` (31 tests)
+- **Web Fetch native tool** for retrieving static pages as HTML or markdown with optional raw HTML
+  - Implemented as `strands_cli.tools.web_fetch` with full Strands tool spec and retrying httpx client
+  - Supports markdown conversion via `markdownify` and content extraction with `trafilatura`
+  - Includes unit tests covering validation, markdown mode, retry logic, and error handling (`tests/test_web_fetch.py`)
+  - Added dependencies: `markdownify`, `trafilatura` (and lockfile updates)
+  - Deep research workflow (`examples/duckduckgo-search-demo.yaml`) now instructs agents to fetch full articles alongside DuckDuckGo results for richer evidence
 
 ## [0.4.0] - 2025-11-13
 

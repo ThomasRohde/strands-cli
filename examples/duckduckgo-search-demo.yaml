@@ -7,10 +7,7 @@ description: |
 
 runtime:
   provider: openai
-  model_id: gpt-4o-mini
-  temperature: 0.7
-  budgets:
-    max_tokens: 50000
+  model_id: gpt-5-nano
   
 agents:
   initial_researcher:
@@ -18,12 +15,16 @@ agents:
       You are an expert research analyst conducting preliminary research.
       
       Your goal is to identify the key themes, questions, and areas to explore
-      for the given topic. Use DuckDuckGo search to gather initial information.
+      for the given topic. Use DuckDuckGo search to gather initial information,
+      then call the web_fetch tool in markdown mode on the most relevant URLs
+      to capture full-page context without excess tokens.
       
       The duckduckgo_search tool returns JSON with:
       - title: Page title
       - href: URL
       - body: Content snippet
+      The web_fetch tool retrieves the full content for each URL so you can
+      extract detailed evidence.
       
       Search broadly first, then identify:
       1. Main subtopics and concepts
@@ -38,6 +39,8 @@ agents:
       You are a deep research specialist who investigates specific aspects thoroughly.
       
       Use DuckDuckGo search to dive deep into subtopics and answer specific questions.
+      For every promising result, immediately fetch the referenced page with
+      web_fetch (mode="markdown") to read detailed explanations, quotes, and data.
       Cross-reference multiple sources and look for:
       - Supporting evidence
       - Contradictory viewpoints
@@ -61,6 +64,8 @@ agents:
       - source: News source name
       
       Focus on developments from the past month (timelimit="m").
+      After selecting relevant hits, fetch the underlying article URLs via
+      web_fetch (mode="markdown") to confirm facts and capture quotes.
       Highlight breaking news and emerging trends.
 
   synthesis_expert:
@@ -83,9 +88,10 @@ agents:
       
       Review the synthesized report and verify key claims by:
       1. Cross-referencing with additional searches
-      2. Checking source credibility
-      3. Identifying unsupported assertions
-      4. Flagging potential biases
+      2. Fetching cited sources with web_fetch (mode="markdown") to confirm wording
+      3. Checking source credibility
+      4. Identifying unsupported assertions
+      5. Flagging potential biases
       
       Provide specific corrections or confirmations with evidence.
 
@@ -122,6 +128,9 @@ pattern:
           3. Key subtopics to investigate
           
           Create a structured research plan identifying 3-5 specific areas to explore.
+          
+          For at least two priority sources, call web_fetch (mode="markdown") using
+          the returned href values to capture detailed context you can cite later.
 
       # Stage 2: Deep dive into subtopics
       - agent: deep_researcher
@@ -134,9 +143,10 @@ pattern:
           
           For each subtopic:
           1. Search for detailed information (max_results={{ max_sources }})
-          2. Look for technical details and expert analysis
-          3. Find supporting evidence and examples
-          4. Note any controversies or alternative views
+          2. Fetch at least two authoritative URLs with web_fetch (mode="markdown") to review full content
+          3. Look for technical details and expert analysis
+          4. Find supporting evidence and examples
+          5. Note any controversies or alternative views
           
           Synthesize comprehensive findings for each area.
 
@@ -151,6 +161,9 @@ pattern:
           3. Recent studies or reports
           
           Maximum {{ max_sources }} news items.
+          
+          Fetch each selected article URL via web_fetch (mode="markdown", timeout=20)
+          so you can cite concrete quotes or data points.
           
           How do recent developments relate to the earlier research?
           
@@ -196,14 +209,16 @@ pattern:
           Check for:
           1. Factual accuracy of major claims
           2. Source credibility
-          3. Missing perspectives
-          4. Potential biases
+          3. Fetching critical references with web_fetch (mode="markdown") to confirm quotes
+          4. Missing perspectives
+          5. Potential biases
           
           Provide corrections, confirmations, or additional context.
 
 tools:
   python:
     - duckduckgo_search  # Native DuckDuckGo search tool with text and news search
+    - web_fetch  # Fetch full pages in HTML or markdown for deeper analysis
 
 outputs:
   artifacts:
@@ -237,4 +252,5 @@ outputs:
         4. **Synthesis** - Integration into comprehensive report
         5. **Fact-Checking** - Validation and verification
         
-        All findings sourced from DuckDuckGo web and news searches.
+        All findings sourced from DuckDuckGo web/news searches with full-page
+        retrieval via the web_fetch tool (markdown mode).

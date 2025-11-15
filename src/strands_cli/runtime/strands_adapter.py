@@ -340,7 +340,7 @@ def _load_mcp_tools(spec: Spec, tools_to_use: list[str] | None) -> list[tuple[st
     return mcp_clients
 
 
-def build_agent(
+def build_agent(  # noqa: C901
     spec: Spec,
     agent_id: str,
     agent_config: AgentConfig,

@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 try:
-    from fastapi import APIRouter, HTTPException, Query
+    from fastapi import APIRouter, HTTPException, Query  # type: ignore[import-not-found]
 except ImportError as e:
     raise ImportError(
         "FastAPI is required for web integrations. Install with: pip install \"strands-cli[web]\""
@@ -100,7 +100,7 @@ def create_workflow_router(
     router = APIRouter(prefix=prefix, tags=["workflow"])
     session_manager = SessionManager(storage_dir=storage_dir)
 
-    @router.post("/execute", response_model=ExecuteResponse)
+    @router.post("/execute", response_model=ExecuteResponse)  # type: ignore[misc]
     async def execute_workflow(request: ExecuteRequest) -> ExecuteResponse:
         """Execute workflow asynchronously.
 
@@ -141,7 +141,7 @@ def create_workflow_router(
                 detail=f"Workflow execution failed: {e}",
             ) from e
 
-    @router.get("/sessions", response_model=list[SessionInfo])
+    @router.get("/sessions", response_model=list[SessionInfo])  # type: ignore[misc]
     async def list_sessions(
         offset: int = Query(0, ge=0, description="Pagination offset"),
         limit: int = Query(100, ge=1, le=1000, description="Maximum results (1-1000)"),
@@ -195,7 +195,7 @@ def create_workflow_router(
             for session in sessions
         ]
 
-    @router.get("/sessions/{session_id}", response_model=SessionInfo)
+    @router.get("/sessions/{session_id}", response_model=SessionInfo)  # type: ignore[misc]
     async def get_session(session_id: str) -> SessionInfo:
         """Get session details.
 
@@ -233,7 +233,7 @@ def create_workflow_router(
                 detail=f"Session not found: {session_id}",
             ) from None
 
-    @router.post("/sessions/{session_id}/resume", response_model=ExecuteResponse)
+    @router.post("/sessions/{session_id}/resume", response_model=ExecuteResponse)  # type: ignore[misc]
     async def resume_session(session_id: str, request: ResumeRequest) -> ExecuteResponse:
         """Resume paused session.
 
@@ -275,7 +275,7 @@ def create_workflow_router(
                 detail=f"Failed to resume session: {e}",
             ) from e
 
-    @router.delete("/sessions/{session_id}", status_code=204)
+    @router.delete("/sessions/{session_id}", status_code=204)  # type: ignore[misc]
     async def delete_session(session_id: str) -> None:
         """Delete session.
 
