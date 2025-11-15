@@ -158,7 +158,7 @@ To fix, choose one:
   3. Run in interactive terminal (not piped/CI/CD)
 ```
 
-**See also:** [`examples/chain-interactive-prompts-openai.yaml`](../../examples/chain-interactive-prompts-openai.yaml) for a complete example.
+**See also:** [`examples/chain-interactive-prompts-openai.yaml`](https://github.com/ThomasRohde/strands-cli/blob/master/examples/chain-interactive-prompts-openai.yaml) for a complete example.
 
 ### Debug and Verbose Output
 
