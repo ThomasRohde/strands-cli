@@ -431,12 +431,50 @@ class Tools(BaseModel):
         return result
 
 
+class Inference(BaseModel):
+    """LLM inference parameters controlling generation behavior.
+
+    Can be specified at runtime level (default for all agents) or per-agent
+    (overrides runtime settings).
+    """
+
+    temperature: float | None = Field(
+        None,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature (0.0-2.0). Higher values increase randomness/creativity. "
+        "Lower values make output more deterministic. Typical: 0.7 for creative tasks, "
+        "0.1-0.3 for factual/analytical tasks.",
+    )
+    top_p: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Nucleus sampling parameter (0.0-1.0). Alternative to temperature. "
+        "Considers tokens with cumulative probability mass up to top_p. Typical: 0.9-0.95. "
+        "Use either temperature OR top_p, not both.",
+    )
+    max_tokens: int | None = Field(
+        None,
+        ge=1,
+        description="Maximum tokens to generate in response. Acts as hard limit on output length. "
+        "Does not include input tokens. Set appropriately for expected output "
+        "(e.g., 500 for summaries, 2000 for detailed reports).",
+    )
+
+
 class Agent(BaseModel):
     """Agent configuration."""
 
     prompt: str
     tools: list[str] | None = None  # Tool IDs to use
     model_id: str | None = None  # Override runtime model
+    inference: Inference | None = Field(
+        None,
+        description="Overrides runtime inference parameters (temperature, top_p, max_tokens) "
+        "for this agent. Provider support: OpenAI/Azure (fully supported), "
+        "Bedrock (limited by SDK), Ollama (not supported).",
+    )
 
 
 class HITLStep(BaseModel):

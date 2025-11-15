@@ -398,13 +398,28 @@ def build_agent(
         tool_overrides=tool_overrides,
     )
 
-    # Create the model with agent-level model_id override if specified
+    # Create the model with agent-level overrides if specified
+    # (model_id and/or inference parameters)
     try:
+        # Build runtime with agent-level overrides
+        runtime_overrides: dict[str, Any] = {}
+
+        # Model ID override
         if agent_config.model_id:
-            # Create a modified runtime with agent's model_id
-            runtime_with_override = spec.runtime.model_copy(
-                update={"model_id": agent_config.model_id}
-            )
+            runtime_overrides["model_id"] = agent_config.model_id
+
+        # Inference parameter overrides (temperature, top_p, max_tokens)
+        if agent_config.inference:
+            if agent_config.inference.temperature is not None:
+                runtime_overrides["temperature"] = agent_config.inference.temperature
+            if agent_config.inference.top_p is not None:
+                runtime_overrides["top_p"] = agent_config.inference.top_p
+            if agent_config.inference.max_tokens is not None:
+                runtime_overrides["max_tokens"] = agent_config.inference.max_tokens
+
+        # Apply overrides if any exist
+        if runtime_overrides:
+            runtime_with_override = spec.runtime.model_copy(update=runtime_overrides)
             model = create_model(runtime_with_override)
         else:
             model = create_model(spec.runtime)

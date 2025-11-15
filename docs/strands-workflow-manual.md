@@ -456,6 +456,45 @@ agents:
 - Avoid setting wildly different temperatures across agents in the same flow.
 - The `agents` object must contain at least one agent.
 
+#### Provider Inference Support
+
+Inference parameters (`temperature`, `top_p`, `max_tokens`) have **provider-specific support**:
+
+| Provider | Runtime-Level | Agent-Level | Notes |
+|----------|--------------|-------------|-------|
+| **OpenAI** | ✅ Full support | ✅ Full support | All parameters work as expected |
+| **Azure OpenAI** | ✅ Full support | ✅ Full support | Same API as OpenAI |
+| **Bedrock** | ⚠️ Limited | ⚠️ Limited | SDK limitation - parameters logged but not applied. Configure via AWS Bedrock console |
+| **Ollama** | ❌ Not supported | ❌ Not supported | Configure via Ollama Modelfile instead |
+
+**Important**: When using Bedrock or Ollama providers:
+- Inference parameters in your spec will be **parsed and validated** by the schema
+- The CLI will log **warning messages** during execution (not errors)
+- Execution will proceed normally, but parameters won't affect model behavior
+- Check capability checker output (`strands plan`) for provider compatibility warnings
+
+**Example**: Using inference with OpenAI (fully supported)
+```yaml
+runtime:
+  provider: openai
+  temperature: 0.7  # Default for all agents
+
+agents:
+  creative_writer:
+    prompt: "Write creatively..."
+    inference:
+      temperature: 1.2  # Override: high creativity
+      max_tokens: 300
+  
+  analyst:
+    prompt: "Analyze precisely..."
+    inference:
+      temperature: 0.2  # Override: low temperature for precision
+      top_p: 0.8
+```
+
+See `examples/inference-overrides-openai.yaml` for a complete demonstration.
+
 ---
 
 ## 12) Patterns

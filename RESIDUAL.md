@@ -108,19 +108,42 @@ wait_strategy = wait_exponential(multiplier=1, min=wait_min, max=wait_max)
 
 | Feature | Provider Support | Status | Notes |
 |---------|------------------|--------|-------|
-| `temperature` | OpenAI | ✅ **Implemented** | Bedrock/Ollama ignore it |
-| `top_p` | OpenAI | ✅ **Implemented** | Bedrock/Ollama ignore it |
-| `max_tokens` | OpenAI | ✅ **Implemented** | Bedrock/Ollama ignore it |
+| `temperature` | OpenAI/Azure: ✅<br>Bedrock: ⚠️<br>Ollama: ❌ | ✅ **Implemented** | Full support OpenAI; SDK limitations for Bedrock/Ollama |
+| `top_p` | OpenAI/Azure: ✅<br>Bedrock: ⚠️<br>Ollama: ❌ | ✅ **Implemented** | Full support OpenAI; SDK limitations for Bedrock/Ollama |
+| `max_tokens` | OpenAI/Azure: ✅<br>Bedrock: ⚠️<br>Ollama: ❌ | ✅ **Implemented** | Full support OpenAI; SDK limitations for Bedrock/Ollama |
 
 **Implementation Details**:
-- ✅ **OpenAI**: `src/strands_cli/runtime/strands_adapter.py` lines 285-292
-  - Agent-level `inference` overrides are passed to OpenAI model creation
-- ❌ **Bedrock**: No support for inference overrides; model creation ignores agent config
-- ❌ **Ollama**: No support for inference overrides
+- ✅ **OpenAI/Azure**: `src/strands_cli/runtime/providers.py` lines 145-207
+  - Agent-level `inference` overrides fully supported
+  - Merged with runtime defaults in `src/strands_cli/runtime/strands_adapter.py` lines 404-425
+  - All parameters passed to OpenAI model creation
+- ⚠️ **Bedrock**: `src/strands_cli/runtime/providers.py` lines 67-121
+  - SDK limitation: BedrockModel does not accept inference params
+  - Runtime warning logged when parameters present (lines 95-113)
+  - Documented in function docstring
+- ❌ **Ollama**: `src/strands_cli/runtime/providers.py` lines 124-187
+  - Not supported by OllamaModel SDK
+  - Runtime warning logged when parameters present (lines 159-177)
+  - Users must configure via Ollama Modelfile
 
-**Capability Checker**: No validation that inference settings are provider-specific
+**Capability Checker**: ✅ **Always-on warnings** - `src/strands_cli/capability/checker.py` lines 181-251
+- `_validate_inference_compatibility()` function validates provider support
+- Non-fatal warnings for Bedrock/Ollama with inference params
+- Pointer: `/runtime/{param}` or `/agents/{id}/inference/{param}`
+- Remediation guidance provided for each provider
 
-**Documentation Gap**: Schema doesn't indicate that `inference` only works for OpenAI
+**Documentation**: ✅ **Fully documented** - `docs/strands-workflow-manual.md` lines 460-508
+- Provider support table showing OpenAI (✅), Bedrock (⚠️ SDK limitation), Ollama (❌)
+- Examples in `examples/inference-overrides-openai.yaml`
+- Troubleshooting guidance for unsupported providers
+
+**Testing**: ✅ **Comprehensive coverage** - `tests/test_inference.py` (24 tests)
+- Inference Pydantic model validation (8 tests)
+- Agent-level override merging logic (6 tests)
+- Provider warning behaviors (6 tests)
+- Capability checker validation (4 tests)
+
+**Status Changed**: 2025-11-15 - Moved from "⚠️ Parsed Only" to "✅ Implemented"
 
 ---
 

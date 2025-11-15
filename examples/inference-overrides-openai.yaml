@@ -1,0 +1,129 @@
+version: 0
+name: inference-overrides-demo
+description: |
+  Demonstrates agent-level inference parameter overrides.
+  
+  This workflow shows how different agents can use different inference settings
+  to optimize for their specific tasks:
+  - Creative writer uses high temperature (1.2) for varied, creative outputs
+  - Technical analyst uses low temperature (0.2) for precise, factual responses
+  - Balanced reviewer uses moderate settings (0.7 temp, 0.95 top_p)
+  
+  Provider Support:
+  - OpenAI/Azure: Fully supported ✅
+  - Bedrock: Limited by SDK (warnings logged) ⚠️
+  - Ollama: Not supported (configure via Modelfile) ❌
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  # Runtime-level defaults (used when agent doesn't override)
+  temperature: 0.7
+  max_tokens: 50000
+
+inputs:
+  required:
+    topic:
+      type: string
+      description: "Topic to write about and analyze"
+  values:
+    topic: "artificial intelligence"
+
+agents:
+  creative_writer:
+    prompt: |
+      You are a creative writer who produces engaging, varied content.
+      Write creatively about the given topic with rich vocabulary and diverse perspectives.
+    # Override for high creativity
+    inference:
+      temperature: 1.2  # High temperature for creative variation
+      max_tokens: 300   # Shorter for creative snippet
+
+  technical_analyst:
+    prompt: |
+      You are a technical analyst who provides precise, factual analysis.
+      Analyze the topic with accuracy and technical depth.
+    # Override for factual precision
+    inference:
+      temperature: 0.2  # Low temperature for deterministic output
+      top_p: 0.8        # Narrow token selection for precision
+      max_tokens: 400   # More tokens for detailed analysis
+
+  balanced_reviewer:
+    prompt: |
+      You are a balanced reviewer who synthesizes creative and technical perspectives.
+      Review both the creative writing and technical analysis, then provide a balanced summary.
+    # Moderate settings (slightly override runtime)
+    inference:
+      temperature: 0.7
+      top_p: 0.95
+      max_tokens: 600  # More space for synthesis
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: creative_writer
+        input: "Write a creative piece about {{ topic }}"
+
+      - agent: technical_analyst
+        input: |
+          Analyze this topic: {{ topic }}
+          
+          Consider the creative perspective:
+          {{ steps[0].response }}
+
+      - agent: balanced_reviewer
+        input: |
+          Review and synthesize these two perspectives on {{ topic }}:
+          
+          Creative Writing:
+          {{ steps[0].response }}
+          
+          Technical Analysis:
+          {{ steps[1].response }}
+
+outputs:
+  artifacts:
+    - path: ./artifacts/inference-demo-creative.md
+      from: |
+        # Creative Writing (temperature=1.2)
+        
+        {{ steps[0].response }}
+
+    - path: ./artifacts/inference-demo-technical.md
+      from: |
+        # Technical Analysis (temperature=0.2, top_p=0.8)
+        
+        {{ steps[1].response }}
+
+    - path: ./artifacts/inference-demo-review.md
+      from: |
+        # Balanced Review (temperature=0.7, top_p=0.95)
+        
+        {{ steps[2].response }}
+
+    - path: ./artifacts/inference-demo-full.md
+      from: |
+        # Inference Parameter Demonstration: {{ topic }}
+        
+        This workflow demonstrates how different inference settings affect agent outputs.
+        
+        ## Creative Writing (temperature=1.2, max_tokens=300)
+        High temperature produces varied, creative outputs with diverse vocabulary.
+        
+        {{ steps[0].response }}
+        
+        ---
+        
+        ## Technical Analysis (temperature=0.2, top_p=0.8, max_tokens=400)
+        Low temperature produces precise, deterministic, factual responses.
+        
+        {{ steps[1].response }}
+        
+        ---
+        
+        ## Balanced Review (temperature=0.7, top_p=0.95, max_tokens=600)
+        Moderate settings balance creativity with accuracy.
+        
+        {{ steps[2].response }}

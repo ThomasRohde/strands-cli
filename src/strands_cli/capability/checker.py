@@ -178,6 +178,79 @@ def _validate_provider(spec: Spec, issues: list[CapabilityIssue]) -> None:
             )
 
 
+def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue]) -> None:
+    """Validate inference parameter compatibility with provider.
+
+    Issues always-on warnings when inference parameters are used with
+    providers that don't support them (Bedrock/Ollama). OpenAI/Azure
+    fully support temperature, top_p, max_tokens.
+
+    Args:
+        spec: Workflow spec
+        issues: List to append warning issues to
+    """
+    # Check runtime-level inference parameters
+    if spec.runtime.provider in {ProviderType.BEDROCK, ProviderType.OLLAMA}:
+        runtime_params = []
+        if spec.runtime.temperature is not None:
+            runtime_params.append("temperature")
+        if spec.runtime.top_p is not None:
+            runtime_params.append("top_p")
+        if spec.runtime.max_tokens is not None:
+            runtime_params.append("max_tokens")
+
+        if runtime_params:
+            provider_name = spec.runtime.provider.value
+            if spec.runtime.provider == ProviderType.BEDROCK:
+                support_msg = "limited by SDK"
+                workaround = "Configure inference via AWS Bedrock console or use OpenAI provider"
+            else:  # OLLAMA
+                support_msg = "not supported"
+                workaround = "Configure parameters in Ollama Modelfile or use OpenAI provider"
+
+            for param in runtime_params:
+                issues.append(
+                    CapabilityIssue(
+                        pointer=f"/runtime/{param}",
+                        reason=f"Warning: Inference parameter '{param}' is {support_msg} for {provider_name} provider. "
+                               f"Parameter will be logged but not applied. "
+                               f"Fully supported on OpenAI/Azure providers only.",
+                        remediation=workaround,
+                    )
+                )
+
+    # Check agent-level inference overrides
+    for agent_id, agent_config in spec.agents.items():
+        if agent_config.inference and spec.runtime.provider in {ProviderType.BEDROCK, ProviderType.OLLAMA}:
+            agent_params = []
+            if agent_config.inference.temperature is not None:
+                agent_params.append("temperature")
+            if agent_config.inference.top_p is not None:
+                agent_params.append("top_p")
+            if agent_config.inference.max_tokens is not None:
+                agent_params.append("max_tokens")
+
+            if agent_params:
+                provider_name = spec.runtime.provider.value
+                if spec.runtime.provider == ProviderType.BEDROCK:
+                    support_msg = "limited by SDK"
+                    workaround = "Configure inference via AWS Bedrock console or use OpenAI provider"
+                else:  # OLLAMA
+                    support_msg = "not supported"
+                    workaround = "Configure parameters in Ollama Modelfile or use OpenAI provider"
+
+                for param in agent_params:
+                    issues.append(
+                        CapabilityIssue(
+                            pointer=f"/agents/{agent_id}/inference/{param}",
+                            reason=f"Warning: Agent '{agent_id}' inference parameter '{param}' is {support_msg} "
+                                   f"for {provider_name} provider. Parameter will be logged but not applied. "
+                                   f"Fully supported on OpenAI/Azure providers only.",
+                            remediation=workaround,
+                        )
+                    )
+
+
 def _validate_pattern_type(spec: Spec, issues: list[CapabilityIssue]) -> None:
     """Validate pattern type is supported.
 
@@ -951,6 +1024,7 @@ def check_capability(spec: Spec) -> CapabilityReport:
     # Run all validation checks
     _validate_agents(spec, issues)
     _validate_provider(spec, issues)
+    _validate_inference_compatibility(spec, issues)
     _validate_pattern_type(spec, issues)
     _validate_chain_pattern(spec, issues)
     _validate_workflow_pattern(spec, issues)

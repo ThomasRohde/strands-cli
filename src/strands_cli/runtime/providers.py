@@ -71,6 +71,11 @@ def create_bedrock_model(runtime: Runtime) -> BedrockModel:
     with Strands BedrockModel adapter. Uses default AWS credential chain
     (environment variables, ~/.aws/credentials, instance role, etc.).
 
+    Note: Inference parameters (temperature, top_p, max_tokens) are not
+    currently supported due to Strands SDK limitations. The BedrockModel
+    constructor does not accept a params argument. Parameters will be
+    logged as warnings if present.
+
     Args:
         runtime: Runtime configuration with provider=bedrock
 
@@ -88,10 +93,30 @@ def create_bedrock_model(runtime: Runtime) -> BedrockModel:
     # Default model if not specified
     model_id = runtime.model_id or "us.anthropic.claude-3-sonnet-20240229-v1:0"
 
+    # Warn if inference parameters are set but will be ignored
+    # SDK limitation: BedrockModel does not accept params argument
+    ignored_params = []
+    if runtime.temperature is not None:
+        ignored_params.append(f"temperature={runtime.temperature}")
+    if runtime.top_p is not None:
+        ignored_params.append(f"top_p={runtime.top_p}")
+    if runtime.max_tokens is not None:
+        ignored_params.append(f"max_tokens={runtime.max_tokens}")
+
+    if ignored_params:
+        logger.warning(
+            "bedrock_inference_unsupported",
+            message="Inference parameters not supported by Bedrock provider (SDK limitation)",
+            ignored_params=ignored_params,
+            model_id=model_id,
+            workaround="Configure model inference via AWS Bedrock console or use OpenAI provider",
+        )
+
     logger.debug("creating_bedrock_model", region=runtime.region, model_id=model_id)
 
     # Create Strands BedrockModel
     # BedrockModel creates its own boto3 client internally using AWS credentials from environment
+    # SDK limitation: Cannot pass inference params (temperature, top_p, max_tokens)
     try:
         model = BedrockModel(
             model_id=model_id,
@@ -110,6 +135,11 @@ def create_ollama_model(runtime: Runtime) -> OllamaModel:
     Initializes Ollama client pointing to specified host URL.
     Assumes Ollama server is running and accessible.
 
+    Note: Inference parameters (temperature, top_p, max_tokens) are not
+    supported by Ollama provider. The OllamaModel constructor does not
+    accept generation parameters. Configure these settings via Ollama
+    model configuration files (Modelfile) instead.
+
     Args:
         runtime: Runtime configuration with provider=ollama
 
@@ -127,9 +157,29 @@ def create_ollama_model(runtime: Runtime) -> OllamaModel:
     # Default model if not specified
     model_id = runtime.model_id or "gpt-oss"
 
+    # Warn if inference parameters are set but will be ignored
+    # SDK limitation: OllamaModel does not accept generation parameters
+    ignored_params = []
+    if runtime.temperature is not None:
+        ignored_params.append(f"temperature={runtime.temperature}")
+    if runtime.top_p is not None:
+        ignored_params.append(f"top_p={runtime.top_p}")
+    if runtime.max_tokens is not None:
+        ignored_params.append(f"max_tokens={runtime.max_tokens}")
+
+    if ignored_params:
+        logger.warning(
+            "ollama_inference_unsupported",
+            message="Inference parameters not supported by Ollama provider",
+            ignored_params=ignored_params,
+            model_id=model_id,
+            workaround="Configure temperature/sampling in Ollama Modelfile or use OpenAI provider",
+        )
+
     logger.debug("creating_ollama_client", host=runtime.host, model_id=model_id)
 
     # Create Strands Ollama model
+    # SDK limitation: Cannot pass inference params (temperature, top_p, max_tokens)
     try:
         model = OllamaModel(
             host=runtime.host,
