@@ -7,7 +7,13 @@ description: |
 
 runtime:
   provider: openai
-  model_id: gpt-5-nano
+  model_id: gpt-5
+
+context_policy:
+  notes:
+    file: "./artifacts/deep-research-notes.md"
+    include_last: 12
+    format: "markdown"
   
 agents:
   initial_researcher:
@@ -32,6 +38,10 @@ agents:
       3. Recent developments or controversies
       4. Important sources and experts
       
+      Maintain shared research notes using the 'notes' tool:
+      - Before each search, review injected notes + "Previous Workflow Steps" to avoid duplicates.
+      - After each promising source, append a short heading with supporting bullets and cite URLs.
+      
       Provide a structured research plan.
 
   deep_researcher:
@@ -46,6 +56,10 @@ agents:
       - Contradictory viewpoints
       - Technical details
       - Real-world applications
+      
+      Leverage the shared notes workspace:
+      - Review existing entries before tackling each subtopic.
+      - Record every decisive finding, metric, and counterpoint with citations so later agents can reference them.
       
       Synthesize findings with critical analysis. Always cite sources with URLs.
 
@@ -67,6 +81,11 @@ agents:
       After selecting relevant hits, fetch the underlying article URLs via
       web_fetch (mode="markdown") to confirm facts and capture quotes.
       Highlight breaking news and emerging trends.
+      
+      Use the shared notes (notes tool) to log each headline with:
+      - Publication date + source
+      - 1-2 sentence summary
+      - Key quote or statistic for later verification.
 
   synthesis_expert:
     prompt: |
@@ -80,6 +99,8 @@ agents:
       4. Highlights important sources
       5. Identifies knowledge gaps and future directions
       
+      Before writing, review the shared notes injected into your context so the report references prior insights accurately and credits original sources.
+      
       Write in clear, professional language suitable for educated readers.
 
   fact_checker:
@@ -92,6 +113,8 @@ agents:
       3. Checking source credibility
       4. Identifying unsupported assertions
       5. Flagging potential biases
+      
+      Update the shared notes with confirmations, corrections, and outstanding questions so future iterations inherit the audit trail.
       
       Provide specific corrections or confirmations with evidence.
 
@@ -131,6 +154,9 @@ pattern:
           
           For at least two priority sources, call web_fetch (mode="markdown") using
           the returned href values to capture detailed context you can cite later.
+          
+          Log each identified subtopic and leading sources to the shared notes file
+          (use the 'notes' tool with headings + bullet evidence).
 
       # Stage 2: Deep dive into subtopics
       - agent: deep_researcher
@@ -148,6 +174,9 @@ pattern:
           4. Find supporting evidence and examples
           5. Note any controversies or alternative views
           
+          Before diving into each subtopic, review the last few notes so you build on prior context.
+          After finishing a subtopic, append a new notes entry summarizing critical evidence, conflicting views, and citations.
+          
           Synthesize comprehensive findings for each area.
 
       # Stage 3: News and trends analysis
@@ -164,6 +193,9 @@ pattern:
           
           Fetch each selected article URL via web_fetch (mode="markdown", timeout=20)
           so you can cite concrete quotes or data points.
+          
+          Capture each headline in the shared notes with date, source, gist, and citation
+          so downstream agents can trace developments chronologically.
           
           How do recent developments relate to the earlier research?
           
@@ -213,6 +245,9 @@ pattern:
           4. Missing perspectives
           5. Potential biases
           
+          Document each correction, confirmation, or open question in the shared notes
+          so future runs inherit the audit trail.
+          
           Provide corrections, confirmations, or additional context.
 
 tools:
@@ -253,4 +288,5 @@ outputs:
         5. **Fact-Checking** - Validation and verification
         
         All findings sourced from DuckDuckGo web/news searches with full-page
-        retrieval via the web_fetch tool (markdown mode).
+        retrieval via the web_fetch tool (markdown mode) and documented in the
+        shared notes file at ./artifacts/deep-research-notes.md for continuity.
