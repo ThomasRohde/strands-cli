@@ -1,0 +1,73 @@
+version: 1
+name: compaction-auto-reduction-test
+description: |
+  Simple test workflow designed to trigger compaction with few messages
+  to validate auto-reduction of preserve_recent_messages.
+  
+  Uses a very low token threshold (5000) to force early compaction,
+  then sets preserve_recent_messages=15 which should auto-reduce
+  when message count is insufficient.
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 50000
+
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 5000           # Very low threshold to trigger early
+    summary_ratio: 0.40
+    preserve_recent_messages: 15     # Will auto-reduce if < 20 messages
+    summarization_model: gpt-4o-mini
+
+agents:
+  counter:
+    prompt: |
+      You are a simple counting assistant. Generate a long, verbose response
+      (at least 500 words) explaining the number {{ current_number }}.
+      
+      Include:
+      - The mathematical properties of this number
+      - Historical significance
+      - Cultural references
+      - Fun facts
+      - Detailed examples of its use
+      
+      Be extremely verbose to accumulate tokens quickly.
+
+inputs:
+  required:
+    starting_number:
+      type: integer
+      description: "Number to start counting from"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: counter
+        input: "Explain the number {{ starting_number }} in extreme detail."
+      
+      - agent: counter
+        input: "Now explain the number 2 in extreme detail."
+      
+      - agent: counter
+        input: "Now explain the number 3 in extreme detail."
+      
+      - agent: counter
+        input: "Now explain the number 4 in extreme detail."
+      
+      - agent: counter
+        input: "Summarize what you've learned about numbers 1 through 4."
+
+outputs:
+  artifacts:
+    - path: "./compaction-test-result.txt"
+      from: |
+        Compaction Auto-Reduction Test Result
+        ======================================
+        
+        Final Summary:
+        {{ steps[4].response }}

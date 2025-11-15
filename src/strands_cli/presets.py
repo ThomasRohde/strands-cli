@@ -5,6 +5,13 @@ to simplify onboarding and configuration. Users can select presets instead of
 manually configuring individual parameters.
 
 Phase 2 Remediation: Configuration ergonomics
+
+Adaptive Behavior: Presets automatically adjust preserve_recent_messages based
+on workflow pattern type to optimize for typical message counts:
+- Chain/Evaluator: 8 messages (sequential, fewer steps)
+- Workflow/Parallel: 12 messages (moderate branching)
+- Orchestrator: 15 messages (worker coordination)
+- Graph: 20 messages (potential loops, state tracking)
 """
 
 from enum import Enum
@@ -17,7 +24,8 @@ class ContextPreset(str, Enum):
     """Predefined context management presets.
 
     Each preset configures compaction, notes, and retrieval settings
-    for common workflow scenarios.
+    for common workflow scenarios. Presets adapt preserve_recent_messages
+    based on workflow pattern type for optimal context management.
     """
 
     # Minimal context management (default)
@@ -36,23 +44,78 @@ class ContextPreset(str, Enum):
     CUSTOM = "custom"
 
 
-def get_context_preset(preset: str | ContextPreset) -> ContextPolicy:
+def get_adaptive_preserve_messages(pattern_type: str | None, base_value: int) -> int:
+    """Calculate adaptive preserve_recent_messages based on pattern type.
+
+    Different patterns have different message accumulation characteristics:
+    - Chain/Evaluator: Sequential, fewer total messages → lower preserve
+    - Workflow/Parallel: Moderate branching → medium preserve
+    - Orchestrator: Worker coordination → higher preserve
+    - Graph: Loops and state transitions → highest preserve
+
+    Args:
+        pattern_type: Workflow pattern type (chain, workflow, etc.)
+        base_value: Default preserve value if pattern unknown
+
+    Returns:
+        Adaptive preserve_recent_messages value
+
+    Examples:
+        >>> get_adaptive_preserve_messages("chain", 12)
+        8
+        >>> get_adaptive_preserve_messages("graph", 12)
+        20
+        >>> get_adaptive_preserve_messages(None, 12)
+        12
+    """
+    if not pattern_type:
+        return base_value
+
+    pattern_lower = pattern_type.lower()
+
+    # Sequential patterns - fewer messages
+    if pattern_lower in ("chain", "evaluator_optimizer"):
+        return 8
+
+    # Moderate branching patterns
+    if pattern_lower in ("workflow", "parallel", "routing"):
+        return 12
+
+    # Coordination patterns - more messages
+    if pattern_lower == "orchestrator":
+        return 15
+
+    # Graph patterns - potential loops, need more history
+    if pattern_lower == "graph":
+        return 20
+
+    # Unknown pattern - use base value
+    return base_value
+
+
+def get_context_preset(
+    preset: str | ContextPreset, pattern_type: str | None = None
+) -> ContextPolicy:
     """Get a context policy configuration from a preset name.
 
     Args:
         preset: Preset name or ContextPreset enum value
+        pattern_type: Optional workflow pattern type for adaptive settings
 
     Returns:
-        Configured ContextPolicy instance
+        Configured ContextPolicy instance with adaptive preserve_recent_messages
 
     Raises:
         ValueError: If preset name is invalid
 
     Examples:
-        >>> policy = get_context_preset("long_run")
+        >>> policy = get_context_preset("long_run", pattern_type="chain")
         >>> policy.compaction.enabled
         True
-        >>> policy.notes.include_last
+        >>> policy.compaction.preserve_recent_messages
+        8
+        >>> policy = get_context_preset("long_run", pattern_type="graph")
+        >>> policy.compaction.preserve_recent_messages
         20
     """
     if isinstance(preset, str):
@@ -65,11 +128,11 @@ def get_context_preset(preset: str | ContextPreset) -> ContextPolicy:
     if preset == ContextPreset.MINIMAL:
         return _minimal_preset()
     elif preset == ContextPreset.BALANCED:
-        return _balanced_preset()
+        return _balanced_preset(pattern_type)
     elif preset == ContextPreset.LONG_RUN:
-        return _long_run_preset()
+        return _long_run_preset(pattern_type)
     elif preset == ContextPreset.INTERACTIVE:
-        return _interactive_preset()
+        return _interactive_preset(pattern_type)
     else:
         raise ValueError(
             "Cannot generate config for CUSTOM preset. "
@@ -97,7 +160,7 @@ def _minimal_preset() -> ContextPolicy:
     )
 
 
-def _balanced_preset() -> ContextPolicy:
+def _balanced_preset(pattern_type: str | None = None) -> ContextPolicy:
     """Balanced context management for typical workflows.
 
     Best for:
@@ -106,23 +169,32 @@ def _balanced_preset() -> ContextPolicy:
     - General-purpose use
 
     Configuration:
-    - Compaction: Enabled at 100K tokens, 35% summary ratio, 12 recent messages
+    - Compaction: Enabled at 100K tokens, 35% summary ratio
+    - Adaptive preserve_recent_messages: 8-20 based on pattern type
     - Notes: Not configured (optional)
     - Retrieval: Not configured (optional)
+
+    Adaptive Behavior:
+    - Chain/Evaluator: 8 messages
+    - Workflow/Parallel/Routing: 12 messages
+    - Orchestrator: 15 messages
+    - Graph: 20 messages
     """
+    preserve_messages = get_adaptive_preserve_messages(pattern_type, base_value=12)
+    
     return ContextPolicy(
         compaction=Compaction(
             enabled=True,
             when_tokens_over=100_000,
             summary_ratio=0.35,
-            preserve_recent_messages=12,
+            preserve_recent_messages=preserve_messages,
         ),
         notes=None,
         retrieval=None,
     )
 
 
-def _long_run_preset() -> ContextPolicy:
+def _long_run_preset(pattern_type: str | None = None) -> ContextPolicy:
     """Optimized for long-running, multi-step workflows.
 
     Best for:
@@ -132,16 +204,25 @@ def _long_run_preset() -> ContextPolicy:
     - Cross-step continuity
 
     Configuration:
-    - Compaction: Enabled at 80K tokens, 40% summary ratio, 20 recent messages
+    - Compaction: Enabled at 80K tokens, 40% summary ratio
+    - Adaptive preserve_recent_messages: 8-20 based on pattern type
     - Notes: Configured with 20 recent notes (requires file path from user)
     - Retrieval: JIT tools enabled (grep, search, head, tail)
+
+    Adaptive Behavior:
+    - Chain/Evaluator: 8 messages (fewer total steps)
+    - Workflow/Parallel/Routing: 12 messages
+    - Orchestrator: 15 messages (worker coordination)
+    - Graph: 20 messages (loops require more history)
     """
+    preserve_messages = get_adaptive_preserve_messages(pattern_type, base_value=15)
+    
     return ContextPolicy(
         compaction=Compaction(
             enabled=True,
             when_tokens_over=80_000,
             summary_ratio=0.40,
-            preserve_recent_messages=20,
+            preserve_recent_messages=preserve_messages,
         ),
         notes=Notes(
             file="artifacts/notes.md",
@@ -155,7 +236,7 @@ def _long_run_preset() -> ContextPolicy:
     )
 
 
-def _interactive_preset() -> ContextPolicy:
+def _interactive_preset(pattern_type: str | None = None) -> ContextPolicy:
     """Optimized for interactive, chat-like workflows.
 
     Best for:
@@ -164,23 +245,34 @@ def _interactive_preset() -> ContextPolicy:
     - Frequent back-and-forth exchanges
 
     Configuration:
-    - Compaction: Enabled at 50K tokens, 30% summary ratio, 16 recent messages
+    - Compaction: Enabled at 50K tokens, 30% summary ratio
+    - Adaptive preserve_recent_messages: 8-20 based on pattern type
     - Notes: Not configured (history is the primary context)
     - Retrieval: Not configured (minimal tool use)
+
+    Adaptive Behavior:
+    - Chain/Evaluator: 8 messages
+    - Workflow/Parallel/Routing: 12 messages
+    - Orchestrator: 15 messages
+    - Graph: 20 messages
     """
+    preserve_messages = get_adaptive_preserve_messages(pattern_type, base_value=16)
+    
     return ContextPolicy(
         compaction=Compaction(
             enabled=True,
             when_tokens_over=50_000,
             summary_ratio=0.30,
-            preserve_recent_messages=16,
+            preserve_recent_messages=preserve_messages,
         ),
         notes=None,
         retrieval=None,
     )
 
 
-def apply_preset_to_spec(spec_data: dict[str, Any], preset: str | ContextPreset) -> None:
+def apply_preset_to_spec(
+    spec_data: dict[str, Any], preset: str | ContextPreset, pattern_type: str | None = None
+) -> None:
     """Apply a context preset to a spec dictionary (in-place modification).
 
     This function modifies the spec_data dictionary to include the preset's
@@ -190,14 +282,21 @@ def apply_preset_to_spec(spec_data: dict[str, Any], preset: str | ContextPreset)
     Args:
         spec_data: Workflow specification dictionary (will be modified)
         preset: Preset name or ContextPreset enum value
+        pattern_type: Optional workflow pattern type for adaptive preserve_recent_messages
 
     Examples:
         >>> spec_data = {"version": 0, "name": "test", ...}
-        >>> apply_preset_to_spec(spec_data, "long_run")
+        >>> apply_preset_to_spec(spec_data, "long_run", pattern_type="chain")
         >>> spec_data["context_policy"]["compaction"]["enabled"]
         True
+        >>> spec_data["context_policy"]["compaction"]["preserve_recent_messages"]
+        8
     """
-    preset_policy = get_context_preset(preset)
+    # Extract pattern type from spec_data if not provided
+    if pattern_type is None and "pattern" in spec_data:
+        pattern_type = spec_data["pattern"].get("type")
+    
+    preset_policy = get_context_preset(preset, pattern_type=pattern_type)
 
     # Convert to dict for merging
     preset_dict = preset_policy.model_dump(exclude_none=True)

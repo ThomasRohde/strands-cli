@@ -59,9 +59,11 @@ class TokenCounter:
     def count_messages(self, messages: list[dict[str, Any]]) -> int:
         """Count tokens in a list of messages.
 
-        Follows OpenAI's token counting methodology:
+        Follows OpenAI's token counting methodology with improvements:
         - 4 tokens overhead per message
-        - Encode all message content (role, content, name if present)
+        - Handles nested content structures (lists with text/toolResult)
+        - Skips tool results to avoid double-counting
+        - More accurate encoding of complex message structures
 
         Args:
             messages: List of message dicts with 'role' and 'content' keys
@@ -75,12 +77,62 @@ class TokenCounter:
             # 4 tokens per message overhead (role markers, etc.)
             num_tokens += 4
 
-            # Count tokens in each field
-            for _key, value in message.items():
-                if value is not None:
-                    # Convert to string and encode
-                    text = str(value)
-                    num_tokens += len(self.encoding.encode(text))
+            # Extract role for special handling
+            role = message.get("role", "")
+            
+            # Count tokens in role field
+            if role:
+                num_tokens += len(self.encoding.encode(role))
+
+            # Handle content field (can be string or list of content blocks)
+            content = message.get("content")
+            if content is not None:
+                if isinstance(content, str):
+                    # Simple string content
+                    num_tokens += len(self.encoding.encode(content))
+                elif isinstance(content, list):
+                    # Content blocks (Anthropic/OpenAI format)
+                    for block in content:
+                        if isinstance(block, dict):
+                            # Extract text from text blocks
+                            if "text" in block:
+                                text = block["text"]
+                                if text:
+                                    num_tokens += len(self.encoding.encode(str(text)))
+                            # Skip toolResult/toolUse blocks - these are already counted
+                            # in the original user message that requested the tool
+                            elif "toolResult" in block:
+                                # Only count the result content, not the full structure
+                                tool_result = block.get("toolResult", {})
+                                if isinstance(tool_result, dict):
+                                    result_content = tool_result.get("content", [])
+                                    if isinstance(result_content, list):
+                                        for item in result_content:
+                                            if isinstance(item, dict) and "text" in item:
+                                                num_tokens += len(self.encoding.encode(str(item["text"])))
+                            elif "toolUse" in block:
+                                # Count tool use requests
+                                tool_use = block.get("toolUse", {})
+                                if isinstance(tool_use, dict):
+                                    # Count tool name
+                                    if "name" in tool_use:
+                                        num_tokens += len(self.encoding.encode(str(tool_use["name"])))
+                                    # Count input as JSON string
+                                    if "input" in tool_use:
+                                        import json
+                                        input_str = json.dumps(tool_use["input"])
+                                        num_tokens += len(self.encoding.encode(input_str))
+                        else:
+                            # Fallback: convert entire block to string
+                            num_tokens += len(self.encoding.encode(str(block)))
+                else:
+                    # Unknown content type - convert to string
+                    num_tokens += len(self.encoding.encode(str(content)))
+            
+            # Count other fields (name, etc.) if present
+            for key, value in message.items():
+                if key not in ("role", "content") and value is not None:
+                    num_tokens += len(self.encoding.encode(str(value)))
 
         # Add 2 tokens for assistant reply priming
         num_tokens += 2

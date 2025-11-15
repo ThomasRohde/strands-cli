@@ -9,6 +9,7 @@ from strands_cli.presets import (
     ContextPreset,
     apply_preset_to_spec,
     describe_presets,
+    get_adaptive_preserve_messages,
     get_context_preset,
 )
 
@@ -46,7 +47,8 @@ class TestContextPresets:
         assert policy.compaction.enabled is True
         assert policy.compaction.when_tokens_over == 80_000
         assert policy.compaction.summary_ratio == 0.40
-        assert policy.compaction.preserve_recent_messages == 20
+        # Adaptive: without pattern_type, uses base value of 15
+        assert policy.compaction.preserve_recent_messages == 15
 
         # Notes enabled with default file
         assert policy.notes is not None
@@ -129,7 +131,8 @@ class TestApplyPreset:
 
         # Preset values should fill in missing fields
         assert spec_data["context_policy"]["compaction"]["summary_ratio"] == 0.40
-        assert spec_data["context_policy"]["compaction"]["preserve_recent_messages"] == 20
+        # Adaptive: chain pattern extracts from spec → preserve=8
+        assert spec_data["context_policy"]["compaction"]["preserve_recent_messages"] == 8
 
         # Preset should add notes and retrieval
         assert "notes" in spec_data["context_policy"]
@@ -248,3 +251,130 @@ pattern:
         assert spec.context_policy is not None
         assert spec.context_policy.compaction is not None
         assert spec.context_policy.compaction.enabled is True
+
+
+class TestAdaptivePreserveMessages:
+    """Test suite for adaptive preserve_recent_messages based on pattern type."""
+
+    def test_get_adaptive_preserve_chain_pattern(self) -> None:
+        """Verify chain pattern uses lower preserve value."""
+        preserve = get_adaptive_preserve_messages("chain", base_value=12)
+        assert preserve == 8
+
+    def test_get_adaptive_preserve_evaluator_pattern(self) -> None:
+        """Verify evaluator_optimizer pattern uses lower preserve value."""
+        preserve = get_adaptive_preserve_messages("evaluator_optimizer", base_value=12)
+        assert preserve == 8
+
+    def test_get_adaptive_preserve_workflow_pattern(self) -> None:
+        """Verify workflow pattern uses medium preserve value."""
+        preserve = get_adaptive_preserve_messages("workflow", base_value=12)
+        assert preserve == 12
+
+    def test_get_adaptive_preserve_parallel_pattern(self) -> None:
+        """Verify parallel pattern uses medium preserve value."""
+        preserve = get_adaptive_preserve_messages("parallel", base_value=12)
+        assert preserve == 12
+
+    def test_get_adaptive_preserve_routing_pattern(self) -> None:
+        """Verify routing pattern uses medium preserve value."""
+        preserve = get_adaptive_preserve_messages("routing", base_value=12)
+        assert preserve == 12
+
+    def test_get_adaptive_preserve_orchestrator_pattern(self) -> None:
+        """Verify orchestrator pattern uses higher preserve value."""
+        preserve = get_adaptive_preserve_messages("orchestrator", base_value=12)
+        assert preserve == 15
+
+    def test_get_adaptive_preserve_graph_pattern(self) -> None:
+        """Verify graph pattern uses highest preserve value."""
+        preserve = get_adaptive_preserve_messages("graph", base_value=12)
+        assert preserve == 20
+
+    def test_get_adaptive_preserve_unknown_pattern(self) -> None:
+        """Verify unknown pattern uses base value."""
+        preserve = get_adaptive_preserve_messages("unknown", base_value=12)
+        assert preserve == 12
+
+    def test_get_adaptive_preserve_none_pattern(self) -> None:
+        """Verify None pattern uses base value."""
+        preserve = get_adaptive_preserve_messages(None, base_value=12)
+        assert preserve == 12
+
+    def test_get_adaptive_preserve_case_insensitive(self) -> None:
+        """Verify pattern matching is case-insensitive."""
+        preserve_upper = get_adaptive_preserve_messages("CHAIN", base_value=12)
+        preserve_lower = get_adaptive_preserve_messages("chain", base_value=12)
+        preserve_mixed = get_adaptive_preserve_messages("Chain", base_value=12)
+
+        assert preserve_upper == preserve_lower == preserve_mixed == 8
+
+
+class TestAdaptivePresets:
+    """Test suite for adaptive preset behavior with pattern types."""
+
+    def test_balanced_preset_adapts_to_chain(self) -> None:
+        """Verify balanced preset adapts preserve_recent_messages for chain pattern."""
+        policy = get_context_preset("balanced", pattern_type="chain")
+
+        assert policy.compaction is not None
+        assert policy.compaction.preserve_recent_messages == 8
+
+    def test_balanced_preset_adapts_to_graph(self) -> None:
+        """Verify balanced preset adapts preserve_recent_messages for graph pattern."""
+        policy = get_context_preset("balanced", pattern_type="graph")
+
+        assert policy.compaction is not None
+        assert policy.compaction.preserve_recent_messages == 20
+
+    def test_long_run_preset_adapts_to_workflow(self) -> None:
+        """Verify long_run preset adapts preserve_recent_messages for workflow pattern."""
+        policy = get_context_preset("long_run", pattern_type="workflow")
+
+        assert policy.compaction is not None
+        assert policy.compaction.preserve_recent_messages == 12
+
+    def test_interactive_preset_adapts_to_orchestrator(self) -> None:
+        """Verify interactive preset adapts preserve_recent_messages for orchestrator."""
+        policy = get_context_preset("interactive", pattern_type="orchestrator")
+
+        assert policy.compaction is not None
+        assert policy.compaction.preserve_recent_messages == 15
+
+    def test_preset_without_pattern_uses_base_value(self) -> None:
+        """Verify presets use base value when pattern_type not provided."""
+        policy = get_context_preset("balanced")  # No pattern_type
+
+        assert policy.compaction is not None
+        assert policy.compaction.preserve_recent_messages == 12  # Base value for balanced
+
+    def test_apply_preset_extracts_pattern_from_spec(self) -> None:
+        """Verify apply_preset_to_spec extracts pattern type from spec_data."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama"},
+            "agents": {"a": {"prompt": "test"}},
+            "pattern": {"type": "graph", "config": {}},
+        }
+
+        apply_preset_to_spec(spec_data, "long_run")
+
+        # Should extract pattern type "graph" and use preserve=20
+        assert spec_data["context_policy"]["compaction"]["preserve_recent_messages"] == 20
+
+    def test_apply_preset_with_explicit_pattern_type(self) -> None:
+        """Verify apply_preset_to_spec can use explicit pattern_type parameter."""
+        spec_data = {
+            "version": 0,
+            "name": "test",
+            "runtime": {"provider": "ollama"},
+            "agents": {"a": {"prompt": "test"}},
+            "pattern": {"type": "workflow", "config": {}},
+        }
+
+        # Override with explicit pattern_type (ignores spec pattern)
+        apply_preset_to_spec(spec_data, "balanced", pattern_type="chain")
+
+        # Should use explicit "chain" pattern → preserve=8
+        assert spec_data["context_policy"]["compaction"]["preserve_recent_messages"] == 8

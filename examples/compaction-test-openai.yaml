@@ -1,0 +1,172 @@
+version: 1
+name: compaction-auto-reduction-test
+description: |
+  Minimal workflow to test context compaction with auto-reduction of preserve_recent_messages.
+  
+  This workflow is designed to trigger compaction early (low threshold) with few messages,
+  validating that the auto-reduction logic prevents SDK validation errors.
+  
+  Expected behavior:
+  - Agent accumulates messages through multiple steps
+  - When tokens exceed 5000, compaction triggers
+  - Auto-reduction adjusts preserve_recent_messages if message_count < preserve + 5
+  - Workflow continues without "Cannot summarize: insufficient messages" error
+  
+  Run with: strands run compaction-test-openai.yaml --var iterations=10
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini  # Fast, cheap model for testing
+  budgets:
+    max_tokens: 50000
+    warn_threshold: 0.75
+
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 5000           # Very low threshold to trigger early
+    summary_ratio: 0.50              # Summarize 50% of messages
+    preserve_recent_messages: 15     # High preserve value to trigger auto-reduction
+    summarization_model: gpt-4o-mini
+
+agents:
+  accumulator:
+    prompt: |
+      You are a helpful assistant that generates verbose responses to accumulate tokens.
+      
+      For each iteration, provide a detailed response (at least 200 words) that:
+      1. Acknowledges the iteration number
+      2. Discusses the importance of context management in AI systems
+      3. Explains how token limits affect conversation history
+      4. Describes strategies for maintaining continuity
+      5. Summarizes key points from the conversation so far
+      
+      Be thorough and detailed to help accumulate tokens quickly.
+
+inputs:
+  required:
+    iterations:
+      type: integer
+      description: "Number of iterations to accumulate messages (10-20 recommended)"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: accumulator
+        input: |
+          Iteration 1 of {{ iterations }}.
+          
+          Begin a discussion about context management in AI systems.
+          Explain why preserving recent messages is important while also
+          managing token budgets effectively.
+
+      - agent: accumulator
+        input: |
+          Iteration 2 of {{ iterations }}.
+          
+          Previous response: {{ steps[0].response | truncate(100) }}
+          
+          Continue the discussion. Explain how compaction works and why
+          it's necessary for long-running conversations.
+
+      - agent: accumulator
+        input: |
+          Iteration 3 of {{ iterations }}.
+          
+          Previous responses:
+          1. {{ steps[0].response | truncate(80) }}
+          2. {{ steps[1].response | truncate(80) }}
+          
+          Discuss the challenges of maintaining conversation coherence
+          when context must be compressed.
+
+      - agent: accumulator
+        input: |
+          Iteration 4 of {{ iterations }}.
+          
+          Conversation summary so far:
+          {{ steps[0].response | truncate(60) }}
+          {{ steps[1].response | truncate(60) }}
+          {{ steps[2].response | truncate(60) }}
+          
+          Explain how summarization helps preserve key information
+          while reducing token count.
+
+      - agent: accumulator
+        input: |
+          Iteration 5 of {{ iterations }}.
+          
+          Recent context:
+          {{ steps[3].response | truncate(100) }}
+          
+          By now, we should be approaching the compaction threshold.
+          Discuss what happens when context gets compacted and how
+          the system maintains continuity.
+
+      - agent: accumulator
+        input: |
+          Iteration 6 of {{ iterations }}.
+          
+          Latest response: {{ steps[4].response | truncate(100) }}
+          
+          If compaction has triggered, explain how auto-reduction of
+          preserve_recent_messages ensures the workflow continues
+          without errors.
+
+      - agent: accumulator
+        input: |
+          Iteration 7 of {{ iterations }}.
+          
+          Context: {{ steps[5].response | truncate(100) }}
+          
+          Reflect on the entire conversation flow and how context
+          management has enabled this extended dialogue.
+
+      - agent: accumulator
+        input: |
+          Iteration 8 of {{ iterations }}.
+          
+          Previous iteration: {{ steps[6].response | truncate(100) }}
+          
+          Provide a comprehensive summary of all the key points
+          discussed about context management, compaction, and
+          auto-reduction strategies.
+
+outputs:
+  artifacts:
+    - path: "./compaction-test-result.md"
+      from: |
+        # Context Compaction Auto-Reduction Test Results
+        
+        **Workflow:** {{ name }}
+        **Iterations:** {{ iterations }}
+        **Model:** {{ runtime.model_id }}
+        **Compaction Threshold:** {{ context_policy.compaction.when_tokens_over }} tokens
+        **Preserve Messages:** {{ context_policy.compaction.preserve_recent_messages }}
+        
+        ---
+        
+        ## Final Summary
+        
+        {{ steps[-1].response }}
+        
+        ---
+        
+        ## Test Validation
+        
+        If you're reading this, the workflow completed successfully!
+        
+        **Expected Behavior:**
+        - ✅ Compaction triggered when tokens exceeded 5,000
+        - ✅ Auto-reduction adjusted preserve_recent_messages when needed
+        - ✅ No "Cannot summarize: insufficient messages" error
+        - ✅ Workflow completed all {{ iterations }} steps
+        
+        **Check logs for:**
+        - `compaction_enabled` with `threshold_tokens=5000`
+        - `compaction_auto_reducing_preserve` warning (if triggered with <20 messages)
+        - `preserve_messages_restored` after compaction
+        
+        **Success Criteria:**
+        This artifact was generated → auto-reduction prevented SDK validation errors!

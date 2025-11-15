@@ -1,0 +1,80 @@
+version: 1
+name: compaction-auto-reduction-test-ollama
+description: |
+  Minimal workflow to test context compaction with auto-reduction using local Ollama.
+  
+  Run with: strands run compaction-test-ollama.yaml --var iterations=8
+
+runtime:
+  provider: ollama
+  model_id: llama3.2:latest
+  host: http://localhost:11434
+  budgets:
+    max_tokens: 50000
+    warn_threshold: 0.75
+
+context_policy:
+  compaction:
+    enabled: true
+    when_tokens_over: 3000           # Very low threshold to trigger early
+    summary_ratio: 0.50
+    preserve_recent_messages: 15     # High preserve value to trigger auto-reduction
+    summarization_model: llama3.2:latest
+
+agents:
+  accumulator:
+    prompt: |
+      You are a helpful assistant. Provide a detailed response (at least 150 words) about the iteration number and context management in AI systems.
+
+inputs:
+  required:
+    iterations:
+      type: integer
+      description: "Number of iterations"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: accumulator
+        input: "Iteration 1 of {{ iterations }}. Discuss context management."
+
+      - agent: accumulator
+        input: "Iteration 2 of {{ iterations }}. Previous: {{ steps[0].response | truncate(80) }}"
+
+      - agent: accumulator
+        input: "Iteration 3 of {{ iterations }}. Context: {{ steps[1].response | truncate(80) }}"
+
+      - agent: accumulator
+        input: "Iteration 4 of {{ iterations }}. Continue: {{ steps[2].response | truncate(80) }}"
+
+      - agent: accumulator
+        input: "Iteration 5 of {{ iterations }}. Summary: {{ steps[3].response | truncate(80) }}"
+
+      - agent: accumulator
+        input: "Iteration 6 of {{ iterations }}. Latest: {{ steps[4].response | truncate(80) }}"
+
+      - agent: accumulator
+        input: "Iteration 7 of {{ iterations }}. Reflect: {{ steps[5].response | truncate(80) }}"
+
+      - agent: accumulator
+        input: "Iteration 8 of {{ iterations }}. Final summary: {{ steps[6].response | truncate(80) }}"
+
+outputs:
+  artifacts:
+    - path: "./compaction-test-ollama-result.md"
+      from: |
+        # Compaction Test - Ollama
+        
+        **Iterations:** {{ iterations }}
+        **Threshold:** 3000 tokens
+        **Preserve:** 15 messages
+        
+        ## Result
+        
+        {{ steps[-1].response }}
+        
+        ---
+        
+        Success! Workflow completed without "Cannot summarize: insufficient messages" error.
+        Check logs for `compaction_auto_reducing_preserve` warnings.

@@ -26,6 +26,7 @@ async def test_proactive_compaction_hook_triggers_at_threshold(tmp_path: Any) ->
     mock_agent.name = "test-agent"
     mock_agent.conversation_manager = Mock()
     mock_agent.conversation_manager.apply_management = Mock()
+    mock_agent.conversation_manager.preserve_recent_messages = 12  # Set as integer
     mock_agent.messages = [{"role": "user", "content": "test"}]
     mock_agent.accumulated_usage = {"totalTokens": 1500}  # Exceeds threshold
 
@@ -82,6 +83,7 @@ async def test_proactive_compaction_hook_only_fires_once(tmp_path: Any) -> None:
     mock_agent.name = "test-agent"
     mock_agent.conversation_manager = Mock()
     mock_agent.conversation_manager.apply_management = Mock()
+    mock_agent.conversation_manager.preserve_recent_messages = 12  # Set as integer
     mock_agent.messages = [{"role": "user", "content": "test"}]
     mock_agent.accumulated_usage = {"totalTokens": 1500}
 
@@ -137,6 +139,7 @@ async def test_proactive_compaction_hook_uses_token_counter_fallback(tmp_path: A
     mock_agent.name = "test-agent"
     mock_agent.conversation_manager = Mock()
     mock_agent.conversation_manager.apply_management = Mock()
+    mock_agent.conversation_manager.preserve_recent_messages = 12  # Set as integer
     mock_agent.accumulated_usage = None  # No provider metrics
 
     # Create messages that would exceed threshold when counted
