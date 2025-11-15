@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Interactive Variable Prompting (`--ask`)** - Prompt for missing required variables interactively instead of CLI flags
+  - `--ask` / `-a` flag for `strands run` command
+  - Beautiful Rich UI with panels, color-coded prompts, and clear instructions
+  - Automatic detection of required variables without values or defaults
+  - Type validation with visual feedback: `string`, `integer`, `number`, `boolean`
+  - Shows parameter descriptions, type hints, enum choices, and examples from workflow spec
+  - Input validation with retry on invalid values (displays error and re-prompts)
+  - Values stored as strings for session state compatibility (Jinja2 templates handle type coercion)
+  - Non-interactive fallback: exits with helpful error in CI/CD environments
+  - Example workflows: `examples/chain-interactive-prompts-openai.yaml`, `examples/duckduckgo-search-demo.yaml` (deep research agent)
+  - Variable detection module: `src/strands_cli/loader/variable_detector.py`
+  - Interactive prompting module: `src/strands_cli/loader/variable_prompter.py`
+  - Comprehensive test coverage: `tests/test_variable_detector.py`, `tests/test_variable_prompter.py` (31 tests)
+
 ## [0.4.0] - 2025-11-13
 
 **Major Release: Python API & Fluent Builder API** 🐍

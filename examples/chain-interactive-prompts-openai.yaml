@@ -1,0 +1,97 @@
+---
+name: chain-interactive-prompts-openai
+description: Demonstrates interactive variable prompting with --ask flag
+version: 1
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  budgets:
+    max_tokens: 10000
+
+agents:
+  researcher:
+    prompt: |
+      You are a research assistant. Provide a comprehensive analysis of the given topic.
+      Focus on recent developments, key challenges, and future directions.
+      Keep your response concise (2-3 paragraphs).
+
+  writer:
+    prompt: |
+      You are a technical writer. Transform the research findings into a well-structured
+      article in the specified format. Maintain clarity and readability for the target audience.
+
+  editor:
+    prompt: |
+      You are an editor. Review the article and suggest improvements for clarity,
+      coherence, and engagement. Provide specific recommendations.
+
+# Note: These required variables have NO defaults
+# Use: strands run chain-interactive-prompts-openai.yaml --ask
+# The CLI will prompt you for each missing variable interactively
+inputs:
+  required:
+    topic:
+      type: string
+      description: "Topic to research and write about"
+    
+    format:
+      type: string
+      description: "Output format (markdown, html, plain)"
+    
+    target_audience:
+      type: string
+      description: "Target audience level"
+      enum: ["beginner", "intermediate", "expert"]
+    
+    word_limit:
+      type: integer
+      description: "Maximum word count for the article"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: researcher
+        input: |
+          Research the following topic thoroughly: {{ topic }}
+          
+          Focus on information relevant for {{ target_audience }} level readers.
+
+      - agent: writer
+        input: |
+          Based on this research:
+          
+          {{ steps[0].response }}
+          
+          Write a {{ format }} article for {{ target_audience }} readers.
+          Target word count: {{ word_limit }} words.
+          Topic: {{ topic }}
+
+      - agent: editor
+        input: |
+          Review this {{ format }} article:
+          
+          {{ steps[1].response }}
+          
+          Provide editorial feedback and suggestions for improvement.
+          Consider the {{ target_audience }} audience level.
+
+outputs:
+  artifacts:
+    - path: "./{{ topic | replace(' ', '-') }}-article.{{ format }}"
+      from: |
+        # {{ topic }}
+        
+        **Target Audience:** {{ target_audience }}
+        **Format:** {{ format }}
+        **Word Limit:** {{ word_limit }}
+        
+        ## Research Findings
+        {{ steps[0].response }}
+        
+        ## Article
+        {{ steps[1].response }}
+        
+        ## Editorial Notes
+        {{ steps[2].response }}

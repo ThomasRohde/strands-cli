@@ -57,6 +57,7 @@ strands run [OPTIONS] SPEC_FILE
 - `--var KEY=VALUE` - Override template variables (can be used multiple times)
 - `--out TEXT` - Output directory for artifacts (default: `./artifacts`)
 - `--force` - Force overwrite existing artifact files
+- `--ask` / `-a` - Prompt interactively for missing required variables. When enabled, CLI detects required variables without values or defaults and prompts user for input with type coercion. In non-interactive mode (CI/CD, piped input), exits with error if variables are missing.
 - `--bypass-tool-consent` - Skip interactive tool confirmations (e.g., file_write prompts). Sets `BYPASS_TOOL_CONSENT=true` for the workflow execution. Useful for CI/CD automation where human approval isn't available.
 - `--trace` - Auto-generate trace artifact with OTEL spans (writes `<spec-name>-trace.json`)
 - `--debug` - Enable debug logging (variable resolution, templates, etc.)
@@ -83,6 +84,12 @@ strands run workflow.yaml --no-save-session
 
 # With variable overrides
 strands run workflow.yaml --var topic="AI" --var format="markdown"
+
+# Interactive variable prompting
+strands run workflow.yaml --ask
+
+# Combine --ask with partial variable overrides
+strands run workflow.yaml --var format="markdown" --ask
 
 # Save artifacts to specific directory
 strands run workflow.yaml --out ./output

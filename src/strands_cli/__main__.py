@@ -542,6 +542,14 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
         str, typer.Option("--out", help="Output directory for artifacts")
     ] = "./artifacts",
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing artifacts")] = False,
+    ask: Annotated[
+        bool,
+        typer.Option(
+            "--ask",
+            "-a",
+            help="Prompt for missing required variables interactively",
+        ),
+    ] = False,
     bypass_tool_consent: Annotated[
         bool,
         typer.Option(
@@ -614,6 +622,7 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
         var: CLI variable overrides in key=value format, merged into inputs.values
         out: Output directory for artifacts (default: ./artifacts)
         force: Overwrite existing artifact files without error
+        ask: Prompt interactively for missing required variables (non-interactive mode fails with EX_USAGE)
         bypass_tool_consent: Skip interactive tool confirmations (e.g., file_write prompts)
         trace: Auto-generate trace artifact with OTEL spans (writes <spec-name>-trace.json)
         debug: Enable debug logging (variable resolution, templates, etc.)
@@ -778,6 +787,54 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
 
         # Load and validate spec
         spec, spec_path = _load_and_validate_spec(spec_file, variables, verbose)  # type: ignore
+
+        # Interactive variable prompting (if --ask is enabled)
+        if ask:
+            from strands_cli.loader.variable_detector import detect_missing_variables
+            from strands_cli.loader.variable_prompter import (
+                is_interactive,
+                prompt_for_missing_variables,
+            )
+
+            missing_vars = detect_missing_variables(spec)
+
+            if missing_vars:
+                # Check if stdin is a TTY (interactive terminal)
+                if not is_interactive():
+                    console.print(
+                        f"[red]Error:[/red] Cannot prompt for variables in non-interactive mode\n\n"
+                        f"[yellow]Missing required variables:[/yellow] {', '.join(missing_vars)}\n\n"
+                        f"[cyan]To fix, choose one:[/cyan]\n"
+                        f"  1. Provide variables via --var flags:\n"
+                        f"     {' '.join(f'--var {v}=<value>' for v in missing_vars)}\n"
+                        f"  2. Add default values in workflow spec (inputs.required.<var>.default)\n"
+                        f"  3. Run in interactive terminal (not piped/CI/CD)"
+                    )
+                    sys.exit(EX_USAGE)
+
+                # Prompt for missing variables interactively
+                try:
+                    prompted_values = prompt_for_missing_variables(spec, missing_vars)
+
+                    # Merge prompted values into variables dict
+                    # Note: Convert all values to strings for session state compatibility
+                    for var_name, value in prompted_values.items():
+                        # Convert to string (session state requires string values)
+                        variables[var_name] = str(value)
+
+                    # Reload spec with complete variable set
+                    spec, spec_path = _load_and_validate_spec(spec_file, variables, verbose)  # type: ignore
+
+                    if verbose:
+                        console.print(
+                            f"[dim]Prompted variables merged: {list(prompted_values.keys())}[/dim]"
+                        )
+
+                except Exception as e:
+                    console.print(f"[red]Variable prompting failed:[/red] {e}")
+                    if verbose:
+                        console.print_exception()
+                    sys.exit(EX_USAGE)
 
         # Check capability compatibility
         capability_report = check_capability(spec)

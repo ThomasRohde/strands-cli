@@ -673,6 +673,90 @@ outputs:
         {{ steps[2].response }}
 ```
 
+### Interactive Variable Prompting
+
+Use the `--ask` flag to prompt for missing required variables interactively instead of specifying them all via `--var`:
+
+```bash
+# Prompt for all missing required variables
+uv run strands run workflow.yaml --ask
+
+# Combine with --var to provide some variables upfront
+uv run strands run workflow.yaml --var format="markdown" --ask
+```
+
+**Features:**
+- **Type coercion**: Automatically converts input to `string`, `integer`, `number`, or `boolean` based on spec
+- **Descriptions**: Shows parameter descriptions from workflow spec
+- **Enum hints**: Displays available choices for enum-constrained parameters
+- **Validation**: Retries on invalid input (e.g., non-numeric input for integer type)
+- **Non-interactive fallback**: In CI/CD or piped environments, exits with helpful error message
+
+**Example workflow with required inputs:**
+
+```yaml
+inputs:
+  required:
+    topic:
+      type: string
+      description: "Topic to research"
+    
+    word_limit:
+      type: integer
+      description: "Maximum word count"
+    
+    format:
+      type: string
+      enum: ["markdown", "html", "plain"]
+```
+
+**Interactive session:**
+
+```
+$ uv run strands run workflow.yaml --ask
+
+╭─────────────── Interactive Variable Input ───────────────╮
+│ ⚠  Required variables missing: 3                         │
+│                                                           │
+│ Please provide values for the following variables.       │
+│ Simply type your answer and press Enter.                 │
+╰───────────────────────────────────────────────────────────╯
+
+╭──────────────────── Variable Input ─────────────────────╮
+│ topic                                                    │
+│ Research topic or question to investigate deeply         │
+│                                                          │
+│ Example: AI safety alignment                             │
+╰──────────────────────────────────────────────────────────╯
+Enter value: AI safety
+
+✓ Accepted: AI safety
+
+╭──────────────────── Variable Input ─────────────────────╮
+│ max_sources                                              │
+│ Maximum sources per search (3-10 recommended)            │
+│                                                          │
+│ Type: integer                                            │
+│ Example: 42                                              │
+╰──────────────────────────────────────────────────────────╯
+Enter value: 8
+
+✓ Accepted: 8
+
+╭────────────── Variables Collected ───────────────────────╮
+│ ✓ All variables collected successfully!                  │
+│                                                          │
+│   topic: AI safety                                       │
+│   format: markdown                                       │
+│   max_sources: 8                                         │
+╰──────────────────────────────────────────────────────────╯
+
+Running workflow: my-workflow
+...
+```
+
+**See example:** [`examples/chain-interactive-prompts-openai.yaml`](examples/chain-interactive-prompts-openai.yaml)
+
 ### Budget Enforcement
 
 Control resource usage with token and time limits:
@@ -717,6 +801,12 @@ uv run strands run workflow.yaml
 
 # Override variables
 uv run strands run workflow.yaml --var topic="AI" --var format="markdown"
+
+# Interactive variable prompting
+uv run strands run workflow.yaml --ask
+
+# Combine CLI variables with interactive prompts
+uv run strands run workflow.yaml --var format="markdown" --ask
 
 # Resume from saved session
 uv run strands run --resume <session-id>

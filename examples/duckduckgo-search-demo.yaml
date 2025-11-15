@@ -1,50 +1,240 @@
-version: 0
-name: duckduckgo-search-demo
+version: 1
+name: deep-research-agent
 description: |
-  Demonstrate DuckDuckGo search tool with text and news searches.
-  Shows different parameter configurations and JSON result handling.
+  Multi-stage deep research agent that conducts comprehensive research on any topic.
+  Uses DuckDuckGo search for web content, news, and cross-validation.
+  Run with: strands run duckduckgo-search-demo.yaml --ask
 
 runtime:
   provider: openai
-  model_id: gpt-5-nano
+  model_id: gpt-4o-mini
+  temperature: 0.7
+  budgets:
+    max_tokens: 50000
   
 agents:
-  researcher:
+  initial_researcher:
     prompt: |
-      You are a research assistant with access to DuckDuckGo search.
+      You are an expert research analyst conducting preliminary research.
       
-      When asked to search, use the duckduckgo_search tool to find relevant information.
-      The tool returns JSON results with a list of search results, each containing:
-      - title: The page title
-      - href: The URL
-      - body: A snippet of the content
+      Your goal is to identify the key themes, questions, and areas to explore
+      for the given topic. Use DuckDuckGo search to gather initial information.
       
-      For news searches, results also include:
+      The duckduckgo_search tool returns JSON with:
+      - title: Page title
+      - href: URL
+      - body: Content snippet
+      
+      Search broadly first, then identify:
+      1. Main subtopics and concepts
+      2. Key questions to investigate
+      3. Recent developments or controversies
+      4. Important sources and experts
+      
+      Provide a structured research plan.
+
+  deep_researcher:
+    prompt: |
+      You are a deep research specialist who investigates specific aspects thoroughly.
+      
+      Use DuckDuckGo search to dive deep into subtopics and answer specific questions.
+      Cross-reference multiple sources and look for:
+      - Supporting evidence
+      - Contradictory viewpoints
+      - Technical details
+      - Real-world applications
+      
+      Synthesize findings with critical analysis. Always cite sources with URLs.
+
+  news_analyst:
+    prompt: |
+      You are a news and trends analyst tracking recent developments.
+      
+      Use DuckDuckGo news search (search_type="news") to find:
+      - Latest news and announcements
+      - Industry trends
+      - Expert commentary
+      - Recent studies or reports
+      
+      For news searches, results include:
       - date: Publication date
       - source: News source name
       
-      Analyze the search results and provide a clear, concise summary of the most
-      relevant findings. Include URLs for key sources.
+      Focus on developments from the past month (timelimit="m").
+      Highlight breaking news and emerging trends.
+
+  synthesis_expert:
+    prompt: |
+      You are a research synthesis expert who creates comprehensive reports.
+      
+      Analyze all previous research findings and create a well-structured,
+      authoritative report that:
+      1. Summarizes key findings with clear headings
+      2. Integrates web research and news analysis
+      3. Presents balanced perspectives
+      4. Highlights important sources
+      5. Identifies knowledge gaps and future directions
+      
+      Write in clear, professional language suitable for educated readers.
+
+  fact_checker:
+    prompt: |
+      You are a fact-checking specialist ensuring research accuracy.
+      
+      Review the synthesized report and verify key claims by:
+      1. Cross-referencing with additional searches
+      2. Checking source credibility
+      3. Identifying unsupported assertions
+      4. Flagging potential biases
+      
+      Provide specific corrections or confirmations with evidence.
+
+# Interactive variable prompting - run with --ask flag
+inputs:
+  required:
+    topic:
+      type: string
+      description: "Research topic or question to investigate deeply"
+    
+    depth:
+      type: string
+      description: "Research depth level"
+      enum: ["quick", "standard", "comprehensive"]
+      
+    max_sources:
+      type: integer
+      description: "Maximum sources per search (3-10 recommended)"
 
 pattern:
   type: chain
   config:
     steps:
-      - agent: researcher
+      # Stage 1: Initial reconnaissance
+      - agent: initial_researcher
         input: |
-          Search for recent information about "AI agents and automation" using text search.
-          Use max_results=5 to keep it focused.
-      
-      - agent: researcher
+          Conduct preliminary research on: {{ topic }}
+          
+          Research depth: {{ depth }}
+          
+          Use DuckDuckGo search with max_results={{ max_sources }} to explore:
+          1. Main concepts and definitions
+          2. Current state of the field
+          3. Key subtopics to investigate
+          
+          Create a structured research plan identifying 3-5 specific areas to explore.
+
+      # Stage 2: Deep dive into subtopics
+      - agent: deep_researcher
         input: |
-          Now search for recent news about "artificial intelligence breakthroughs" 
-          from the past week. Use search_type="news" and timelimit="w" with max_results=3.
+          Based on this research plan:
+          
+          {{ steps[0].response }}
+          
+          Conduct deep research on the identified subtopics for: {{ topic }}
+          
+          For each subtopic:
+          1. Search for detailed information (max_results={{ max_sources }})
+          2. Look for technical details and expert analysis
+          3. Find supporting evidence and examples
+          4. Note any controversies or alternative views
+          
+          Synthesize comprehensive findings for each area.
+
+      # Stage 3: News and trends analysis
+      - agent: news_analyst
+        input: |
+          Analyze recent news and developments related to: {{ topic }}
+          
+          Use news search (search_type="news", timelimit="m") to find:
+          1. Latest announcements and breakthroughs
+          2. Industry trends and expert commentary
+          3. Recent studies or reports
+          
+          Maximum {{ max_sources }} news items.
+          
+          How do recent developments relate to the earlier research?
+          
+          Previous research context:
+          {{ steps[0].response | truncate(500) }}
+
+      # Stage 4: Synthesis and integration
+      - agent: synthesis_expert
+        input: |
+          Create a comprehensive research report on: {{ topic }}
+          
+          Research depth: {{ depth }}
+          
+          Integrate these research phases:
+          
+          INITIAL RESEARCH:
+          {{ steps[0].response }}
+          
+          DEEP ANALYSIS:
+          {{ steps[1].response }}
+          
+          NEWS & TRENDS:
+          {{ steps[2].response }}
+          
+          Structure the report with:
+          1. Executive Summary
+          2. Background and Context
+          3. Key Findings (organized by theme)
+          4. Recent Developments and Trends
+          5. Implications and Future Directions
+          6. References (with URLs)
+
+      # Stage 5: Fact-checking and validation
+      - agent: fact_checker
+        input: |
+          Review this research report for accuracy and completeness:
+          
+          {{ steps[3].response }}
+          
+          For topic: {{ topic }}
+          
+          Verify key claims by conducting targeted searches (max_results=3).
+          Check for:
+          1. Factual accuracy of major claims
+          2. Source credibility
+          3. Missing perspectives
+          4. Potential biases
+          
+          Provide corrections, confirmations, or additional context.
 
 tools:
   python:
-    - duckduckgo_search  # Native DuckDuckGo search tool
+    - duckduckgo_search  # Native DuckDuckGo search tool with text and news search
 
 outputs:
   artifacts:
-    - path: ./duckduckgo-search-results.txt
-      from: "{{ last_response }}"
+    - path: "./research-report.md"
+      from: |
+        # Deep Research Report: {{ topic }}
+        
+        **Research Depth:** {{ depth }}  
+        **Sources per Search:** {{ max_sources }}
+        
+        ---
+        
+        ## Final Report
+        
+        {{ steps[3].response }}
+        
+        ---
+        
+        ## Fact-Check and Validation
+        
+        {{ steps[4].response }}
+        
+        ---
+        
+        ## Research Methodology
+        
+        This report was generated through a 5-stage research process:
+        1. **Initial Reconnaissance** - Broad search to identify key themes
+        2. **Deep Analysis** - Detailed investigation of subtopics
+        3. **News Analysis** - Recent developments and trends
+        4. **Synthesis** - Integration into comprehensive report
+        5. **Fact-Checking** - Validation and verification
+        
+        All findings sourced from DuckDuckGo web and news searches.

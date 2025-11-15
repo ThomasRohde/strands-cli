@@ -39,6 +39,127 @@ pattern:
         prompt: "Write about {{ topic }} in {{ format }} format"
 ```
 
+### Interactive Variable Prompting
+
+Use the `--ask` flag to prompt interactively for missing required variables:
+
+```bash
+# Prompt for all missing required variables
+strands run workflow.yaml --ask
+```
+
+**How it works:**
+
+1. CLI detects required variables without values or defaults
+2. Prompts user for each missing variable with type coercion
+3. Supports `string`, `integer`, `number`, and `boolean` types
+4. Shows descriptions and enum choices if defined in spec
+5. Retries on invalid input (e.g., "abc" for integer type)
+
+**Example workflow with required variables:**
+
+```yaml
+inputs:
+  required:
+    topic:
+      type: string
+      description: "Topic to research"
+    
+    word_limit:
+      type: integer
+      description: "Maximum word count"
+    
+    format:
+      type: string
+      description: "Output format"
+      enum: ["markdown", "html", "plain"]
+```
+
+**Interactive session:**
+
+```bash
+$ strands run workflow.yaml --ask
+
+╭─────────────── Interactive Variable Input ───────────────╮
+│ ⚠  Required variables missing: 3                         │
+│                                                           │
+│ Please provide values for the following variables.       │
+│ Simply type your answer and press Enter.                 │
+╰───────────────────────────────────────────────────────────╯
+
+╭──────────────────── Variable Input ─────────────────────╮
+│ topic                                                    │
+│ Research topic or question to investigate deeply         │
+│                                                          │
+│ Example: AI safety alignment                             │
+╰──────────────────────────────────────────────────────────╯
+Enter value: AI safety
+
+✓ Accepted: AI safety
+
+╭──────────────────── Variable Input ─────────────────────╮
+│ depth                                                    │
+│ Research depth level                                     │
+│                                                          │
+│ Choices: quick, standard, comprehensive                  │
+│ Example: quick                                           │
+╰──────────────────────────────────────────────────────────╯
+Enter value: comprehensive
+
+✓ Accepted: comprehensive
+
+╭──────────────────── Variable Input ─────────────────────╮
+│ max_sources                                              │
+│ Maximum sources per search (3-10 recommended)            │
+│                                                          │
+│ Type: integer                                            │
+│ Example: 42                                              │
+╰──────────────────────────────────────────────────────────╯
+Enter value: 8
+
+✓ Accepted: 8
+
+╭────────────── Variables Collected ───────────────────────╮
+│ ✓ All variables collected successfully!                  │
+│                                                          │
+│   topic: AI safety                                       │
+│   depth: comprehensive                                   │
+│   max_sources: 8                                         │
+╰──────────────────────────────────────────────────────────╯
+
+Running workflow: my-workflow
+...
+```
+
+**Combining with --var:**
+
+You can mix `--var` flags with `--ask` to provide some variables via CLI and prompt for the rest:
+
+```bash
+# Provide format via CLI, prompt for topic and word_limit
+strands run workflow.yaml --var format="markdown" --ask
+```
+
+**Non-interactive mode (CI/CD):**
+
+In non-interactive environments (piped input, CI/CD), `--ask` will fail with a helpful error message:
+
+```bash
+$ echo "data" | strands run workflow.yaml --ask
+
+Error: Cannot prompt for variables in non-interactive mode
+
+Missing required variables: topic, word_limit, format
+
+To fix, choose one:
+  1. Provide variables via --var flags:
+     --var topic=<value> --var word_limit=<value> --var format=<value>
+  2. Add default values in workflow spec (inputs.required.<var>.default)
+  3. Run in interactive terminal (not piped/CI/CD)
+```
+
+**See also:** [`examples/chain-interactive-prompts-openai.yaml`](../../examples/chain-interactive-prompts-openai.yaml) for a complete example.
+
 ### Debug and Verbose Output
 
 Enable detailed logging to troubleshoot issues:
