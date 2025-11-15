@@ -21,60 +21,79 @@
       "description": "Spec version. Use 0 initially."
     },
     "name": {
-      "$ref": "#/$defs/nonEmptyString"
+      "$ref": "#/$defs/nonEmptyString",
+      "description": "Unique identifier for this workflow. Used in telemetry, logging, and artifact paths. Should be descriptive and URL-safe (no spaces).",
+      "examples": ["research-brief", "code-review-pipeline", "data-processing"]
     },
     "description": {
-      "type": "string"
+      "type": "string",
+      "description": "Human-readable description of workflow purpose, behavior, and use cases. Displayed in logs and used for documentation generation.",
+      "examples": ["Multi-step research workflow that gathers sources, analyzes content, and produces a comprehensive brief"]
     },
     "tags": {
       "type": "array",
+      "description": "Classification tags for organizing and filtering workflows. Useful for tooling, CI/CD pipelines, and workflow discovery. Tags must be lowercase alphanumeric with dots, hyphens, or underscores.",
       "items": {
         "$ref": "#/$defs/tag"
       },
-      "uniqueItems": true
+      "uniqueItems": true,
+      "examples": [["research", "production", "experimental"], ["data-processing", "ml-training"]]
     },
     "runtime": {
-      "$ref": "#/$defs/runtime"
+      "$ref": "#/$defs/runtime",
+      "description": "Default runtime configuration for all agents including LLM provider, model selection, inference parameters, budgets, and failure handling. Individual agents can override specific settings."
     },
     "inputs": {
-      "$ref": "#/$defs/inputs"
+      "$ref": "#/$defs/inputs",
+      "description": "Declare workflow parameters that can be provided via --var flags or defaults. Supports type validation and optional/required semantics. Use Jinja2 templates ({{variable_name}}) in prompts and inputs to reference these values."
     },
     "env": {
-      "$ref": "#/$defs/env"
+      "$ref": "#/$defs/env",
+      "description": "Environment configuration including secrets (API keys, tokens) and filesystem mounts. Secrets can be sourced from environment variables, AWS Secrets Manager, SSM Parameter Store, or files. Mounts map logical names to local paths for file access."
     },
     "telemetry": {
-      "$ref": "#/$defs/telemetry"
+      "$ref": "#/$defs/telemetry",
+      "description": "OpenTelemetry (OTEL) configuration for distributed tracing and observability. Configure OTLP endpoint, service name, sampling ratio, and redaction policies for sensitive data in tool inputs/outputs."
     },
     "context_policy": {
-      "$ref": "#/$defs/contextPolicy"
+      "$ref": "#/$defs/contextPolicy",
+      "description": "Advanced context management strategies including automatic conversation compaction (summarization), persistent notes storage, and just-in-time retrieval tools. Helps manage token budgets and maintain long-running agent conversations."
     },
     "skills": {
-      "$ref": "#/$defs/skills"
+      "$ref": "#/$defs/skills",
+      "description": "Skill bundles containing code, documentation, or assets that agents can reference. Skills are injected into agent system prompts as metadata (id/path). Executable skill support is planned for future versions."
     },
     "tools": {
-      "$ref": "#/$defs/tools"
+      "$ref": "#/$defs/tools",
+      "description": "Tool definitions available to agents. Supports three types: (1) Python callables from allowlisted modules, (2) Model Context Protocol (MCP) servers via stdio or HTTPS, and (3) HTTP executors for REST APIs. Tools can be assigned globally or per-agent."
     },
     "agents": {
-      "$ref": "#/$defs/agents"
+      "$ref": "#/$defs/agents",
+      "description": "Map of agent identifiers to specifications. Each agent has a unique system prompt, optional tools, and can override runtime model/provider settings. Agents are referenced by ID in workflow patterns. Minimum 1 agent required."
     },
     "pattern": {
-      "$ref": "#/$defs/pattern"
+      "$ref": "#/$defs/pattern",
+      "description": "Workflow execution pattern defining agent orchestration. Supported patterns: chain (sequential steps), workflow (DAG with dependencies), routing (dynamic agent selection), parallel (concurrent branches), evaluator-optimizer (iterative refinement), orchestrator-workers (task decomposition), and graph (state machine with conditional transitions)."
     },
     "outputs": {
-      "$ref": "#/$defs/outputs"
+      "$ref": "#/$defs/outputs",
+      "description": "Define artifacts (files) to write after workflow execution. Supports Jinja2 templates to reference agent responses from steps, tasks, branches, or nodes. Use {{ last_response }} for final output or pattern-specific variables like {{ steps[0].response }}."
     },
     "security": {
-      "$ref": "#/$defs/security"
+      "$ref": "#/$defs/security",
+      "description": "Security guardrails including network access controls, PII redaction, and tool allowlisting. Guardrail settings are parsed but enforcement is logged only in current version (full enforcement planned for future release)."
     }
   },
   "$defs": {
     "nonEmptyString": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Non-empty string value with at least one character."
     },
     "identifier": {
       "type": "string",
       "pattern": "^[A-Za-z0-9._:-]+$",
+      "description": "Alphanumeric identifier allowing dots, underscores, colons, and hyphens. Used for agent IDs, tool IDs, task IDs, node IDs, and other reference keys throughout the workflow specification.",
       "examples": [
         "writer",
         "researcher",
@@ -84,7 +103,9 @@
     },
     "tag": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Lowercase tag starting with alphanumeric character, allowing dots, hyphens, and underscores in subsequent positions. Used for workflow classification and filtering.",
+      "examples": ["production", "experimental", "ml-training", "data.processing"]
     },
     "runtime": {
       "type": "object",
@@ -95,11 +116,12 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "LLM provider identifier (e.g., bedrock, openai, azure_openai, local).",
+          "description": "LLM provider identifier (e.g., bedrock, openai, azure_openai, danskegpt, local).",
           "examples": [
             "bedrock",
             "openai",
-            "ollama"
+            "ollama",
+            "danskegpt"
           ]
         },
         "model_id": {
@@ -107,12 +129,18 @@
           "description": "Default model for agents that don't override."
         },
         "region": {
-          "type": "string"
+          "type": "string",
+          "description": "AWS region for Bedrock provider (e.g., 'us-east-1', 'eu-central-1'). Required when provider is 'bedrock'. Ignored for other providers.",
+          "examples": ["us-east-1", "us-west-2", "eu-central-1"]
         },
         "host": {
           "type": "string",
           "description": "Server host URL for providers like Ollama or OpenAI-compatible servers (e.g., http://localhost:11434).",
           "format": "uri"
+        },
+        "space_id": {
+          "type": "string",
+          "description": "Space identifier for DanskeGPT provider (required when provider is danskegpt)."
         },
         "temperature": {
           "type": "number",
@@ -133,40 +161,49 @@
         },
         "max_parallel": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Maximum number of concurrent agent invocations in parallel patterns (parallel branches, workflow tasks, orchestrator workers). Controls resource usage and API rate limit management. Default varies by pattern.",
+          "default": 5
         },
         "budgets": {
           "type": "object",
+          "description": "Resource limits and cost controls for workflow execution. Enforced at runtime with graceful failures and warnings.",
           "additionalProperties": false,
           "properties": {
             "max_steps": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "Maximum number of LLM API calls (steps) allowed during workflow execution. Prevents runaway loops and controls costs. Each agent invocation counts as one step."
             },
             "max_tokens": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "Maximum total tokens (input + output) consumed across all agent invocations. Enforced cumulatively throughout workflow. Use for cost control."
             },
             "max_duration_s": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "Maximum wall-clock execution time in seconds. Workflow terminates with error if exceeded. Does not include human-in-the-loop wait times."
             },
             "warn_threshold": {
               "type": "number",
               "minimum": 0.0,
               "maximum": 1.0,
               "default": 0.8,
-              "description": "Percentage (0.0-1.0) at which to log token budget warning. Default is 0.8 (80%)."
+              "description": "Percentage (0.0-1.0) at which to log token budget warning. Default is 0.8 (80%). Helps anticipate budget exhaustion before hard limit is reached."
             }
           }
         },
         "failure_policy": {
           "type": "object",
+          "description": "Retry and backoff configuration for transient failures (network errors, rate limits, timeouts). Applied to all agent invocations unless overridden.",
           "additionalProperties": false,
           "properties": {
             "retries": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "description": "Number of retry attempts after initial failure. 0 means no retries (fail immediately). Recommended: 2-3 for production workflows.",
+              "default": 2
             },
             "backoff": {
               "type": "string",
@@ -175,17 +212,20 @@
                 "exponential",
                 "jittered"
               ],
-              "default": "exponential"
+              "default": "exponential",
+              "description": "Backoff strategy between retries. 'constant': fixed delay, 'exponential': doubles each retry, 'jittered': exponential with randomization to prevent thundering herd."
             },
             "wait_min": {
               "type": "integer",
               "minimum": 0,
-              "description": "Minimum wait time in seconds between retries."
+              "description": "Minimum wait time in seconds between retries. Acts as lower bound for backoff calculation. Recommended: 1-2 seconds.",
+              "default": 1
             },
             "wait_max": {
               "type": "integer",
               "minimum": 0,
-              "description": "Maximum wait time in seconds between retries."
+              "description": "Maximum wait time in seconds between retries. Caps exponential backoff to prevent excessive delays. Recommended: 30-60 seconds.",
+              "default": 60
             }
           }
         }
@@ -193,17 +233,20 @@
     },
     "inputs": {
       "type": "object",
+      "description": "Input parameter definitions for workflow. Specify types, defaults, and validation constraints. Parameters can be passed via --var flags at runtime.",
       "additionalProperties": false,
       "properties": {
         "required": {
-          "$ref": "#/$defs/inputVarMap"
+          "$ref": "#/$defs/inputVarMap",
+          "description": "Required input parameters that must be provided via --var flags or have defaults. Workflow fails if required parameters without defaults are missing."
         },
         "optional": {
-          "$ref": "#/$defs/inputVarMap"
+          "$ref": "#/$defs/inputVarMap",
+          "description": "Optional input parameters that can be omitted. Use with default values or conditional templates (e.g., {{param|default:'fallback'}})."
         },
         "values": {
           "type": "object",
-          "description": "Actual input values provided at runtime (e.g., via --var flags or defaults).",
+          "description": "Actual input values provided at runtime (e.g., via --var flags or defaults). Typically populated by CLI during execution, not manually specified in workflow file.",
           "additionalProperties": {
             "type": [
               "string",
@@ -216,11 +259,13 @@
     },
     "inputVarMap": {
       "type": "object",
+      "description": "Map of parameter names to type specifications. Keys are parameter names used in Jinja2 templates (e.g., {{param_name}}). Values can be shorthand type strings or detailed specification objects.",
       "additionalProperties": {
         "$ref": "#/$defs/inputVarSpec"
       }
     },
     "inputVarSpec": {
+      "description": "Input parameter specification. Use shorthand string for simple types (e.g., 'string', 'number') or object format for detailed configuration with descriptions, defaults, and enum constraints.",
       "oneOf": [
         {
           "type": "string",
@@ -232,10 +277,11 @@
             "array",
             "object"
           ],
-          "description": "Shorthand type name."
+          "description": "Shorthand type name for simple parameter definitions without defaults or constraints."
         },
         {
           "type": "object",
+          "description": "Detailed parameter specification with type, description, default value, and enum constraints.",
           "additionalProperties": false,
           "required": [
             "type"
@@ -250,15 +296,20 @@
                 "boolean",
                 "array",
                 "object"
-              ]
+              ],
+              "description": "JSON Schema type for parameter validation."
             },
             "description": {
-              "type": "string"
+              "type": "string",
+              "description": "Human-readable explanation of parameter purpose and expected values."
             },
-            "default": {},
+            "default": {
+              "description": "Default value used when parameter is not provided via --var. Type must match 'type' field."
+            },
             "enum": {
               "type": "array",
-              "items": {}
+              "items": {},
+              "description": "List of allowed values for parameter. Provides validation and documents valid options."
             }
           }
         }
@@ -266,10 +317,12 @@
     },
     "env": {
       "type": "object",
+      "description": "Environment configuration for secrets and filesystem mounts. Secrets are injected as environment variables; mounts provide file access to tools.",
       "additionalProperties": false,
       "properties": {
         "secrets": {
           "type": "array",
+          "description": "Secret definitions for sensitive data like API keys, tokens, and credentials. Values are never logged or included in telemetry.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -279,11 +332,12 @@
             ],
             "properties": {
               "key": {
-                "$ref": "#/$defs/identifier"
+                "$ref": "#/$defs/identifier",
+                "description": "Environment variable name to inject (e.g., 'GITHUB_TOKEN', 'OPENAI_API_KEY')."
               },
               "name": {
                 "type": "string",
-                "description": "Optional display name for the secret."
+                "description": "Optional display name for the secret. Used in logs and error messages instead of the key for better readability."
               },
               "source": {
                 "type": "string",
@@ -292,18 +346,19 @@
                   "secrets_manager",
                   "ssm",
                   "file"
-                ]
+                ],
+                "description": "Secret source: 'env' (environment variable), 'secrets_manager' (AWS Secrets Manager), 'ssm' (AWS Systems Manager Parameter Store), 'file' (local file). MVP supports 'env' only."
               },
               "path": {
                 "type": "string",
-                "description": "For source=file: path to file or key name."
+                "description": "For source=file: path to file containing secret. For source=secrets_manager/ssm: key name or ARN. Required for non-env sources."
               }
             }
           }
         },
         "mounts": {
           "type": "object",
-          "description": "Logical mount name to local path.",
+          "description": "Logical mount name to local path mappings. Allows tools to access files in specified directories (e.g., 'workspace': '/home/user/project'). Used for file read/write operations.",
           "additionalProperties": {
             "type": "string"
           }
@@ -312,37 +367,48 @@
     },
     "telemetry": {
       "type": "object",
+      "description": "OpenTelemetry (OTEL) configuration for distributed tracing and observability. Send spans to OTLP-compatible backends (Jaeger, Honeycomb, Datadog, etc.).",
       "additionalProperties": false,
       "properties": {
         "otel": {
           "type": "object",
+          "description": "OTEL exporter configuration. Spans include workflow execution, agent invocations, tool calls, and LLM completions.",
           "additionalProperties": false,
           "properties": {
             "endpoint": {
               "type": "string",
-              "format": "uri"
+              "format": "uri",
+              "description": "OTLP endpoint URL (e.g., 'http://localhost:4318', 'https://api.honeycomb.io'). Supports HTTP and gRPC protocols.",
+              "examples": ["http://localhost:4318", "https://api.honeycomb.io"]
             },
             "service_name": {
-              "type": "string"
+              "type": "string",
+              "description": "Service name for traces (e.g., 'strands-workflows', 'research-pipeline'). Used to identify this workflow in tracing backends.",
+              "examples": ["strands-workflows", "research-pipeline"]
             },
             "sample_ratio": {
               "type": "number",
               "minimum": 0.0,
-              "maximum": 1.0
+              "maximum": 1.0,
+              "description": "Sampling ratio (0.0-1.0) for traces. 1.0 = sample all, 0.5 = sample 50%. Reduces telemetry volume for high-frequency workflows.",
+              "default": 1.0
             }
           }
         },
         "redact": {
           "type": "object",
+          "description": "Redaction policies for sensitive data in traces. Prevents PII and credentials from appearing in telemetry backends.",
           "additionalProperties": false,
           "properties": {
             "tool_inputs": {
               "type": "boolean",
-              "default": true
+              "default": true,
+              "description": "Redact tool input parameters from spans. Recommended to prevent leaking sensitive data passed to tools."
             },
             "tool_outputs": {
               "type": "boolean",
-              "default": false
+              "default": false,
+              "description": "Redact tool output results from spans. Enable if tools return sensitive data (e.g., API responses with PII)."
             }
           }
         }
@@ -350,15 +416,18 @@
     },
     "contextPolicy": {
       "type": "object",
+      "description": "Context management configuration to control how conversation history and external knowledge are handled during workflow execution. Includes compaction (summarization), persistent notes, and just-in-time retrieval tools.",
       "additionalProperties": false,
       "properties": {
         "compaction": {
           "type": "object",
+          "description": "Automatic context window compression via summarization of older messages. Prevents token limit overflow in long-running workflows by condensing conversation history while preserving recent exchanges.",
           "additionalProperties": false,
           "properties": {
             "enabled": {
               "type": "boolean",
-              "default": true
+              "default": true,
+              "description": "Enable/disable automatic compaction. When true, system monitors token usage and triggers summarization when approaching limits. Recommended for workflows with >10 steps or long conversations."
             },
             "when_tokens_over": {
               "type": "integer",
@@ -386,6 +455,7 @@
         },
         "notes": {
           "type": "object",
+          "description": "Persistent notes file for capturing key insights across workflow steps. Agents can write to notes file, and recent notes are automatically included in subsequent agent contexts for cross-step memory.",
           "additionalProperties": false,
           "required": ["file"],
           "properties": {
@@ -435,6 +505,7 @@
     },
     "skills": {
       "type": "array",
+      "description": "Skill bundles that inject domain-specific knowledge or capabilities into agent prompts. Each skill references a directory containing code, docs, or assets. Metadata is injected into system prompt; executable assets planned for future.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -444,14 +515,17 @@
         ],
         "properties": {
           "id": {
-            "$ref": "#/$defs/identifier"
+            "$ref": "#/$defs/identifier",
+            "description": "Unique skill identifier. Reference in agent configurations to inject this skill's capabilities. Use descriptive names like 'python_analysis' or 'aws_sdk'."
           },
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "Filesystem path to skill directory (relative to spec file or absolute). Directory should contain README.md or metadata describing skill capabilities. Used to augment agent knowledge without full code execution."
           },
           "preload_metadata": {
             "type": "boolean",
-            "default": false
+            "default": false,
+            "description": "If true, load skill metadata (README, docstrings) at workflow start and inject into agent system prompt. If false, skill metadata loaded on-demand. Preloading improves first-call latency but increases initial token usage."
           }
         }
       }
@@ -462,7 +536,7 @@
       "properties": {
         "python": {
           "type": "array",
-          "description": "Python tools as strings or objects with callable field.",
+          "description": "Python callable tools imported from modules. MVP supports allowlisted callables (strands_tools.http_request, strands_tools.file_read) and native tools with TOOL_SPEC pattern. Tools must return ToolResult dict with toolUseId, status, and content fields.",
           "items": {
             "oneOf": [
               {
@@ -493,24 +567,28 @@
             ],
             "oneOf": [
               {
-                "description": "MCP server using stdio transport",
+                "description": "MCP server using stdio transport (subprocess communication). Most common for local MCP servers. Server process communicates via stdin/stdout using MCP protocol.",
                 "additionalProperties": false,
                 "required": ["command"],
                 "properties": {
                   "id": {
-                    "$ref": "#/$defs/identifier"
+                    "$ref": "#/$defs/identifier",
+                    "description": "Unique identifier for this MCP server. Reference in agent tool lists to enable server's tools for that agent."
                   },
                   "command": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Executable command to launch MCP server process (e.g., 'node', 'python', 'npx'). Must be in PATH or use absolute path. Server receives MCP protocol messages via stdin and responds via stdout."
                   },
                   "args": {
                     "type": "array",
+                    "description": "Command-line arguments passed to MCP server process. Typically includes server script path and configuration flags (e.g., ['server.js', '--port', '8080']).",
                     "items": {
                       "type": "string"
                     }
                   },
                   "env": {
                     "type": "object",
+                    "description": "Environment variables to set for MCP server process. Use for API keys, config paths, or server-specific settings. Inherits parent process environment and merges these overrides.",
                     "additionalProperties": {
                       "type": "string"
                     }
@@ -523,7 +601,8 @@
                 "required": ["url"],
                 "properties": {
                   "id": {
-                    "$ref": "#/$defs/identifier"
+                    "$ref": "#/$defs/identifier",
+                    "description": "Unique identifier for this MCP server. Reference in agent tool lists to enable server's tools for that agent."
                   },
                   "url": {
                     "type": "string",
@@ -553,21 +632,25 @@
             ],
             "properties": {
               "id": {
-                "$ref": "#/$defs/identifier"
+                "$ref": "#/$defs/identifier",
+                "description": "Unique identifier for this HTTP executor. Reference in agent tool lists to enable HTTP requests to this API. Use descriptive names like 'github_api' or 'weather_service'."
               },
               "base_url": {
                 "type": "string",
-                "format": "uri"
+                "format": "uri",
+                "description": "Base URL for all requests made by this executor. Agent specifies paths relative to this URL (e.g., base_url='https://api.github.com' + agent path='/repos/owner/repo' = full URL). Must include protocol (http/https)."
               },
               "headers": {
                 "type": "object",
+                "description": "HTTP headers sent with every request from this executor. Use for authentication (e.g., {'Authorization': 'Bearer ${TOKEN}'}), content negotiation, or API versioning. Values support environment variable substitution.",
                 "additionalProperties": {
                   "type": "string"
                 }
               },
               "timeout_ms": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "Request timeout in milliseconds. If API does not respond within this time, request fails with timeout error. Typical: 5000-30000 (5-30 seconds). Higher for slow APIs, lower for fast internal services."
               },
               "description": {
                 "type": "string",
@@ -628,50 +711,58 @@
     },
     "inference": {
       "type": "object",
+      "description": "LLM inference parameters controlling generation behavior. Can be specified at runtime level (default for all agents) or per-agent (overrides runtime settings).",
       "additionalProperties": false,
       "properties": {
         "temperature": {
           "type": "number",
           "minimum": 0.0,
-          "maximum": 2.0
+          "maximum": 2.0,
+          "description": "Sampling temperature (0.0-2.0). Higher values increase randomness/creativity. Lower values make output more deterministic. Typical: 0.7 for creative tasks, 0.1-0.3 for factual/analytical tasks."
         },
         "top_p": {
           "type": "number",
           "minimum": 0.0,
-          "maximum": 1.0
+          "maximum": 1.0,
+          "description": "Nucleus sampling parameter (0.0-1.0). Alternative to temperature. Considers tokens with cumulative probability mass up to top_p. Typical: 0.9-0.95. Use either temperature OR top_p, not both."
         },
         "max_tokens": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Maximum tokens to generate in response. Acts as hard limit on output length. Does not include input tokens. Set appropriately for expected output (e.g., 500 for summaries, 2000 for detailed reports)."
         }
       }
     },
     "agentSpec": {
       "type": "object",
+      "description": "Agent specification defining behavior, capabilities, and configuration. Each agent has a unique system prompt and can optionally override runtime settings.",
       "additionalProperties": false,
       "required": [
         "prompt"
       ],
       "properties": {
         "prompt": {
-          "type": "string"
+          "type": "string",
+          "description": "System prompt defining agent role, instructions, and behavioral guidelines. Supports Jinja2 templating to reference input variables (e.g., 'You are a {{role}} specializing in {{domain}}'). This is the core definition of agent identity and capabilities."
         },
         "tools": {
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "List of tool IDs this agent can use. References tools defined in top-level 'tools' section. Tool IDs can be python callables (e.g., 'strands_tools.http_request'), MCP server IDs, HTTP executor IDs, or native tool names. Empty array or omit for agents without tool access."
         },
         "provider": {
           "type": "string",
-          "description": "Overrides runtime.provider"
+          "description": "Overrides runtime.provider for this agent. Use to mix providers within workflow (e.g., GPT-4 for reasoning, Claude for writing). Must be one of: 'bedrock', 'openai', 'ollama', 'danskegpt'."
         },
         "model_id": {
           "type": "string",
-          "description": "Overrides runtime.model_id"
+          "description": "Overrides runtime.model_id for this agent. Use to assign different models to different agents based on task requirements (e.g., larger model for complex reasoning, smaller/faster for simple tasks)."
         },
         "inference": {
-          "$ref": "#/$defs/inference"
+          "$ref": "#/$defs/inference",
+          "description": "Overrides runtime inference parameters (temperature, top_p, max_tokens) for this agent. Use to fine-tune generation behavior per agent role."
         }
       }
     },
@@ -703,6 +794,7 @@
             },
             "vars": {
               "type": "object",
+              "description": "Step-level variable overrides. Merge with or override workflow-level input variables for this specific step. Use to pass step-specific context or modify behavior dynamically. Values can be strings, numbers, or booleans.",
               "additionalProperties": {
                 "type": [
                   "string",
@@ -713,6 +805,7 @@
             },
             "tool_overrides": {
               "type": "array",
+              "description": "Override tools available to agent for this step only. Replaces agent's default tool list. Use to restrict or expand tool access for specific steps (e.g., disable network tools during sensitive operations, add specialized tools for specific tasks).",
               "items": {
                 "type": "string"
               }
@@ -801,6 +894,7 @@
     },
     "chainConfig": {
       "type": "object",
+      "description": "Sequential chain pattern configuration. Executes steps in order, passing context between steps. Each step can access previous step responses via {{steps[n].response}} templates. Supports human-in-the-loop (HITL) pause points.",
       "additionalProperties": false,
       "required": [
         "steps"
@@ -809,6 +903,7 @@
         "steps": {
           "type": "array",
           "minItems": 1,
+          "description": "Ordered list of agent execution or HITL steps. Steps execute sequentially with full conversation context. Minimum 1 step required.",
           "items": {
             "$ref": "#/$defs/step"
           }
@@ -817,6 +912,7 @@
     },
     "routingConfig": {
       "type": "object",
+      "description": "Dynamic routing pattern. Router agent analyzes input and selects execution path from predefined routes. Router returns JSON with 'route' key. Each route can have sequential steps. Supports optional HITL review of router decision.",
       "additionalProperties": false,
       "required": [
         "router",
@@ -825,6 +921,7 @@
       "properties": {
         "router": {
           "type": "object",
+          "description": "Router agent configuration responsible for analyzing input and deciding execution path.",
           "additionalProperties": false,
           "required": [
             "agent"
@@ -832,31 +929,34 @@
           "properties": {
             "agent": {
               "type": "string",
-              "description": "Agent that decides route."
+              "description": "Agent that decides route. Must return JSON with 'route' key matching a route ID from 'routes' object. Router prompt should clearly specify available routes and decision criteria."
             },
             "input": {
-              "type": "string"
+              "type": "string",
+              "description": "Input prompt for router agent. Supports Jinja2 templates to reference workflow inputs (e.g., 'Analyze this request: {{user_query}}')."
             },
             "max_retries": {
               "type": "integer",
               "minimum": 0,
               "default": 2,
-              "description": "Maximum retry attempts for malformed router JSON responses."
+              "description": "Maximum retry attempts for malformed router JSON responses. Retries help recover from format errors (missing 'route' key, invalid JSON, etc.)."
             },
             "review_router": {
               "$ref": "#/$defs/step",
-              "description": "Optional HITL review step for router decision approval/override."
+              "description": "Optional HITL review step for router decision approval/override. Pauses execution after router decides, allowing human to confirm or change the selected route."
             }
           }
         },
         "routes": {
           "type": "object",
+          "description": "Map of route IDs to execution paths. Router's 'route' value must match one of these keys. Each route defines sequential steps to execute for that path.",
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
               "then": {
                 "type": "array",
+                "description": "Sequential steps to execute when this route is selected. Steps have access to router response via {{router_response}} template.",
                 "items": {
                   "$ref": "#/$defs/step"
                 }
@@ -868,6 +968,7 @@
     },
     "parallelConfig": {
       "type": "object",
+      "description": "Parallel branches pattern. Executes multiple independent execution branches concurrently, then optionally aggregates results with a reduce step. Each branch can have multiple sequential steps. Branch results accessible via {{branches.<id>.response}} templates.",
       "additionalProperties": false,
       "required": [
         "branches"
@@ -876,6 +977,7 @@
         "branches": {
           "type": "array",
           "minItems": 2,
+          "description": "List of independent execution branches. Each branch executes its steps sequentially. All branches run concurrently (up to runtime.max_parallel limit). Minimum 2 branches required.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -885,11 +987,13 @@
             ],
             "properties": {
               "id": {
-                "$ref": "#/$defs/identifier"
+                "$ref": "#/$defs/identifier",
+                "description": "Unique branch identifier used to reference branch results in templates (e.g., {{branches.analysis.response}})."
               },
               "steps": {
                 "type": "array",
                 "minItems": 1,
+                "description": "Sequential steps within this branch. Steps execute in order with full context. Each branch maintains independent conversation history.",
                 "items": {
                   "$ref": "#/$defs/step"
                 }
@@ -898,12 +1002,14 @@
           }
         },
         "reduce": {
-          "$ref": "#/$defs/step"
+          "$ref": "#/$defs/step",
+          "description": "Optional reduce step that aggregates results from all branches. Has access to all branch outputs via {{branches.<id>.response}} templates. Commonly used for synthesis, comparison, or consensus building."
         }
       }
     },
     "orchestratorWorkersConfig": {
       "type": "object",
+      "description": "Orchestrator-workers pattern for divide-and-conquer task decomposition. Orchestrator agent breaks down complex tasks into subtasks, worker agents execute them in parallel (respecting runtime.max_parallel), and optional reduce/writeup steps aggregate results. Useful for research, data processing, and parallelizable workflows.",
       "additionalProperties": false,
       "required": [
         "orchestrator",
@@ -912,25 +1018,30 @@
       "properties": {
         "orchestrator": {
           "type": "object",
+          "description": "Orchestrator agent configuration. This agent analyzes the main task and generates a structured JSON list of subtasks for workers to execute. Must return JSON array with task objects (each containing 'description' and optional 'context').",
           "additionalProperties": false,
           "required": [
             "agent"
           ],
           "properties": {
             "agent": {
-              "type": "string"
+              "type": "string",
+              "description": "Agent ID from agents map that performs task decomposition. Prompt should instruct agent to analyze input and return JSON array of subtasks with 'description' and optional 'context' fields for each subtask."
             },
             "limits": {
               "type": "object",
+              "description": "Optional constraints on orchestrator behavior to prevent runaway decomposition.",
               "additionalProperties": false,
               "properties": {
                 "max_workers": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 1,
+                  "description": "Maximum number of worker tasks to spawn. Limits parallel execution even if orchestrator suggests more subtasks. Useful for budget control and resource management."
                 },
                 "max_rounds": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 1,
+                  "description": "Maximum orchestration rounds (each round: decompose → workers → optional reduce). Prevents infinite decomposition loops. Most workflows use 1 round."
                 }
               }
             }
@@ -980,16 +1091,19 @@
         },
         "worker_template": {
           "type": "object",
+          "description": "Worker agent template applied to each decomposed subtask. Workers execute in parallel (respecting runtime.max_parallel) and receive subtask description + optional context from orchestrator. All workers use the same agent configuration.",
           "additionalProperties": false,
           "required": [
             "agent"
           ],
           "properties": {
             "agent": {
-              "type": "string"
+              "type": "string",
+              "description": "Agent ID from agents map used for all worker instances. This agent receives subtask description and context, executes the work, and returns results for aggregation."
             },
             "tools": {
               "type": "array",
+              "description": "Optional tool IDs to assign to worker agents. Overrides agent's default tools. Useful for giving workers specific capabilities (e.g., search, file access) without modifying agent definition.",
               "items": {
                 "type": "string"
               }
@@ -1039,15 +1153,18 @@
           }
         },
         "reduce": {
-          "$ref": "#/$defs/step"
+          "$ref": "#/$defs/step",
+          "description": "Optional aggregation step to combine worker results. Agent receives array of worker outputs and synthesizes a unified response. Use templates like {{ workers }} to reference worker results. If omitted, writeup step receives raw worker array."
         },
         "writeup": {
-          "$ref": "#/$defs/step"
+          "$ref": "#/$defs/step",
+          "description": "Optional final synthesis step to produce comprehensive report. Agent receives orchestrator output, worker results, and optional reduce output to generate final deliverable. Supports templates like {{ orchestrator_response }}, {{ workers }}, {{ reduce_response }}."
         }
       }
     },
     "evaluatorOptimizerConfig": {
       "type": "object",
+      "description": "Iterative refinement pattern. Producer agent generates draft, evaluator scores it (0-100), and producer revises based on feedback until score meets acceptance criteria or max iterations reached. Useful for quality control, writing refinement, and code review.",
       "additionalProperties": false,
       "required": [
         "producer",
@@ -1057,25 +1174,29 @@
       "properties": {
         "producer": {
           "type": "string",
-          "description": "Agent that produces the draft."
+          "description": "Agent that produces the draft/artifact. Receives evaluator feedback in subsequent iterations and revises accordingly. First iteration starts fresh, later iterations receive previous draft and evaluation feedback."
         },
         "evaluator": {
           "type": "object",
+          "description": "Evaluator agent configuration. Must return JSON with 'score' (0-100 integer), 'reasoning', and 'suggestions' fields.",
           "additionalProperties": false,
           "required": [
             "agent"
           ],
           "properties": {
             "agent": {
-              "type": "string"
+              "type": "string",
+              "description": "Agent that evaluates the draft. Prompt should specify scoring criteria and require structured JSON response with score (0-100), reasoning, and suggestions."
             },
             "input": {
-              "type": "string"
+              "type": "string",
+              "description": "Input prompt for evaluator. Supports templates to reference producer output (e.g., 'Evaluate this draft: {{producer_response}}')."
             }
           }
         },
         "accept": {
           "type": "object",
+          "description": "Acceptance criteria for terminating iteration loop. Iteration stops when score >= min_score OR max_iters reached.",
           "additionalProperties": false,
           "required": [
             "min_score"
@@ -1084,17 +1205,20 @@
             "min_score": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 100
+              "maximum": 100,
+              "description": "Minimum evaluator score (0-100) required for acceptance. Iteration continues until this threshold is met or max_iters exhausted."
             },
             "max_iters": {
               "type": "integer",
               "minimum": 1,
-              "default": 3
+              "default": 3,
+              "description": "Maximum number of produce-evaluate-revise cycles. Prevents infinite loops. Typical: 3-5 iterations."
             }
           }
         },
         "revise_prompt": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional custom prompt for revision iterations. If omitted, default revision prompt includes previous draft and evaluator feedback. Supports templates to customize revision instructions."
         },
         "review_gate": {
           "description": "Optional human review gate between evaluation iterations. Pauses execution after evaluation to allow user review before continuing to next iteration.",
@@ -1142,6 +1266,7 @@
     },
     "graphConfig": {
       "type": "object",
+      "description": "Graph pattern for state machine workflows with conditional transitions. Nodes represent states (agent executions or HITL pauses), edges define transitions between states with optional conditional routing. Execution flows from node to node based on edge rules until reaching a terminal node or max_iterations. Useful for decision trees, approval flows, and adaptive workflows.",
       "additionalProperties": false,
       "required": [
         "nodes",
@@ -1152,15 +1277,16 @@
           "type": "integer",
           "minimum": 1,
           "default": 10,
-          "description": "Maximum iterations per node to prevent infinite loops."
+          "description": "Maximum total node executions to prevent infinite loops in cyclic graphs. Each node execution counts as one iteration. Default: 10. Increase for complex multi-state workflows, decrease for simple decision trees."
         },
         "nodes": {
           "type": "object",
+          "description": "Map of node ID to node configuration. Each node represents a state in the state machine. Node IDs must be valid identifiers (alphanumeric + underscore/hyphen). First node in the map is the entry point for execution.",
           "minProperties": 1,
           "additionalProperties": {
             "oneOf": [
               {
-                "description": "Agent execution node",
+                "description": "Agent execution node. Invokes an agent with optional input prompt and stores response. Node output accessible via {{nodes.<node_id>.response}} in downstream nodes and edges. Use for decision-making, data processing, or any LLM task within the state machine.",
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
@@ -1168,10 +1294,12 @@
                 ],
                 "properties": {
                   "agent": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Agent ID from agents map to execute at this node. Agent receives input prompt and returns response that determines next transition."
                   },
                   "input": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Optional input prompt for agent. Supports templates to reference other node outputs (e.g., 'Analyze: {{nodes.previous_node.response}}'). If omitted, agent uses only its system prompt."
                   }
                 }
               },
@@ -1212,6 +1340,7 @@
         },
         "edges": {
           "type": "array",
+          "description": "List of transition rules between nodes. Each edge defines how to move from one node to another, either statically (via 'to') or conditionally (via 'choose'). Edges are evaluated after each node execution to determine next state.",
           "minItems": 1,
           "items": {
             "type": "object",
@@ -1221,17 +1350,19 @@
             ],
             "properties": {
               "from": {
-                "$ref": "#/$defs/identifier"
+                "$ref": "#/$defs/identifier",
+                "description": "Source node ID. This edge is evaluated when execution reaches this node. Must reference a valid node in the nodes map."
               },
               "to": {
                 "type": "array",
                 "items": {
                   "$ref": "#/$defs/identifier"
                 },
-                "description": "Static target node IDs. Only the FIRST target is executed (sequential execution of multiple targets not yet supported). Use separate edges or conditional 'choose' for multi-target transitions."
+                "description": "Static target node IDs. Only the FIRST target is executed (sequential execution of multiple targets not yet supported). Use separate edges or conditional 'choose' for multi-target transitions. Empty array or omit for terminal node."
               },
               "choose": {
                 "type": "array",
+                "description": "Conditional transition rules. Evaluates 'when' expressions in order and transitions to first matching 'to' node. Use 'else' as catch-all condition. Expressions can reference node responses (e.g., 'nodes.classifier.response contains approve').",
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
@@ -1242,10 +1373,11 @@
                   "properties": {
                     "when": {
                       "type": "string",
-                      "description": "Expression; 'else' allowed."
+                      "description": "Boolean expression to evaluate for this transition. Use 'else' for default case. Supports node output references (e.g., 'nodes.decision.response contains yes'). Evaluated in order; first true condition wins."
                     },
                     "to": {
-                      "$ref": "#/$defs/identifier"
+                      "$ref": "#/$defs/identifier",
+                      "description": "Target node ID to transition to if 'when' condition is true. Must reference a valid node in the nodes map."
                     }
                   }
                 }
@@ -1269,6 +1401,7 @@
     },
     "workflowConfig": {
       "type": "object",
+      "description": "Directed Acyclic Graph (DAG) workflow pattern. Tasks execute in parallel when dependencies are met. Use 'deps' array to specify task dependencies. Tasks reference other task outputs via {{tasks.<id>.response}} templates.",
       "additionalProperties": false,
       "required": [
         "tasks"
@@ -1277,10 +1410,11 @@
         "tasks": {
           "type": "array",
           "minItems": 1,
+          "description": "List of tasks with dependency relationships. Tasks without dependencies start immediately. Tasks with dependencies wait for all deps to complete before starting. Enables parallel execution paths.",
           "items": {
             "oneOf": [
               {
-                "description": "Agent execution task",
+                "description": "Agent execution task in DAG workflow. Tasks execute in parallel when dependencies are satisfied. Use deps to create execution order and data flow between tasks.",
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
@@ -1289,23 +1423,28 @@
                 ],
                 "properties": {
                   "id": {
-                    "$ref": "#/$defs/identifier"
+                    "$ref": "#/$defs/identifier",
+                    "description": "Unique task identifier. Use in other tasks' deps arrays to create dependencies. Reference this task's output via {{tasks.<id>.response}} in downstream tasks."
                   },
                   "agent": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Agent ID from agents map to execute for this task. Agent receives input prompt and produces output accessible to dependent tasks."
                   },
                   "deps": {
                     "type": "array",
+                    "description": "Array of task IDs that must complete before this task starts. Creates execution dependencies and data flow. Tasks without deps start immediately. Empty array or omit for parallel execution from start.",
                     "items": {
                       "$ref": "#/$defs/identifier"
                     },
                     "uniqueItems": true
                   },
                   "description": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Optional human-readable description of task purpose. Useful for documentation and debugging. Not used in execution logic."
                   },
                   "input": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Optional input prompt for agent. Supports templates to reference other task outputs (e.g., 'Summarize: {{tasks.research.response}}'). Use to pass data from dependency tasks. If omitted, agent uses only its system prompt."
                   }
                 }
               },
@@ -1386,20 +1525,25 @@
     },
     "security": {
       "type": "object",
+      "description": "Security policies and restrictions applied to workflow execution. Parsed by CLI but not enforced in MVP - validation only. Future versions will enforce these guardrails at runtime.",
       "additionalProperties": false,
       "properties": {
         "guardrails": {
           "type": "object",
+          "description": "Security guardrails to restrict agent capabilities and prevent unsafe operations. Parsed in MVP for validation but not enforced during execution.",
           "additionalProperties": false,
           "properties": {
             "deny_network": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "If true, block all network access for tools and agents. Prevents HTTP requests, external API calls, and network-based MCP servers. Useful for air-gapped or sensitive workflows. Parsed but not enforced in MVP."
             },
             "pii_redaction": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "If true, automatically redact Personally Identifiable Information (PII) from logs, traces, and artifacts. Scans for emails, phone numbers, SSNs, credit cards, etc. Parsed but not enforced in MVP."
             },
             "allow_tools": {
               "type": "array",
+              "description": "Allowlist of tool IDs permitted for execution. If specified, only these tools can be used across all agents (additional restriction on top of per-agent tool assignments). Empty array = deny all tools. Omit for no restriction. Parsed but not enforced in MVP.",
               "items": {
                 "type": "string"
               }
