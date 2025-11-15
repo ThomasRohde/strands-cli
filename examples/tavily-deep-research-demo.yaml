@@ -1,0 +1,347 @@
+version: 1
+name: tavily-deep-research-agent
+description: |
+  Multi-stage deep research agent using Tavily AI-powered search.
+  Leverages Tavily's relevance scoring, AI-generated answers, and optimized results
+  for comprehensive research on any topic.
+  
+  Requires: TAVILY_API_KEY environment variable
+  Get API key at: https://app.tavily.com (1000 free credits monthly)
+  
+  Run with: strands run tavily-deep-research-demo.yaml --ask
+
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+context_policy:
+  notes:
+    file: "./artifacts/tavily-research-notes.md"
+    include_last: 12
+    format: "markdown"
+  
+agents:
+  initial_researcher:
+    prompt: |
+      You are an expert research analyst conducting preliminary research using Tavily AI search.
+      
+      Your goal is to identify the key themes, questions, and areas to explore
+      for the given topic. Tavily provides AI-curated, highly relevant search results
+      with relevance scoring and optional AI-generated answers.
+      
+      The tavily_search tool returns JSON with:
+      - results: List with title, url, content (snippet), score (0-1 relevance)
+      - query: The search query used
+      - answer: (optional) AI-generated answer when include_answer=true
+      
+      For initial research:
+      1. Use include_answer=true to get a quick AI overview
+      2. Review results sorted by relevance score (closer to 1.0 = more relevant)
+      3. Use web_fetch (mode="markdown") on top-scored URLs for detailed content
+      4. Identify 3-5 specific subtopics to explore deeply
+      
+      Maintain shared research notes using the 'notes' tool:
+      - Review injected notes to avoid duplicate searches
+      - Log each identified subtopic with relevance scores and citations
+      - Append key findings from AI answers and high-scoring sources
+      
+      Provide a structured research plan with prioritized subtopics.
+
+  deep_researcher:
+    prompt: |
+      You are a deep research specialist using Tavily AI-powered search for thorough investigation.
+      
+      Tavily's AI curation helps you focus on the most relevant sources quickly.
+      For each subtopic:
+      1. Search with max_results based on topic complexity
+      2. Prioritize sources with relevance scores > 0.95
+      3. Use web_fetch (mode="markdown") on top 2-3 URLs for full content
+      4. Use include_answer=true for complex questions to get AI synthesis
+      
+      Look for:
+      - Supporting evidence from high-scoring sources
+      - Contradictory viewpoints (compare relevance scores)
+      - Technical details from authoritative sources
+      - Real-world applications and case studies
+      
+      Leverage the shared notes workspace:
+      - Review existing entries before each search
+      - Record findings with relevance scores and citations
+      - Note when AI answers align/conflict with source content
+      
+      Synthesize findings with critical analysis and always cite sources with URLs and scores.
+
+  trends_analyst:
+    prompt: |
+      You are a trends analyst tracking recent developments using Tavily AI search.
+      
+      Tavily excels at finding current, relevant information. For trend analysis:
+      1. Search for latest developments and announcements
+      2. Use include_answer=true to get AI synthesis of current state
+      3. Review high-scoring sources (> 0.90) for credible news and analysis
+      4. Fetch key articles with web_fetch (mode="markdown") for quotes
+      
+      Focus on:
+      - Breaking news and recent announcements
+      - Industry trends and expert commentary
+      - Emerging technologies or methodologies
+      - Market developments and adoption patterns
+      
+      Use the shared notes to log:
+      - Key trends with relevance-scored citations
+      - Important quotes from high-scoring sources
+      - Timeline of recent developments
+      - Expert opinions and predictions
+      
+      Highlight how trends relate to the core research topic.
+
+  synthesis_expert:
+    prompt: |
+      You are a research synthesis expert creating comprehensive reports.
+      
+      Review all previous research findings and create a well-structured,
+      authoritative report that:
+      1. Integrates AI-generated insights with source verification
+      2. Prioritizes findings from high-relevance sources (scores > 0.95)
+      3. Presents balanced perspectives with proper attribution
+      4. Highlights confidence levels based on source quality
+      5. Identifies knowledge gaps for future research
+      
+      Before writing, review the shared notes to ensure accurate citations
+      and proper credit to original sources with their relevance scores.
+      
+      Structure the report with:
+      - Executive Summary (leverage AI-generated answers)
+      - Background and Context
+      - Key Findings (organized by theme, cite relevance scores)
+      - Recent Developments and Trends
+      - Implications and Future Directions
+      - References (with URLs and relevance scores)
+      
+      Write in clear, professional language suitable for educated readers.
+
+  fact_checker:
+    prompt: |
+      You are a fact-checking specialist ensuring research accuracy using Tavily search.
+      
+      Tavily's relevance scoring helps identify the most authoritative sources
+      for verification. For fact-checking:
+      1. Cross-reference claims with targeted searches (max_results=3-5)
+      2. Prioritize sources with relevance scores > 0.95 for verification
+      3. Use include_answer=true to get AI perspective on contested claims
+      4. Fetch cited sources with web_fetch to confirm exact wording
+      
+      Check for:
+      1. Factual accuracy of major claims (verify with high-scoring sources)
+      2. Source credibility (examine relevance scores and URLs)
+      3. Consistency between AI answers and source content
+      4. Missing perspectives (low-scoring but relevant sources)
+      5. Potential biases (compare sources with different perspectives)
+      
+      Update the shared notes with:
+      - Confirmations (cite relevance scores)
+      - Corrections (provide better sources)
+      - Outstanding questions needing more research
+      - Confidence levels based on source quality
+      
+      Provide specific corrections or confirmations with evidence and relevance scores.
+
+# Interactive variable prompting - run with --ask flag
+inputs:
+  required:
+    topic:
+      type: string
+      description: "Research topic or question to investigate deeply"
+    
+    depth:
+      type: string
+      description: "Research depth level"
+      enum: ["quick", "standard", "comprehensive"]
+      
+    max_sources:
+      type: integer
+      description: "Maximum sources per search (3-20, Tavily optimizes for relevance)"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      # Stage 1: Initial reconnaissance with AI-powered overview
+      - agent: initial_researcher
+        input: |
+          Conduct preliminary research on: {{ topic }}
+          
+          Research depth: {{ depth }}
+          
+          Use Tavily search with max_results={{ max_sources }} and include_answer=true to:
+          1. Get an AI-generated overview of the topic
+          2. Identify main concepts and definitions
+          3. Find current state of the field
+          4. Discover key subtopics to investigate
+          
+          Prioritize sources with relevance scores > 0.95 for web_fetch calls.
+          
+          Create a structured research plan identifying 3-5 specific areas to explore.
+          For at least two top-scoring sources, call web_fetch (mode="markdown") to
+          capture detailed context.
+          
+          Log each identified subtopic to the shared notes file with:
+          - Subtopic name and rationale
+          - Top sources (URLs with relevance scores)
+          - Key insights from AI answer
+
+      # Stage 2: Deep dive into subtopics with AI-curated sources
+      - agent: deep_researcher
+        input: |
+          Based on this research plan:
+          
+          {{ steps[0].response }}
+          
+          Conduct deep research on the identified subtopics for: {{ topic }}
+          
+          For each subtopic:
+          1. Search with max_results={{ max_sources }}, include_answer=true
+          2. Review AI-generated answer for quick synthesis
+          3. Identify sources with relevance scores > 0.90
+          4. Fetch top 2-3 URLs with web_fetch (mode="markdown") for full content
+          5. Look for technical details, evidence, and expert analysis
+          6. Note any controversies or alternative viewpoints
+          
+          Before each subtopic, review shared notes to build on prior context.
+          After finishing, append a notes entry with:
+          - Critical findings and evidence
+          - Conflicting views (if any)
+          - Citations with relevance scores
+          - Confidence level based on source quality
+          
+          Synthesize comprehensive findings for each area.
+
+      # Stage 3: Trends and developments analysis
+      - agent: trends_analyst
+        input: |
+          Analyze recent trends and developments related to: {{ topic }}
+          
+          Use Tavily search (max_results={{ max_sources }}, include_answer=true) to find:
+          1. Latest announcements and breakthroughs
+          2. Industry trends and expert commentary
+          3. Emerging technologies or methodologies
+          4. Market developments and adoption patterns
+          
+          Review the AI-generated answer for trend synthesis, then examine
+          high-scoring sources (> 0.90) for details.
+          
+          Fetch key articles with web_fetch (mode="markdown", timeout=20)
+          from top-scoring sources to capture quotes and data points.
+          
+          Capture in shared notes:
+          - Key trends with relevance-scored citations
+          - Timeline of recent developments
+          - Expert opinions and predictions
+          - Confidence levels based on source quality
+          
+          How do recent trends relate to the earlier research?
+          
+          Previous research context:
+          {{ steps[0].response | truncate(500) }}
+
+      # Stage 4: Synthesis and integration
+      - agent: synthesis_expert
+        input: |
+          Create a comprehensive research report on: {{ topic }}
+          
+          Research depth: {{ depth }}
+          
+          Integrate these research phases:
+          
+          INITIAL RESEARCH (with AI overview):
+          {{ steps[0].response }}
+          
+          DEEP ANALYSIS (AI-curated sources):
+          {{ steps[1].response }}
+          
+          TRENDS & DEVELOPMENTS (with relevance scoring):
+          {{ steps[2].response }}
+          
+          Structure the report with:
+          1. Executive Summary (leverage AI-generated insights)
+          2. Background and Context
+          3. Key Findings (organized by theme, cite relevance scores)
+          4. Recent Developments and Trends
+          5. Implications and Future Directions
+          6. References (with URLs and relevance scores)
+          
+          Indicate confidence levels based on source quality (relevance scores).
+
+      # Stage 5: Fact-checking and validation with AI verification
+      - agent: fact_checker
+        input: |
+          Review this research report for accuracy and completeness:
+          
+          {{ steps[3].response }}
+          
+          For topic: {{ topic }}
+          
+          Verify key claims using Tavily search (max_results=5, include_answer=true):
+          1. Cross-reference major claims with AI answers and high-scoring sources
+          2. Check source credibility (relevance scores, URLs, domains)
+          3. Fetch critical references with web_fetch to confirm exact quotes
+          4. Identify missing perspectives or biases
+          5. Assess confidence levels based on source quality
+          
+          Document in shared notes:
+          - Confirmations (with relevance scores)
+          - Corrections (provide better sources)
+          - Outstanding questions
+          - Overall confidence assessment
+          
+          Provide specific corrections or confirmations with evidence.
+
+tools:
+  python:
+    - tavily_search  # Native Tavily AI-powered search with relevance scoring and AI answers
+    - web_fetch  # Fetch full pages in markdown for detailed analysis
+
+outputs:
+  artifacts:
+    - path: "./tavily-research-report.md"
+      from: |
+        # Deep Research Report: {{ topic }}
+        
+        **Research Depth:** {{ depth }}  
+        **Max Sources per Search:** {{ max_sources }}  
+        **Powered by:** Tavily AI Search with relevance scoring
+        
+        ---
+        
+        ## Final Report
+        
+        {{ steps[3].response }}
+        
+        ---
+        
+        ## Fact-Check and Validation
+        
+        {{ steps[4].response }}
+        
+        ---
+        
+        ## Research Methodology
+        
+        This report was generated through a 5-stage AI-powered research process:
+        
+        1. **Initial Reconnaissance** - Tavily AI search with answer generation to identify key themes
+        2. **Deep Analysis** - AI-curated sources (relevance scores > 0.90) for detailed investigation
+        3. **Trends Analysis** - AI-powered trend synthesis with high-scoring source verification
+        4. **Synthesis** - Integration of AI insights and verified sources into comprehensive report
+        5. **Fact-Checking** - AI-assisted verification with relevance-scored source validation
+        
+        All findings sourced from Tavily AI Search (https://tavily.com) with:
+        - AI-generated answers for quick synthesis
+        - Relevance scoring (0-1) for source quality assessment
+        - Web content retrieval via web_fetch tool (markdown mode)
+        - Shared notes at ./artifacts/tavily-research-notes.md for continuity
+        
+        **Confidence Indicators:**
+        - High confidence: Sources with relevance scores > 0.95
+        - Medium confidence: Sources with relevance scores 0.85-0.95
+        - Further research needed: Scores < 0.85 or conflicting sources
