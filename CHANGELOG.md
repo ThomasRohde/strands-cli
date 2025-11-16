@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 TBD
 
+## [0.4.3] - 2025-11-16
+
+### Added
+- **Tavily AI-powered search tool** - Advanced web search and research capability
+  - `strands_cli.tools.tavily_search` with full Strands tool spec
+  - Deep research mode for comprehensive information gathering
+  - Related example: `examples/tavily-deep-research-demo.yaml`
+
+- **Enhanced context compaction** - Improved adaptive message preservation
+  - Smarter message history management for long-running workflows
+  - Better context retention during compaction
+
+### Changed
+- **DuckDuckGo search tool** improvements
+  - Updated to utilize shared research notes for enhanced collaboration
+  - Better context retention across search operations
+
 ## [0.4.2] - 2025-11-16
 
 ### Added

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "strands-cli"
-version = "0.4.2"
+version = "0.4.3"
 description = "CLI to execute agentic workflows (YAML/JSON) on Strands agents (Ollama/Bedrock) with strong observability, schema validation, and safe orchestration."
 readme = { file = "README.md", content-type = "text/markdown" }
 license = { text = "Apache-2.0" }
