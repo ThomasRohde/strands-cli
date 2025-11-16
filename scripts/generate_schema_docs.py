@@ -63,7 +63,7 @@ def generate_nested_properties(
     defs: dict[str, Any],
     level: int = 4,
     max_depth: int = 2,
-    current_depth: int = 0
+    current_depth: int = 0,
 ) -> str:
     """Generate documentation for nested object properties."""
     if current_depth >= max_depth:
@@ -85,7 +85,10 @@ def generate_nested_properties(
         if "$ref" in nested_schema:
             resolved = resolve_ref(nested_schema["$ref"], defs)
             if resolved:
-                nested_schema = {**resolved, **{k: v for k, v in nested_schema.items() if k != "$ref"}}
+                nested_schema = {
+                    **resolved,
+                    **{k: v for k, v in nested_schema.items() if k != "$ref"},
+                }
 
         is_required = prop_name in required
         req_badge = "**required**" if is_required else "*optional*"
@@ -237,7 +240,9 @@ def _format_definition_property(
     return lines
 
 
-def generate_definition_docs(def_name: str, def_schema: dict[str, Any], defs: dict[str, Any], level: int = 3) -> str:
+def generate_definition_docs(
+    def_name: str, def_schema: dict[str, Any], defs: dict[str, Any], level: int = 3
+) -> str:
     """Generate documentation for a schema definition."""
     lines = []
 
@@ -396,9 +401,7 @@ def main() -> None:
     # Core definitions
     docs.append("### Core Configuration")
     docs.append("")
-    docs.append(
-        "Essential configuration types used in most workflows."
-    )
+    docs.append("Essential configuration types used in most workflows.")
     docs.append("")
 
     for def_name in core_defs:
@@ -408,9 +411,7 @@ def main() -> None:
     # Advanced definitions
     docs.append("### Advanced Features")
     docs.append("")
-    docs.append(
-        "Optional advanced configuration for observability, security, and optimization."
-    )
+    docs.append("Optional advanced configuration for observability, security, and optimization.")
     docs.append("")
 
     for def_name in advanced_defs:
@@ -420,14 +421,11 @@ def main() -> None:
     # Utility definitions
     docs.append("### Utility Types")
     docs.append("")
-    docs.append(
-        "Basic types and validators used throughout the schema."
-    )
+    docs.append("Basic types and validators used throughout the schema.")
     docs.append("")
 
     utility_defs = [
-        name for name in sorted(defs.keys())
-        if name not in pattern_defs + core_defs + advanced_defs
+        name for name in sorted(defs.keys()) if name not in pattern_defs + core_defs + advanced_defs
     ]
 
     for def_name in utility_defs:

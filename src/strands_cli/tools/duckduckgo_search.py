@@ -13,6 +13,7 @@ logger = structlog.get_logger(__name__)
 # Import DDGS at module level for easier testing
 try:
     from ddgs import DDGS
+
     DDGS_AVAILABLE = True
 except ImportError:
     DDGS_AVAILABLE = False

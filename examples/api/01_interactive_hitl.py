@@ -34,7 +34,7 @@ def main():
     result = workflow.run_interactive(
         business_concept="Quantum Computing Security Platform",
         target_market="Enterprise cybersecurity and financial services",
-        geographic_scope="North America and Europe"
+        geographic_scope="North America and Europe",
     )
 
     # Access results

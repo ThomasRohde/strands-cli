@@ -86,9 +86,7 @@ def tavily_search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         return {
             "toolUseId": tool_use_id,
             "status": "error",
-            "content": [
-                {"text": f"max_results must be between 1 and 20, got: {max_results}"}
-            ],
+            "content": [{"text": f"max_results must be between 1 and 20, got: {max_results}"}],
         }
 
     # Check if TavilyClient is available
@@ -98,7 +96,9 @@ def tavily_search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
             "toolUseId": tool_use_id,
             "status": "error",
             "content": [
-                {"text": "tavily-python library not installed. Install with: pip install tavily-python"}
+                {
+                    "text": "tavily-python library not installed. Install with: pip install tavily-python"
+                }
             ],
         }
 
@@ -163,9 +163,13 @@ def tavily_search(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         if "api key" in error_msg or "auth" in error_msg:
             error_text = f"Authentication failed: {e}. Verify your TAVILY_API_KEY is valid."
         elif "rate limit" in error_msg or "quota" in error_msg:
-            error_text = f"Rate limit or quota exceeded: {e}. Check your usage at https://app.tavily.com"
+            error_text = (
+                f"Rate limit or quota exceeded: {e}. Check your usage at https://app.tavily.com"
+            )
         elif "timeout" in error_msg:
-            error_text = f"Search timed out: {e}. Try reducing max_results or simplifying the query."
+            error_text = (
+                f"Search timed out: {e}. Try reducing max_results or simplifying the query."
+            )
         else:
             error_text = f"Search failed ({error_type}): {e}"
 

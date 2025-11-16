@@ -125,13 +125,13 @@ class ProactiveCompactionHook(HookProvider):
                 # Note: agent.messages is list[Message] from Strands SDK, but TokenCounter
                 # expects list[dict[str, Any]]. Message objects support dict-like iteration.
                 fallback_tokens = self.token_counter.count_messages(agent.messages)  # type: ignore[arg-type]
-                
+
                 # Compare with provider metrics if available for accuracy tracking
                 if usage and usage.get("totalTokens", 0) > 0:
                     provider_tokens = usage.get("totalTokens", 0)
                     token_delta = fallback_tokens - provider_tokens
                     delta_pct = (token_delta / provider_tokens * 100) if provider_tokens > 0 else 0
-                    
+
                     logger.debug(
                         "token_count_comparison",
                         agent_name=agent.name if hasattr(agent, "name") else "unknown",
@@ -140,7 +140,7 @@ class ProactiveCompactionHook(HookProvider):
                         delta=token_delta,
                         delta_percent=round(delta_pct, 1),
                     )
-                
+
                 total_tokens = fallback_tokens
                 token_source = "token_counter_fallback"
                 logger.debug(
@@ -178,16 +178,16 @@ class ProactiveCompactionHook(HookProvider):
             configured_preserve = getattr(
                 agent.conversation_manager, "preserve_recent_messages", 12
             )
-            
+
             # Calculate minimum messages needed: preserve_recent + minimum_summarizable (5)
             minimum_required = configured_preserve + 5
-            
+
             # Auto-reduce preserve_recent_messages if insufficient messages
             if message_count < minimum_required:
                 # Calculate safe preserve value: leave at least 5 messages for summarization
                 # Use hard minimum of 3 to ensure basic context (user→assistant→user)
                 adjusted_preserve = max(message_count - 5, 3)
-                
+
                 logger.warning(
                     "compaction_auto_reducing_preserve",
                     agent_name=agent.name if hasattr(agent, "name") else "unknown",
@@ -206,7 +206,7 @@ class ProactiveCompactionHook(HookProvider):
                     agent.conversation_manager.preserve_recent_messages = adjusted_preserve
             else:
                 original_preserve = None  # No adjustment needed
-            
+
             logger.info(
                 "compaction_triggered",
                 agent_name=agent.name if hasattr(agent, "name") else "unknown",
@@ -224,7 +224,7 @@ class ProactiveCompactionHook(HookProvider):
                 # Apply context compaction via conversation manager
                 # Note: SDK type stub may show wrong signature, but this is correct per SDK docs
                 agent.conversation_manager.apply_management(agent.messages)  # type: ignore[arg-type]
-                
+
                 logger.info(
                     "compaction_completed",
                     agent_name=agent.name if hasattr(agent, "name") else "unknown",
@@ -242,7 +242,7 @@ class ProactiveCompactionHook(HookProvider):
                         agent_name=agent.name if hasattr(agent, "name") else "unknown",
                         restored_value=original_preserve,
                     )
-            
+
             # Mark as compacted to avoid repeated triggers
             self.compacted = True
 

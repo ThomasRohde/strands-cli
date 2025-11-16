@@ -39,7 +39,9 @@ class TestWebFetchTool:
             headers={"Content-Type": "text/html"},
             request=httpx.Request("GET", "https://example.com"),
         )
-        mock_fetch = mocker.patch("strands_cli.tools.web_fetch._fetch_with_retry", return_value=response)
+        mock_fetch = mocker.patch(
+            "strands_cli.tools.web_fetch._fetch_with_retry", return_value=response
+        )
 
         tool = {"toolUseId": "wf-1", "input": {"url": "https://example.com"}}
 
@@ -67,7 +69,9 @@ class TestWebFetchTool:
             headers={},
             request=httpx.Request("GET", "https://example.com"),
         )
-        mock_fetch = mocker.patch("strands_cli.tools.web_fetch._fetch_with_retry", return_value=response)
+        mock_fetch = mocker.patch(
+            "strands_cli.tools.web_fetch._fetch_with_retry", return_value=response
+        )
 
         tool = {
             "toolUseId": "wf-headers",
@@ -141,7 +145,10 @@ class TestWebFetchTool:
         mocker.patch("strands_cli.tools.web_fetch.MARKDOWNIFY_AVAILABLE", False)
         mocker.patch("strands_cli.tools.web_fetch.html_to_markdown", None)
 
-        tool = {"toolUseId": "wf-md-missing", "input": {"url": "https://example.com", "mode": "markdown"}}
+        tool = {
+            "toolUseId": "wf-md-missing",
+            "input": {"url": "https://example.com", "mode": "markdown"},
+        }
 
         result = web_fetch.web_fetch(tool)
 
@@ -176,7 +183,10 @@ class TestWebFetchTool:
         """headers must be an object."""
         from strands_cli.tools import web_fetch
 
-        tool = {"toolUseId": "wf-headers-invalid", "input": {"url": "https://example.com", "headers": []}}
+        tool = {
+            "toolUseId": "wf-headers-invalid",
+            "input": {"url": "https://example.com", "headers": []},
+        }
 
         result = web_fetch.web_fetch(tool)
 
@@ -251,7 +261,9 @@ class TestWebFetchTool:
                 instance.get.return_value = result
             return instance
 
-        mock_client = mocker.patch("strands_cli.tools.web_fetch.httpx.Client", side_effect=client_side_effect)
+        mock_client = mocker.patch(
+            "strands_cli.tools.web_fetch.httpx.Client", side_effect=client_side_effect
+        )
 
         resp = _fetch_with_retry(url, headers={}, timeout=5)
 

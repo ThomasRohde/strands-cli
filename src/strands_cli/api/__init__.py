@@ -63,7 +63,9 @@ class Workflow:
             force_overwrite: Whether to overwrite existing artifact files (default: True)
         """
         self.spec = spec
-        self._executor = WorkflowExecutor(spec, output_dir=output_dir, force_overwrite=force_overwrite)
+        self._executor = WorkflowExecutor(
+            spec, output_dir=output_dir, force_overwrite=force_overwrite
+        )
 
     def on(self, event_type: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Subscribe to workflow events.

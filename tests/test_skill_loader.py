@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from strands_cli.tools.skill_loader import create_skill_loader_tool
-from strands_cli.types import Skill, Spec
+from strands_cli.types import Skill
 
 
 @pytest.fixture

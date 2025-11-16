@@ -207,9 +207,7 @@ class TestDuckDuckGoSearchTool:
         mock_ddgs_instance = MagicMock()
         mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
         mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
-        mocker.patch(
-            "strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance
-        )
+        mocker.patch("strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance)
 
         tool = {"toolUseId": "test-pqr", "input": {"query": "test", "search_type": "invalid"}}
 
@@ -224,7 +222,9 @@ class TestDuckDuckGoSearchTool:
 
         # Mock DDGS class
         mock_ddgs_instance = MagicMock()
-        mock_ddgs_instance.text.return_value = [{"title": "Test", "href": "http://test.com", "body": "Test"}]
+        mock_ddgs_instance.text.return_value = [
+            {"title": "Test", "href": "http://test.com", "body": "Test"}
+        ]
         mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
         mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
 
@@ -307,9 +307,7 @@ class TestDuckDuckGoSearchTool:
         mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
         mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
 
-        mocker.patch(
-            "strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance
-        )
+        mocker.patch("strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance)
 
         tool = {"toolUseId": "test-234", "input": {"query": "test"}}
 
@@ -329,9 +327,7 @@ class TestDuckDuckGoSearchTool:
         mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
         mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
 
-        mocker.patch(
-            "strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance
-        )
+        mocker.patch("strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance)
 
         tool = {"toolUseId": "test-567", "input": {"query": "test"}}
 
@@ -351,9 +347,7 @@ class TestDuckDuckGoSearchTool:
         mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
         mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
 
-        mocker.patch(
-            "strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance
-        )
+        mocker.patch("strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance)
 
         tool = {"toolUseId": "test-890", "input": {"query": "test"}}
 
@@ -387,9 +381,7 @@ class TestDuckDuckGoSearchTool:
         mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
         mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
 
-        mocker.patch(
-            "strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance
-        )
+        mocker.patch("strands_cli.tools.duckduckgo_search.DDGS", return_value=mock_ddgs_instance)
 
         tool = {"toolUseId": "test-empty", "input": {"query": "xyzabc123notfound"}}
 

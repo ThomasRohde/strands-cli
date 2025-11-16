@@ -213,15 +213,18 @@ def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue])
                     CapabilityIssue(
                         pointer=f"/runtime/{param}",
                         reason=f"Warning: Inference parameter '{param}' is {support_msg} for {provider_name} provider. "
-                               f"Parameter will be logged but not applied. "
-                               f"Fully supported on OpenAI/Azure providers only.",
+                        f"Parameter will be logged but not applied. "
+                        f"Fully supported on OpenAI/Azure providers only.",
                         remediation=workaround,
                     )
                 )
 
     # Check agent-level inference overrides
     for agent_id, agent_config in spec.agents.items():
-        if agent_config.inference and spec.runtime.provider in {ProviderType.BEDROCK, ProviderType.OLLAMA}:
+        if agent_config.inference and spec.runtime.provider in {
+            ProviderType.BEDROCK,
+            ProviderType.OLLAMA,
+        }:
             agent_params = []
             if agent_config.inference.temperature is not None:
                 agent_params.append("temperature")
@@ -234,7 +237,9 @@ def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue])
                 provider_name = spec.runtime.provider.value
                 if spec.runtime.provider == ProviderType.BEDROCK:
                     support_msg = "limited by SDK"
-                    workaround = "Configure inference via AWS Bedrock console or use OpenAI provider"
+                    workaround = (
+                        "Configure inference via AWS Bedrock console or use OpenAI provider"
+                    )
                 else:  # OLLAMA
                     support_msg = "not supported"
                     workaround = "Configure parameters in Ollama Modelfile or use OpenAI provider"
@@ -244,8 +249,8 @@ def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue])
                         CapabilityIssue(
                             pointer=f"/agents/{agent_id}/inference/{param}",
                             reason=f"Warning: Agent '{agent_id}' inference parameter '{param}' is {support_msg} "
-                                   f"for {provider_name} provider. Parameter will be logged but not applied. "
-                                   f"Fully supported on OpenAI/Azure providers only.",
+                            f"for {provider_name} provider. Parameter will be logged but not applied. "
+                            f"Fully supported on OpenAI/Azure providers only.",
                             remediation=workaround,
                         )
                     )

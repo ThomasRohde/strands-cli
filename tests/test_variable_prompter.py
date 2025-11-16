@@ -73,9 +73,7 @@ def test_coerce_value_boolean_false_variants() -> None:
 
 def test_coerce_value_boolean_invalid() -> None:
     """Test coercing invalid boolean raises ValueError."""
-    with pytest.raises(
-        ValueError, match="Cannot convert 'maybe' to boolean"
-    ):
+    with pytest.raises(ValueError, match="Cannot convert 'maybe' to boolean"):
         coerce_value("maybe", "boolean")
 
 
@@ -149,11 +147,7 @@ def test_prompt_for_variable_with_description(mock_ask: MagicMock) -> None:
         runtime={"provider": "ollama", "model_id": "llama2"},
         agents={"agent1": {"prompt": "test"}},
         pattern={"type": "chain", "config": {"steps": []}},
-        inputs={
-            "required": {
-                "topic": {"type": "string", "description": "Topic to research"}
-            }
-        },
+        inputs={"required": {"topic": {"type": "string", "description": "Topic to research"}}},
     )
 
     result = prompt_for_variable(spec, "topic")

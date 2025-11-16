@@ -15,33 +15,33 @@ spec = Spec(
         "required": {
             "topic": {
                 "type": "string",
-                "description": "Research topic or question to investigate deeply"
+                "description": "Research topic or question to investigate deeply",
             },
             "depth": {
                 "type": "string",
                 "description": "Research depth level",
-                "enum": ["quick", "standard", "comprehensive"]
+                "enum": ["quick", "standard", "comprehensive"],
             },
             "max_sources": {
                 "type": "integer",
-                "description": "Maximum sources per search (3-10 recommended)"
-            }
+                "description": "Maximum sources per search (3-10 recommended)",
+            },
         },
-        "values": {}
-    }
+        "values": {},
+    },
 )
 
 # Simulate the interactive prompting
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("IMPROVED --ask FLAG UI DEMO")
-print("="*70)
+print("=" * 70)
 
 missing_vars = ["topic", "depth", "max_sources"]
 result = prompt_for_missing_variables(spec, missing_vars)
 
-print("\n" + "="*70)
+print("\n" + "=" * 70)
 print("COLLECTED VALUES:")
-print("="*70)
+print("=" * 70)
 for key, value in result.items():
     print(f"  {key}: {value!r} (type: {type(value).__name__})")
 print()

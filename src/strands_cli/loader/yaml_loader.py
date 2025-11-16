@@ -108,9 +108,7 @@ def _merge_variables(spec_data: dict[str, Any], variables: dict[str, str]) -> No
     if "inputs" not in spec_data:
         spec_data["inputs"] = {}
     elif not isinstance(spec_data["inputs"], dict):
-        raise LoadError(
-            "Spec 'inputs' section must be an object/dict to merge CLI variables"
-        )
+        raise LoadError("Spec 'inputs' section must be an object/dict to merge CLI variables")
 
     if "values" not in spec_data["inputs"]:
         spec_data["inputs"]["values"] = {}

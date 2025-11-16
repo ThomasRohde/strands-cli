@@ -124,7 +124,9 @@ def web_fetch(tool: dict[str, Any], **_: Any) -> dict[str, Any]:
         response = _fetch_with_retry(url, request_headers, timeout_input)
     except httpx.TimeoutException as exc:
         logger.warning("Web fetch timed out", url=url, timeout=timeout_input, error=str(exc))
-        return _error_result(tool_use_id, f"Request to {url} timed out after {timeout_input} seconds.")
+        return _error_result(
+            tool_use_id, f"Request to {url} timed out after {timeout_input} seconds."
+        )
     except httpx.RequestError as exc:
         logger.warning("Web fetch request error", url=url, error=str(exc))
         return _error_result(tool_use_id, f"Network error while fetching {url}: {exc}")

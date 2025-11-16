@@ -573,7 +573,9 @@ class FluentBuilder:
             # Import Workflow here to avoid circular dependency
             from strands_cli.api import Workflow
 
-            return Workflow(spec, output_dir=self._output_dir, force_overwrite=self._force_overwrite)
+            return Workflow(
+                spec, output_dir=self._output_dir, force_overwrite=self._force_overwrite
+            )
 
         except Exception as e:
             # Wrap Pydantic validation errors in BuildError

@@ -241,8 +241,11 @@ class HttpExecutor(BaseModel):
         cls, v: str, pattern_candidates: list[str], blocked_patterns: list[str]
     ) -> None:
         """Check if URL matches any blocked patterns."""
+
         def _matches(pattern: str) -> bool:
-            return any(re.match(pattern, candidate, re.IGNORECASE) for candidate in pattern_candidates)
+            return any(
+                re.match(pattern, candidate, re.IGNORECASE) for candidate in pattern_candidates
+            )
 
         for pattern in blocked_patterns:
             if _matches(pattern):

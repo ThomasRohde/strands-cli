@@ -181,7 +181,7 @@ def _balanced_preset(pattern_type: str | None = None) -> ContextPolicy:
     - Graph: 20 messages
     """
     preserve_messages = get_adaptive_preserve_messages(pattern_type, base_value=12)
-    
+
     return ContextPolicy(
         compaction=Compaction(
             enabled=True,
@@ -216,7 +216,7 @@ def _long_run_preset(pattern_type: str | None = None) -> ContextPolicy:
     - Graph: 20 messages (loops require more history)
     """
     preserve_messages = get_adaptive_preserve_messages(pattern_type, base_value=15)
-    
+
     return ContextPolicy(
         compaction=Compaction(
             enabled=True,
@@ -257,7 +257,7 @@ def _interactive_preset(pattern_type: str | None = None) -> ContextPolicy:
     - Graph: 20 messages
     """
     preserve_messages = get_adaptive_preserve_messages(pattern_type, base_value=16)
-    
+
     return ContextPolicy(
         compaction=Compaction(
             enabled=True,
@@ -295,7 +295,7 @@ def apply_preset_to_spec(
     # Extract pattern type from spec_data if not provided
     if pattern_type is None and "pattern" in spec_data:
         pattern_type = spec_data["pattern"].get("type")
-    
+
     preset_policy = get_context_preset(preset, pattern_type=pattern_type)
 
     # Convert to dict for merging

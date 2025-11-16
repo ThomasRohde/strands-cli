@@ -16,7 +16,9 @@ from typing import Any
 from strands_cli.types import Spec
 
 
-def create_skill_loader_tool(spec: Spec, spec_dir: str | None, loaded_skills: set[str]) -> ModuleType:
+def create_skill_loader_tool(
+    spec: Spec, spec_dir: str | None, loaded_skills: set[str]
+) -> ModuleType:
     """Create a skill loader tool module with spec context.
 
     Factory function that creates a dynamic module-based tool with access
@@ -84,10 +86,7 @@ def create_skill_loader_tool(spec: Spec, spec_dir: str | None, loaded_skills: se
                 "toolUseId": tool_use_id,
                 "status": "success",
                 "content": [
-                    {
-                        "text": f"Skill '{skill_id}' is already loaded. "
-                        f"No need to reload it."
-                    }
+                    {"text": f"Skill '{skill_id}' is already loaded. No need to reload it."}
                 ],
             }
 
@@ -119,9 +118,7 @@ def create_skill_loader_tool(spec: Spec, spec_dir: str | None, loaded_skills: se
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [
-                    {
-                        "text": f"Error: Skill '{skill_id}' has no path defined in the specification."
-                    }
+                    {"text": f"Error: Skill '{skill_id}' has no path defined in the specification."}
                 ],
             }
 
@@ -139,11 +136,7 @@ def create_skill_loader_tool(spec: Spec, spec_dir: str | None, loaded_skills: se
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [
-                    {
-                        "text": f"Error: Invalid skill path for '{skill_id}': {e}"
-                    }
-                ],
+                "content": [{"text": f"Error: Invalid skill path for '{skill_id}': {e}"}],
             }
 
         # Look for SKILL.md file
@@ -170,11 +163,7 @@ def create_skill_loader_tool(spec: Spec, spec_dir: str | None, loaded_skills: se
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
-                "content": [
-                    {
-                        "text": f"Error reading skill file for '{skill_id}': {e}"
-                    }
-                ],
+                "content": [{"text": f"Error reading skill file for '{skill_id}': {e}"}],
             }
 
         # Mark skill as loaded

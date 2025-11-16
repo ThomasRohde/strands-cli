@@ -79,7 +79,7 @@ class TokenCounter:
 
             # Extract role for special handling
             role = message.get("role", "")
-            
+
             # Count tokens in role field
             if role:
                 num_tokens += len(self.encoding.encode(role))
@@ -109,17 +109,22 @@ class TokenCounter:
                                     if isinstance(result_content, list):
                                         for item in result_content:
                                             if isinstance(item, dict) and "text" in item:
-                                                num_tokens += len(self.encoding.encode(str(item["text"])))
+                                                num_tokens += len(
+                                                    self.encoding.encode(str(item["text"]))
+                                                )
                             elif "toolUse" in block:
                                 # Count tool use requests
                                 tool_use = block.get("toolUse", {})
                                 if isinstance(tool_use, dict):
                                     # Count tool name
                                     if "name" in tool_use:
-                                        num_tokens += len(self.encoding.encode(str(tool_use["name"])))
+                                        num_tokens += len(
+                                            self.encoding.encode(str(tool_use["name"]))
+                                        )
                                     # Count input as JSON string
                                     if "input" in tool_use:
                                         import json
+
                                         input_str = json.dumps(tool_use["input"])
                                         num_tokens += len(self.encoding.encode(input_str))
                         else:
@@ -128,7 +133,7 @@ class TokenCounter:
                 else:
                     # Unknown content type - convert to string
                     num_tokens += len(self.encoding.encode(str(content)))
-            
+
             # Count other fields (name, etc.) if present
             for key, value in message.items():
                 if key not in ("role", "content") and value is not None:

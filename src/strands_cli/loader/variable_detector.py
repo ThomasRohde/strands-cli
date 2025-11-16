@@ -65,9 +65,7 @@ def detect_missing_variables(spec: Spec) -> list[str]:
     return missing
 
 
-def get_variable_metadata(
-    spec: Spec, var_name: str
-) -> tuple[str | dict[str, Any], str]:
+def get_variable_metadata(spec: Spec, var_name: str) -> tuple[str | dict[str, Any], str]:
     """Get metadata for a variable from the spec's input schema.
 
     Args:
@@ -134,4 +132,3 @@ def extract_param_info(param_spec: str | dict[str, Any]) -> dict[str, Any]:
         "default": param_spec.get("default"),
         "enum": param_spec.get("enum"),
     }
-

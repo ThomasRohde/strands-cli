@@ -255,7 +255,9 @@ outputs:
         assert "values" in spec.inputs
         assert spec.inputs["values"]["key"] == "value"
 
-    def test_variable_resolution_invalid_inputs_structure_raises(self, temp_output_dir: Path) -> None:
+    def test_variable_resolution_invalid_inputs_structure_raises(
+        self, temp_output_dir: Path
+    ) -> None:
         """Test that malformed inputs structures trigger LoadError when merging variables."""
         spec_file = temp_output_dir / "spec-invalid-inputs.yaml"
         spec_content = """
@@ -287,7 +289,9 @@ outputs:
 
         assert "inputs" in str(exc_info.value)
 
-    def test_variable_resolution_invalid_values_structure_raises(self, temp_output_dir: Path) -> None:
+    def test_variable_resolution_invalid_values_structure_raises(
+        self, temp_output_dir: Path
+    ) -> None:
         """Test that malformed inputs.values structures trigger LoadError when merging variables."""
         spec_file = temp_output_dir / "spec-invalid-values.yaml"
         spec_content = """
