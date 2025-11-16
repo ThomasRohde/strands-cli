@@ -684,16 +684,7 @@ tools:
     - strands_cli.tools.python_exec
 ```
 
-### Legacy Format (Backward Compatible)
-
-Old format still works via registry resolution:
-
-```yaml
-tools:
-  python:
-    - strands_tools.echo          # Resolves to strands_cli.tools.echo
-    - strands_tools.python_exec   # Resolves to strands_cli.tools.python_exec
-```
+ 
 
 ### Complete Workflow Example
 
@@ -819,40 +810,22 @@ class ToolInfo:
         """Full import path for loading."""
         return self.module_path
     
-    @property
-    def legacy_path(self) -> str:
-        """Backward-compatible 'strands_tools.*' path."""
-        return f"strands_tools.{self.id}.{self.id}"
     
-    @property
-    def legacy_short(self) -> str:
-        """Old short format."""
-        return f"strands_tools.{self.id}"
 ```
 
 ### Resolution Strategy
 
-The registry supports multiple input formats for backward compatibility:
+The registry resolves short IDs to full import paths:
 
 ```python
 def resolve(self, user_input: str) -> str | None:
     """Resolve user input to canonical import path.
     
-    Supports:
-    - Direct ID: "echo" → "strands_cli.tools.echo"
-    - Legacy short: "strands_tools.echo" → "strands_cli.tools.echo"
-    - Legacy full: "strands_tools.echo.echo" → "strands_cli.tools.echo"
+    Supports direct ID: "echo" → "strands_cli.tools.echo"
     """
     # Direct ID lookup
     if user_input in self._tools:
         return self._tools[user_input].import_path
-    
-    # Legacy format: "strands_tools.X" or "strands_tools.X.X"
-    if user_input.startswith("strands_tools."):
-        parts = user_input.split(".")
-        tool_id = parts[1] if len(parts) >= 2 else None
-        if tool_id and tool_id in self._tools:
-            return self._tools[tool_id].import_path
     
     return None
 ```
@@ -867,49 +840,33 @@ def get_allowlist(self) -> set[str]:
     
     Returns all valid import formats for all discovered tools:
     - Short ID: "echo"
-    - New format: "strands_cli.tools.echo"
-    - Legacy full: "strands_tools.echo.echo"
-    - Legacy short: "strands_tools.echo"
+    - Full path: "strands_cli.tools.echo"
     """
     allowlist = set()
     for tool in self._tools.values():
         allowlist.add(tool.id)
         allowlist.add(tool.import_path)
-        allowlist.add(tool.legacy_path)
-        allowlist.add(tool.legacy_short)
     return allowlist
 ```
 
-### Hybrid Allowlist in Capability Checker
+### Allowlist in Capability Checker
 
-The capability checker combines hardcoded legacy tools with registry-discovered tools:
+The capability checker uses the registry allowlist to validate Python tools:
 
 ```python
 # From src/strands_cli/capability/checker.py
 
 from strands_cli.tools import get_registry
 
-# Hardcoded legacy allowlist
-ALLOWED_PYTHON_CALLABLES = {
-    "strands_tools.http_request.http_request",
-    "strands_tools.file_read.file_read",
-    "strands_tools.file_write.file_write",
-    "strands_tools.calculator.calculator",
-    "strands_tools.current_time.current_time",
-    # ... old format variants
-}
-
-# Combine with registry allowlist
 registry = get_registry()
-allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+allowed = registry.get_allowlist()
 
-# Validate tool against combined allowlist
 if tool.callable not in allowed:
     issues.append(
         CapabilityIssue(
             pointer=f"/tools/python/{i}/callable",
             reason=f"Python callable '{tool.callable}' not in allowlist",
-            remediation="Use an allowed tool or add to registry"
+            remediation="Use an existing native tool or add one under strands_cli.tools"
         )
     )
 ```

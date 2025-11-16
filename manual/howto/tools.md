@@ -20,16 +20,13 @@ Strands supports three types of tools:
 
 ### Allowlisted Python Tools
 
-For security, only allowlisted Python callables can be used:
+For security, only allowlisted native tools can be used. These are auto-discovered from `src/strands_cli/tools/`:
 
-**Legacy Tools:**
-- `strands_tools.http_request` - Make HTTP requests
-- `strands_tools.file_read` - Read files (with consent)
-- `strands_tools.file_write` - Write files (with consent)
-
-**Native Tools (auto-discovered):**
-- `python_exec` - Execute Python code in sandbox
-- Plus any custom tools in `src/strands_cli/tools/`
+- `python_exec` — Execute Python code in sandbox
+- `web_fetch` — Fetch web pages (HTML or markdown)
+- `grep`, `head`, `tail`, `search` — JIT file utilities
+- `tavily_search` — Web search (if configured)
+- Plus any custom tools you add in `src/strands_cli/tools/`
 
 ### Using Python Tools
 
@@ -47,7 +44,7 @@ agents:
 tools:
   python:
     - python_exec
-    - strands_tools.http_request
+    - web_fetch
 
 pattern:
   type: chain
@@ -88,35 +85,7 @@ Agent can request code execution:
 
 ### File Operations
 
-Read files with consent:
-
-```yaml
-tools:
-  python:
-    - strands_tools.file_read
-
-env:
-  filesystem:
-    read_paths:
-      - path: ./data
-        consent: true
-      - path: ./config.yaml
-        consent: true
-```
-
-Write files with consent:
-
-```yaml
-tools:
-  python:
-    - strands_tools.file_write
-
-env:
-  filesystem:
-    write_paths:
-      - path: ./output
-        consent: true
-```
+For reading files, prefer the JIT tools (`grep`, `head`, `tail`, `search`) showcased in the JIT Retrieval section. To write results to disk, use workflow artifacts in the `outputs.artifacts` section rather than a write tool.
 
 ## HTTP Executors
 

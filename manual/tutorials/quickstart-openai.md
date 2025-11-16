@@ -387,7 +387,6 @@ runtime:
 | Complex analysis, multimodal | `gpt-4o` | Better reasoning, image support |
 | Advanced math, coding, research | `o1` | Superior reasoning capabilities |
 | Budget-constrained reasoning | `o1-mini` | Cheaper than o1, better than gpt-4o |
-| Legacy workflows | `gpt-4-turbo` | Compatibility with older code |
 
 ### Model Capabilities
 

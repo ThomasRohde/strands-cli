@@ -827,7 +827,7 @@ class Route(BaseModel):
 
     @property
     def steps(self) -> list[ChainStep] | None:
-        """Alias for route steps to maintain backward compatibility."""
+        """Alias for route steps."""
 
         return self.then
 

@@ -1236,7 +1236,7 @@ def list_supported() -> None:
         ("Providers", "bedrock, ollama, openai"),
         (
             "Python Tools",
-            "strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}",
+            "Native tools (auto-discovered): web_fetch, grep, head, tail, python_exec",
         ),
         ("HTTP Executors", "Full support"),
         ("Secrets", "source: env only"),
@@ -1573,7 +1573,7 @@ def list_tools() -> None:
     - Short ID: "python_exec"
     - Full path: "strands_cli.tools.python_exec"
 
-    Legacy strands_tools.* packages remain available for backward compatibility.
+    
     """
     from strands_cli.tools import get_registry
 

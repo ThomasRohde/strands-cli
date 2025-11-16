@@ -247,14 +247,6 @@ uv run strands run examples/<file>.yaml
 
 ## Special Examples
 
-### Backward Compatibility
-
-| Example | Description | Purpose |
-|---------|-------------|---------|
-| [backward-compatibility-test.yaml](https://github.com/ThomasRohde/strands-cli/blob/master/examples/backward-compatibility-test.yaml) | Tests legacy format compatibility | Regression testing |
-
----
-
 ### Unsupported Features (Exit Code 18)
 
 Examples demonstrating unsupported MVP features (will fail with explanatory report).
