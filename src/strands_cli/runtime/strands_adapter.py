@@ -77,9 +77,24 @@ def build_system_prompt(
     if injected_notes:
         sections.append(f"\n# Previous Workflow Steps\n{injected_notes}")
 
-    # 3. Skills metadata injection
+    # 3. Skills metadata injection with usage instructions
     if spec.skills:
-        skills_lines = ["", "# Available Skills", ""]
+        # Add instructions for how to use skills (progressive loading)
+        skills_instructions = [
+            "",
+            "# How to Use Skills",
+            "",
+            "When a user's request might be solved by a specialized skill, call the Skill tool to load it.",
+            "To use a skill, call: `Skill(\"skill_id\")`",
+            "",
+            "Only use skills from the Available Skills list below.",
+            "Do not invoke a skill that's already been loaded.",
+            "",
+        ]
+        sections.append("\n".join(skills_instructions))
+
+        # Add list of available skills
+        skills_lines = ["# Available Skills", ""]
         for skill in spec.skills:
             skill_line = f"- **{skill.id}**"
             if skill.path:
@@ -490,6 +505,33 @@ def build_agent(  # noqa: C901
     else:
         # No cache - just add clients to tools
         tools.extend([client for _, client in mcp_clients_with_ids])
+
+    # Skills: Auto-inject skill loader tool if skills are defined
+    # This enables progressive skill loading (Claude Code-like behavior)
+    if spec.skills:
+        from strands_cli.tools.skill_loader import create_skill_loader_tool
+
+        # Get loaded_skills set from agent_cache if available
+        loaded_skills: set[str] = set()
+        if agent_cache and hasattr(agent_cache, "_loaded_skills"):
+            loaded_skills = agent_cache._loaded_skills
+        elif agent_cache:
+            # Initialize loaded_skills in cache for this execution
+            agent_cache._loaded_skills = loaded_skills
+
+        # Get spec directory for path resolution
+        spec_dir = getattr(spec, "_spec_dir", None)
+
+        # Create skill loader tool with context
+        skill_loader_tool = create_skill_loader_tool(spec, spec_dir, loaded_skills)
+        tools.append(skill_loader_tool)
+
+        logger.debug(
+            "skill_loader_injected",
+            agent_id=agent_id,
+            skills_count=len(spec.skills),
+            skills=[s.id for s in spec.skills],
+        )
 
     # Create the agent
     try:

@@ -14,12 +14,12 @@ logger = structlog.get_logger(__name__)
 
 # Import TavilyClient at module level for easier testing
 try:
-    from tavily import TavilyClient
+    from tavily import TavilyClient  # type: ignore[import-untyped]
 
     TAVILY_AVAILABLE = True
 except ImportError:
     TAVILY_AVAILABLE = False
-    TavilyClient = None  # type: ignore
+    TavilyClient = None
 
 # Tool Specification (Strands SDK standard)
 TOOL_SPEC = {

@@ -194,6 +194,11 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
     # Convert to typed Pydantic model
     try:
         spec = Spec.model_validate(spec_data)
+
+        # Attach spec directory for skills path resolution
+        # This is not part of the Pydantic model but needed for runtime context
+        spec._spec_dir = str(file_path.parent)  # type: ignore[attr-defined]
+
         if debug:
             logger.debug(
                 "spec_loaded",
@@ -201,6 +206,7 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
                 spec_version=spec.version,
                 agents=list(spec.agents.keys()),
                 pattern=spec.pattern.type if spec.pattern else None,
+                spec_dir=str(file_path.parent),
             )
         return spec
     except PydanticValidationError as e:

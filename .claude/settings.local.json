@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest:*)",
+      "Bash(.scriptsdev.ps1 test)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

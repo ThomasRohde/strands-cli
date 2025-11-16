@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 TBD
 
+## [0.5.0] - 2025-01-16
+
+### Added
+- **Progressive Skills Loading** - Claude Code-like dynamic skill loading system
+  - `Skill("skill_id")` tool for on-demand loading of detailed skill instructions
+  - Reduces initial prompt size by only including skill metadata
+  - Auto-injection of skill loader tool when `skills` are defined in workflow spec
+  - State tracking in `AgentCache` to prevent duplicate skill loading
+  - Path resolution support for relative skill paths
+  - Fallback to README.md if SKILL.md not found
+  - Schema support for skills with `id`, `path`, and `description` fields
+  - Example workflow: `examples/skills-demo.yaml`
+  - Official Anthropic skills included: `pdf`, `xlsx`, `docx`, `pptx`
+  - Comprehensive unit tests for skill loader functionality
+
+### Changed
+- Enhanced system prompt builder to inject skills metadata and usage instructions
+- Updated `AgentCache` to track loaded skills across workflow execution
+- Modified YAML loader to attach `_spec_dir` for skill path resolution
+- Updated JSON Schema to support skills configuration
+
+### Documentation
+- Added Skills System section to CLAUDE.md
+- Created README in examples/skills with proper attribution to Anthropic
+- Updated workflow examples to demonstrate progressive skill loading
+
 ## [0.4.3] - 2025-11-16
 
 ### Added

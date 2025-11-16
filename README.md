@@ -8,9 +8,9 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.4.2-brightgreen.svg)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/tests-1549+-success.svg)](#development)
-[![Coverage](https://img.shields.io/badge/coverage-83%25-yellow.svg)](#development)
+[![Version](https://img.shields.io/badge/version-0.5.0-brightgreen.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-1667+-success.svg)](#development)
+[![Coverage](https://img.shields.io/badge/coverage-82%25-yellow.svg)](#development)
 
 *Schema-validated • Multi-provider • Production-ready observability*
 
@@ -82,11 +82,15 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 - Single async event loop per workflow execution
 - Proper resource cleanup (HTTP clients, tool adapters)
 
-🛠️ **Built-in Tools**
+🛠️ **Built-in Tools & Skills**
 - HTTP executors with timeout/retry
 - Python tools: `http_request`, `file_read`, `file_write`, `calculator`, `current_time`
 - Native tool registry with auto-discovery
 - MCP (Model Context Protocol) support (experimental)
+- **Progressive Skills Loading** - Claude Code-like dynamic skill system
+  - On-demand loading of specialized skill instructions (`Skill("skill_id")`)
+  - Official Anthropic skills: `pdf`, `xlsx`, `docx`, `pptx`
+  - Reduces prompt size, improves efficiency
 
 ---
 

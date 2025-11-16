@@ -197,10 +197,13 @@ class ProactiveCompactionHook(HookProvider):
                     minimum_required=minimum_required,
                     reason="insufficient_messages_for_configured_value",
                 )
-                
+
                 # Temporarily adjust preserve_recent_messages for this compaction
-                original_preserve = agent.conversation_manager.preserve_recent_messages
-                agent.conversation_manager.preserve_recent_messages = adjusted_preserve
+                original_preserve = getattr(
+                    agent.conversation_manager, "preserve_recent_messages", None
+                )
+                if hasattr(agent.conversation_manager, "preserve_recent_messages"):
+                    agent.conversation_manager.preserve_recent_messages = adjusted_preserve
             else:
                 original_preserve = None  # No adjustment needed
             
@@ -212,7 +215,9 @@ class ProactiveCompactionHook(HookProvider):
                 token_source=token_source,
                 trigger_reason="proactive_threshold_exceeded",
                 message_count=message_count,
-                preserve_recent_messages=agent.conversation_manager.preserve_recent_messages,
+                preserve_recent_messages=getattr(
+                    agent.conversation_manager, "preserve_recent_messages", None
+                ),
             )
 
             try:
@@ -228,7 +233,9 @@ class ProactiveCompactionHook(HookProvider):
                 )
             finally:
                 # Restore original preserve_recent_messages value if we adjusted it
-                if original_preserve is not None:
+                if original_preserve is not None and hasattr(
+                    agent.conversation_manager, "preserve_recent_messages"
+                ):
                     agent.conversation_manager.preserve_recent_messages = original_preserve
                     logger.debug(
                         "compaction_preserve_restored",

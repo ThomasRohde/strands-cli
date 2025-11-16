@@ -231,6 +231,111 @@ class AgentCache:
 - **Provide context**: Include helpful error messages with JSONPointer for schema errors
 - **Rich output**: Use `console.print()` from Rich (NOT `print()`)
 
+## Skills System (Progressive Loading)
+
+Strands CLI supports **skills** - modular prompt extensions that are loaded on-demand, mimicking Claude Code's progressive skill loading behavior. Skills allow agents to dynamically access specialized knowledge without bloating the initial system prompt.
+
+### How Skills Work
+
+1. **Skill Definition**: Define skills in the workflow spec with `id`, `path`, and `description`
+2. **Metadata Injection**: Skill metadata is injected into the system prompt with usage instructions
+3. **Progressive Loading**: Agent invokes `Skill("skill_id")` to load full skill content on demand
+4. **Auto-Injection**: Skill loader tool is automatically injected when skills are present
+
+### Defining Skills in Workflow Spec
+
+```yaml
+skills:
+  - id: pdf
+    path: ./skills/pdf
+    description: PDF manipulation toolkit for extracting text, tables, and metadata
+
+  - id: xlsx
+    path: ./skills/xlsx
+    description: Spreadsheet toolkit with formulas, charts, and data analysis
+
+agents:
+  data-processor:
+    prompt: |
+      You are a data processing assistant.
+      When tasks require specialized expertise, load the relevant skill.
+```
+
+### Creating a Skill
+
+Skills are directories with a `SKILL.md` (or `README.md`) file:
+
+```
+skills/pdf/
+├── SKILL.md          # Detailed instructions, code patterns, best practices
+└── examples/         # Optional: Example files and usage
+```
+
+**SKILL.md Structure**:
+```markdown
+# PDF Processing Skill
+
+Comprehensive toolkit for PDF document manipulation.
+
+## Capabilities
+- Text extraction
+- Table extraction
+- Metadata reading
+
+## When to Use This Skill
+Invoke when you need to extract or manipulate PDF content.
+
+## Code Patterns
+
+\`\`\`python
+import PyPDF2
+
+def extract_text_from_pdf(pdf_path):
+    # Pattern code here...
+\`\`\`
+
+## Best Practices
+1. Use context managers for file handling
+2. Handle encoding issues
+```
+
+### System Prompt Integration
+
+When skills are defined, the system prompt automatically includes:
+
+1. **Usage Instructions**:
+   ```
+   # How to Use Skills
+
+   When a user's request might be solved by a specialized skill,
+   call the Skill tool to load it.
+
+   To use a skill, call: Skill("skill_id")
+
+   Only use skills from the Available Skills list below.
+   Do not invoke a skill that's already been loaded.
+   ```
+
+2. **Skills List**:
+   ```
+   # Available Skills
+
+   - **pdf** (path: `./skills/pdf`): PDF manipulation toolkit...
+   - **xlsx** (path: `./skills/xlsx`): Spreadsheet toolkit...
+   ```
+
+### Implementation Details
+
+- **Tool Factory**: `src/strands_cli/tools/skill_loader.py` creates skill loader tools
+- **Auto-Injection**: `strands_adapter.py` automatically injects skill loader when `spec.skills` exists
+- **State Tracking**: `AgentCache._loaded_skills` prevents re-loading
+- **Path Resolution**: Skill paths resolved relative to spec file directory
+- **Security**: Path validation prevents directory traversal attacks
+
+### Examples
+
+See `examples/skills-demo.yaml` for a complete demonstration with PDF and XLSX skills.
+
 ## Native Tool Development
 
 Create tools in `src/strands_cli/tools/` with auto-discovery:

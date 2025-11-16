@@ -522,6 +522,10 @@
             "type": "string",
             "description": "Filesystem path to skill directory (relative to spec file or absolute). Directory should contain README.md or metadata describing skill capabilities. Used to augment agent knowledge without full code execution."
           },
+          "description": {
+            "type": "string",
+            "description": "Brief description of the skill's capabilities. Shown in the Available Skills list in the system prompt to help the agent decide when to load this skill."
+          },
           "preload_metadata": {
             "type": "boolean",
             "default": false,

@@ -297,6 +297,10 @@ class AgentCache:
         # Dict: server_id -> MCPClient instance (deduplicated)
         self._mcp_clients: dict[str, Any] = {}
 
+        # Track loaded skills to prevent re-loading (Skills feature)
+        # Set of skill IDs that have been loaded during this execution
+        self._loaded_skills: set[str] = set()
+
         debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
         if debug:
             logger.debug("agent_cache_initialized")
