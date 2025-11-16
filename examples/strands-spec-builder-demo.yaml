@@ -1,0 +1,131 @@
+# Strands Spec Builder Demo
+# Demonstrates using the strands-spec skill to create workflow specifications
+# with automatic validation using the spec_verify native tool
+
+name: strands-spec-builder-demo
+version: 1.0.0
+description: |
+  Demo workflow showing progressive loading of the strands-spec skill.
+  The agent will automatically load skill modules as needed to help build
+  a strands-cli workflow specification, then validate it using spec_verify.
+
+# Skills Configuration
+skills:
+  - id: strands-spec
+    path: ./skills/strands-spec
+    description: Expert guidance for creating strands-cli workflow specifications (YAML/JSON) with progressive loading for patterns, tools, advanced features, examples, and troubleshooting
+
+# Runtime Configuration
+runtime:
+  provider: openai
+  model_id: gpt-5-nano
+
+# Agent Definition
+agents:
+  spec-builder:
+    prompt: |
+      You are an expert strands-cli workflow specification builder.
+      
+      When helping users create or modify strands-cli specs:
+      
+      1. Load the strands-spec skill to get core guidance
+      2. Use progressive loading to access specialized knowledge:
+         - For pattern details: Request patterns.md context
+         - For tool configuration: Request tools.md context
+         - For advanced features: Request advanced.md context
+         - For examples: Request examples.md context
+         - For debugging: Request troubleshooting.md context
+         - For quick lookup: Request quick-reference.md context
+      
+      3. Generate complete, valid YAML workflow specs
+      4. **IMPORTANT:** Use the spec_verify tool to validate your generated spec
+      5. If validation fails, analyze the errors and fix them
+      6. Iterate until the spec is valid
+      7. Follow best practices from the skill
+      8. Explain key decisions and design choices
+      
+      Guidelines:
+      - Start simple (chain pattern), migrate to complex patterns only when needed
+      - Always include version, name, runtime, agents, and pattern
+      - Use meaningful agent names that describe their purpose
+      - Include comments to explain complex configurations
+      - Set realistic budgets to prevent runaway costs
+      - Validate provider configuration matches user's environment
+      
+      Workflow:
+      1. Load strands-spec skill and relevant modules
+      2. Generate initial spec based on requirements
+      3. Use spec_verify tool to validate the spec
+      4. If errors found, fix them and validate again
+      5. Repeat until spec is valid (schema_valid=true, pydantic_valid=true)
+      6. Return the final validated spec with explanation
+      
+      When responding:
+      - Output complete, runnable YAML specs
+      - Include inline comments for clarity
+      - Show validation results from spec_verify
+      - Explain any fixes made during iteration
+      - Highlight key design decisions
+    tools:
+      - spec_verify  # Native tool for validating workflow specs
+
+# Pattern: Single agent to build and validate spec
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: spec-builder
+        input: |
+          Create a strands-cli workflow spec for the following use case:
+          
+          **Use Case:** {{ use_case }}
+          
+          {% if requirements %}
+          **Requirements:**
+          {{ requirements }}
+          {% endif %}
+          
+          {% if provider %}
+          **Provider:** {{ provider }}
+          {% endif %}
+          
+          {% if pattern_preference %}
+          **Preferred Pattern:** {{ pattern_preference }}
+          {% endif %}
+          
+          Please:
+          1. Load the strands-spec skill to access best practices
+          2. Load any additional skill modules you need (patterns, tools, etc.)
+          3. Create a complete, production-ready workflow spec
+          4. **Validate the spec using spec_verify tool**
+          5. Fix any validation errors and re-validate until spec is valid
+          6. Explain key design decisions
+          7. Show the final validation results
+          
+          Return the complete, validated YAML spec with inline comments.
+
+# Inputs
+inputs:
+  required:
+    use_case: string
+  optional:
+    requirements:
+      type: string
+      description: "Specific requirements or constraints"
+      default: ""
+    provider:
+      type: string
+      description: "Provider to use (bedrock, openai, ollama)"
+      default: "openai"
+      enum: ["bedrock", "openai", "ollama"]
+    pattern_preference:
+      type: string
+      description: "Preferred orchestration pattern"
+      default: ""
+      enum: ["", "chain", "routing", "parallel", "workflow", "graph", "evaluator-optimizer", "orchestrator-workers"]
+
+# Outputs: Save the generated spec
+outputs:
+  artifacts:
+    - path: "./generated-spec.yaml"
+      from: "{{ last_response }}"

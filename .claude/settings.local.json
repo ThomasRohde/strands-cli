@@ -5,7 +5,9 @@
       "Bash(.scriptsdev.ps1 test)",
       "Bash(.scriptsdev.ps1 ci)",
       "Bash(pwsh:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:www.anthropic.com)"
     ],
     "deny": [],
     "ask": []

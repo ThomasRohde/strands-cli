@@ -465,3 +465,153 @@ outputs:
         assert len(spec.tools.python) == 2
         assert spec.tools.python[0].callable == "file_read"
         assert spec.tools.python[1].callable == "file_write"
+
+    def test_optional_inputs_with_defaults_applied_to_values(self, tmp_path: Path) -> None:
+        """Test that optional input defaults are applied to inputs.values."""
+        spec_content = """
+version: 0
+name: "optional-defaults-test"
+runtime:
+  provider: ollama
+  host: http://localhost:11434
+  model_id: gpt-oss
+
+inputs:
+  required:
+    use_case: string
+  optional:
+    requirements:
+      type: string
+      default: ""
+    provider:
+      type: string
+      default: "openai"
+    pattern_preference:
+      type: string
+      default: ""
+
+agents:
+  test:
+    prompt: "Test: {{ use_case }}, {{ requirements }}, {{ provider }}, {{ pattern_preference }}"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test with defaults"
+
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "optional-defaults.yaml"
+        spec_file.write_text(spec_content)
+
+        # Load spec with only required variable
+        spec = load_spec(str(spec_file), {"use_case": "test case"})
+        
+        # Verify that defaults were applied to inputs.values
+        assert spec.inputs is not None
+        assert "values" in spec.inputs
+        values = spec.inputs["values"]
+        
+        assert values["use_case"] == "test case"  # From CLI
+        assert values["requirements"] == ""  # Default applied
+        assert values["provider"] == "openai"  # Default applied
+        assert values["pattern_preference"] == ""  # Default applied
+
+    def test_required_inputs_with_defaults_applied_to_values(self, tmp_path: Path) -> None:
+        """Test that required input defaults are applied to inputs.values."""
+        spec_content = """
+version: 0
+name: "required-defaults-test"
+runtime:
+  provider: ollama
+  host: http://localhost:11434
+  model_id: gpt-oss
+
+inputs:
+  required:
+    topic:
+      type: string
+      default: "general"
+    format:
+      type: string
+      default: "markdown"
+
+agents:
+  test:
+    prompt: "Test: {{ topic }}, {{ format }}"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "required-defaults.yaml"
+        spec_file.write_text(spec_content)
+
+        # Load spec without providing any variables (defaults should be applied)
+        spec = load_spec(str(spec_file), {})
+        
+        # Verify that defaults were applied to inputs.values
+        assert spec.inputs is not None
+        assert "values" in spec.inputs
+        values = spec.inputs["values"]
+        
+        assert values["topic"] == "general"  # Default applied
+        assert values["format"] == "markdown"  # Default applied
+
+    def test_cli_variables_override_defaults(self, tmp_path: Path) -> None:
+        """Test that CLI variables override default values."""
+        spec_content = """
+version: 0
+name: "override-defaults-test"
+runtime:
+  provider: ollama
+  host: http://localhost:11434
+  model_id: gpt-oss
+
+inputs:
+  optional:
+    setting:
+      type: string
+      default: "default-value"
+
+agents:
+  test:
+    prompt: "Test: {{ setting }}"
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: test
+        input: "Test"
+
+outputs:
+  artifacts:
+    - path: ./out.txt
+      from: "{{ last_response }}"
+"""
+        spec_file = tmp_path / "override-defaults.yaml"
+        spec_file.write_text(spec_content)
+
+        # Load spec with CLI override
+        spec = load_spec(str(spec_file), {"setting": "cli-override"})
+        
+        # Verify that CLI value overrode the default
+        assert spec.inputs is not None
+        assert "values" in spec.inputs
+        values = spec.inputs["values"]
+        
+        assert values["setting"] == "cli-override"  # CLI override wins

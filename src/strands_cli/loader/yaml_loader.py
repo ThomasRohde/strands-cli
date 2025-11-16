@@ -89,6 +89,62 @@ def _parse_file_content(file_path: Path, content: str) -> dict[str, Any]:
     return spec_data
 
 
+def _apply_input_defaults(spec_data: dict[str, Any]) -> None:
+    """Apply default values from input parameter schemas to inputs.values.
+
+    This ensures that optional parameters with defaults are available to
+    template rendering even if not explicitly provided via CLI.
+
+    Args:
+        spec_data: Spec dictionary to modify in-place
+    """
+    debug = os.environ.get("STRANDS_DEBUG", "").lower() == "true"
+
+    if "inputs" not in spec_data or not isinstance(spec_data["inputs"], dict):
+        return
+
+    if "values" not in spec_data["inputs"]:
+        spec_data["inputs"]["values"] = {}
+    elif not isinstance(spec_data["inputs"]["values"], dict):
+        return
+
+    values = spec_data["inputs"]["values"]
+    defaults_applied = []
+
+    # Process required parameters with defaults
+    required_params = spec_data["inputs"].get("required", {})
+    if isinstance(required_params, dict):
+        for param_name, param_spec in required_params.items():
+            # Skip if value already exists
+            if param_name in values:
+                continue
+
+            # Extract default if present
+            if isinstance(param_spec, dict) and "default" in param_spec:
+                values[param_name] = param_spec["default"]
+                defaults_applied.append(param_name)
+
+    # Process optional parameters with defaults
+    optional_params = spec_data["inputs"].get("optional", {})
+    if isinstance(optional_params, dict):
+        for param_name, param_spec in optional_params.items():
+            # Skip if value already exists
+            if param_name in values:
+                continue
+
+            # Extract default if present
+            if isinstance(param_spec, dict) and "default" in param_spec:
+                values[param_name] = param_spec["default"]
+                defaults_applied.append(param_name)
+
+    if debug and defaults_applied:
+        logger.debug(
+            "input_defaults_applied",
+            defaults_applied=defaults_applied,
+            final_values=values,
+        )
+
+
 def _merge_variables(spec_data: dict[str, Any], variables: dict[str, str]) -> None:
     """Merge CLI variables into spec_data.inputs.values.
 
@@ -178,6 +234,10 @@ def load_spec(file_path: str | Path, variables: dict[str, str] | None = None) ->
             spec_name=spec_data.get("name", "<unnamed>"),
             has_inputs="inputs" in spec_data,
         )
+
+    # Apply default values from parameter schemas to inputs.values
+    # This must happen BEFORE merging CLI variables so CLI can override defaults
+    _apply_input_defaults(spec_data)
 
     # Merge CLI variables into inputs.values
     if variables:
