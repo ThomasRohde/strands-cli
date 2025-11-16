@@ -60,6 +60,7 @@ nav:
       - Session Management: howto/session-management.md
       - Human-in-the-Loop (HITL): howto/hitl.md
       - Context Management: howto/context-management.md
+      - Skills: howto/skills.md
       - Telemetry: howto/telemetry.md
       - Tools: howto/tools.md
       - Develop Tools: howto/develop-tools.md

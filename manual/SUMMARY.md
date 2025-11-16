@@ -13,6 +13,7 @@
 - [Session Management](howto/session-management.md)
 - [Human-in-the-Loop (HITL)](howto/hitl.md)
 - [Context Management](howto/context-management.md)
+- [Skills - Progressive Loading](howto/skills.md)
 - [Tool Development](howto/develop-tools.md)
 - [Telemetry & Debugging](howto/telemetry.md)
 - [Secrets Management](howto/secrets.md)

@@ -295,7 +295,8 @@ async def test_agent_cache_reuses_agents(mocker: MockerFixture) -> None:
 ## Key Files & References
 
 - **Schema**: `src/strands_cli/schema/strands-workflow.schema.json` (JSON Schema Draft 2020-12) — the source of truth
-- **Manual**: `strands-workflow-manual.md` — comprehensive workflow spec docs with examples for all 7 patterns
+- **Schema Docs**: `manual/reference/schema.md` — AUTO-GENERATED from schema JSON via `scripts/generate_schema_docs.py` (never edit manually)
+- **Manual**: `manual/reference/workflow-manual.md` — comprehensive workflow spec docs with examples for all 7 patterns
 - **PRD**: `PRD_SingleAgent_MVP.md` — full MVP requirements, scope, and acceptance criteria
 - **Stack**: `stack.md` — dependency choices and rationale
 - **Config**: `pyproject.toml` — all tool configs (ruff, mypy, pytest, coverage)
@@ -399,6 +400,7 @@ allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
 - **User-facing docs**: Write in Markdown; reference actual file paths in backticks
 - **Code comments**: Explain *why*, not *what*; especially for capability checks and error codes
 - **Examples**: Always provide runnable examples in `examples/` directory
+- **Auto-generated docs**: NEVER edit `manual/reference/schema.md` manually — it's auto-generated from the JSON schema via `scripts/generate_schema_docs.py`. To update schema docs, modify `src/strands_cli/schema/strands-workflow.schema.json` and regenerate.
 - **README.md updates**: Focus on current capabilities only; avoid version history language like "New in vX.X" or "Coming soon"
   - ❌ Bad: "New in v0.4.0: Python API support"
   - ✅ Good: "Python API - Programmatic workflow execution"

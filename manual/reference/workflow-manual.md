@@ -386,18 +386,179 @@ Model Context Protocol (MCP) servers will provide extended retrieval capabilitie
 
 ## 9) Skills (Optional)
 
+Skills enable **progressive loading** of specialized capabilities, similar to Claude Code's skill system. Instead of front-loading all instructions, agents see only skill metadata initially and load full content on-demand when needed. This reduces initial prompt size, conserves tokens, and enables modular expertise.
+
+### Basic Configuration
+
 ```yaml
 skills:
-  - id: "pdf-editing"
-    path: "./skills/pdf"
+  - id: xlsx
+    path: ./skills/xlsx
+    description: Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization
     preload_metadata: true
+
+  - id: pdf
+    path: ./skills/pdf
+    description: Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms
 ```
 
-- Each skill directory should include a `SKILL.md` with name/description/instructions and any referenced files.
-- If `preload_metadata` is true, the CLI injects the skill name/description into the agent’s system prompt; content is still read on-demand via tools.
+### How Skills Work
 
+**Discovery Phase** (at startup):
+- CLI scans each skill directory and reads `SKILL.md` frontmatter
+- Extracts `name` and `description` from YAML frontmatter
+- Builds an "Available Skills" section in the agent's system prompt
+- Agent sees skill names and descriptions but NOT full content
+
+**Loading Phase** (on-demand):
+- When the agent identifies a relevant task, it invokes: `Skill("skill_id")`
+- CLI intercepts the invocation and loads the skill's full `SKILL.md` content
+- Content is injected into the agent's context as a tool result
+- Agent proceeds with the detailed instructions now available
+
+### Skill Directory Structure
+
+```
+skills/
+├── xlsx/
+│   ├── SKILL.md              # Required: instructions with frontmatter
+│   ├── LICENSE.txt           # Optional: licensing info
+│   ├── recalc.py             # Optional: helper scripts
+│   └── examples/             # Optional: reference files
+└── pdf/
+    ├── SKILL.md
+    └── scripts/
+        ├── extract.py
+        └── merge.py
+```
+
+### Skill Properties
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `id` | Yes | Unique identifier referenced in `Skill("id")` invocations |
+| `path` | Yes | Filesystem path to skill directory (relative or absolute) |
+| `description` | No | Brief summary of capabilities (auto-read from `SKILL.md` if omitted) |
+| `preload_metadata` | No | If `true`, injects name/description into initial system prompt (default: `true`) |
+
+### SKILL.md Format
+
+Each skill directory must contain a `SKILL.md` file with YAML frontmatter:
+
+````markdown
+---
+name: xlsx
+description: "Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization"
+license: Proprietary. LICENSE.txt has complete terms
 ---
 
+# Requirements for Outputs
+
+## All Excel files
+
+### Zero Formula Errors
+- Every Excel model MUST be delivered with ZERO formula errors...
+
+### Color Coding Standards
+- **Blue text**: Hardcoded inputs users will change
+- **Black text**: ALL formulas and calculations
+...
+
+# XLSX Creation, Editing, and Analysis
+
+## Overview
+A user may ask you to create, edit, or analyze .xlsx files...
+
+## Code Examples
+
+```python
+import pandas as pd
+df = pd.read_excel("data.xlsx")
+...
+```
+````
+
+The frontmatter provides metadata; the body contains detailed instructions, code patterns, and best practices.
+
+### Runtime Behavior
+
+1. **System Prompt Injection**: At agent initialization, the CLI adds:
+   - Instructions on when and how to invoke skills
+   - List of available skills with IDs and descriptions
+   - Directive: "To load a skill, call `Skill('skill_id')`"
+
+2. **Autonomous Invocation**: Agent analyzes user request and decides if a skill is relevant (e.g., sees "create Excel file" → invokes `Skill("xlsx")`)
+
+3. **Content Loading**: CLI reads `skills/xlsx/SKILL.md`, injects full markdown content as tool result
+
+4. **Task Execution**: Agent follows loaded instructions to complete the task with specialized guidance
+
+5. **Caching**: Loaded skills remain in context for the duration of the workflow step
+
+### Example Usage
+
+Full workflow demonstrating progressive skill loading:
+
+```yaml
+name: financial-analysis
+version: 1.0.0
+
+skills:
+  - id: xlsx
+    path: ./skills/xlsx
+  - id: pdf
+    path: ./skills/pdf
+
+runtime:
+  provider: bedrock
+  model_id: us.anthropic.claude-sonnet-4-20250514-v1:0
+
+agents:
+  analyst:
+    prompt: |
+      You are a financial analyst with access to specialized skills.
+      When encountering PDF or spreadsheet tasks, load the relevant
+      skill to get detailed instructions and code patterns.
+    tools:
+      - python_exec
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: analyst
+        input: |
+          Create a 3-year revenue projection model in Excel:
+          - Starting MRR: $10,000
+          - Monthly growth: 5%
+          - Include formulas with proper color coding
+          - Output: revenue_model.xlsx
+
+outputs:
+  artifacts:
+    - path: ./revenue_model.py
+      from: "{{ last_response }}"
+```
+
+When executed, the agent will:
+1. See "Excel" in the request
+2. Invoke `Skill("xlsx")` to load spreadsheet expertise
+3. Follow loaded instructions for color coding, formulas, and formatting
+4. Generate compliant Python code to create the file
+
+### Best Practices
+
+- **Keep descriptions concise**: 1-2 sentences explaining when to use the skill
+- **Organize content clearly**: Use headings, bullet points, and code examples in `SKILL.md`
+- **Avoid redundancy**: Don't duplicate common instructions across skills
+- **Test skill isolation**: Each skill should work independently
+- **Document dependencies**: Note required libraries or tools in the skill content
+- **Version control skills**: Skills are versioned separately from workflow specs
+- **Use official skills**: Anthropic provides curated skills for common tasks (PDF, XLSX, DOCX, PPTX)
+
+> **See Also**: [Skills How-To Guide](../howto/skills.md) for step-by-step skill creation and testing.
+
+---
 ## 10) Tools
 
 ```yaml
