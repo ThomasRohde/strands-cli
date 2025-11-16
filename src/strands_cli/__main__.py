@@ -1573,7 +1573,6 @@ def list_tools() -> None:
     - Short ID: "python_exec"
     - Full path: "strands_cli.tools.python_exec"
 
-    
     """
     from strands_cli.tools import get_registry
 

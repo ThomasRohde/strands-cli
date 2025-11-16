@@ -7,7 +7,8 @@
       "Bash(pwsh:*)",
       "Bash(timeout:*)",
       "WebFetch(domain:code.claude.com)",
-      "WebFetch(domain:www.anthropic.com)"
+      "WebFetch(domain:www.anthropic.com)",
+      "Bash(rg:*)"
     ],
     "deny": [],
     "ask": []

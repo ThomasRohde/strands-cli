@@ -3,7 +3,7 @@
 Get the current time in various formats and timezones.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 TOOL_SPEC = {
@@ -59,7 +59,7 @@ def current_time(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
 
     try:
         if tz_type == "utc":
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
         elif tz_type == "local":
             now = datetime.now()
         else:

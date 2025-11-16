@@ -27,12 +27,14 @@ from typing import Any
 
 import structlog
 
+from strands_cli.exec.hooks import NotesAppenderHook
 from strands_cli.exec.utils import AgentCache, get_retry_config, invoke_agent_with_retry
 from strands_cli.loader import render_template
 from strands_cli.session import SessionState
 from strands_cli.session.checkpoint_utils import fail_session, finalize_session
 from strands_cli.session.file_repository import FileSessionRepository
 from strands_cli.telemetry import get_tracer
+from strands_cli.tools.notes_manager import NotesManager
 from strands_cli.types import PatternType, RunResult, Spec
 
 try:
@@ -141,12 +143,46 @@ async def run_single_agent(
         # Get retry configuration
         max_attempts, wait_min, wait_max = get_retry_config(spec)
 
+        # Phase 6.2: Setup notes manager if configured
+        notes_manager = None
+        shared_hooks = []
+        step_counter = [0]  # Mutable container for hook to track step count
+        if spec.context_policy and spec.context_policy.notes:
+            notes_manager = NotesManager(spec.context_policy.notes.file)
+
+            # Build agent_id → tools mapping for notes hook
+            agent_tools: dict[str, list[str]] = {}
+            if agent_config.tools:
+                agent_tools[agent_id] = agent_config.tools
+
+            shared_hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
+            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+
         # Create agent cache for this execution
         # Phase 3: Single executor-scoped cache (cleanup in finally)
         cache = AgentCache()
         try:
+            # Phase 6.2: Inject last N notes into agent context
+            injected_notes = None
+            if notes_manager and spec.context_policy and spec.context_policy.notes:
+                injected_notes = notes_manager.get_last_n_for_injection(
+                    spec.context_policy.notes.include_last
+                )
+                if injected_notes:
+                    logger.debug(
+                        "notes_injected",
+                        notes_length=len(injected_notes),
+                    )
+
             # Get or build the agent (cache enables future multi-step reuse)
-            agent = await cache.get_or_build_agent(spec, agent_id, agent_config, worker_index=None)
+            agent = await cache.get_or_build_agent(
+                spec,
+                agent_id,
+                agent_config,
+                hooks=shared_hooks if shared_hooks else None,
+                injected_notes=injected_notes,
+                worker_index=None,
+            )
 
             # Run the agent with retry logic
             # Phase 3: Direct await instead of asyncio.run() (no event loop churn)
