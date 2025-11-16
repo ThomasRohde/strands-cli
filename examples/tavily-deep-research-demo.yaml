@@ -12,7 +12,7 @@ description: |
 
 runtime:
   provider: openai
-  model_id: gpt-4o-mini  # 128K context window, reliable for long workflows
+  model_id: gpt-5
   budgets:
     max_tokens: 300000      # Hard limit to prevent runaway costs
     warn_threshold: 0.75    # Warning at 75% usage
@@ -23,7 +23,7 @@ context_policy:
     when_tokens_over: 12000          # Aggressive early compaction (auto-reduces if needed)
     summary_ratio: 0.50              # Summarize 50% of older messages for better compression
     preserve_recent_messages: 12     # Keep last 12 messages (auto-reduces if needed)
-    summarization_model: gpt-4o-mini # Same model for consistency
+    summarization_model: gpt-5 # Same model for consistency
   notes:
     file: "./artifacts/tavily-research-notes.md"
     include_last: 12
