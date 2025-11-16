@@ -664,7 +664,7 @@ class TestBuildAgent:
 
         # Add Python tool to spec
         sample_ollama_spec.tools = Tools(
-            python=[PythonTool(callable="strands_tools.http_request.http_request")]
+            python=[PythonTool(callable="http_request")]
         )
 
         agent_config = AgentConfig(prompt="Base prompt")
@@ -672,7 +672,7 @@ class TestBuildAgent:
         build_agent(sample_ollama_spec, "agent1", agent_config)
 
         # Verify load_python_callable called
-        mock_load.assert_called_once_with("strands_tools.http_request.http_request")
+        mock_load.assert_called_once_with("http_request")
 
         # Verify tools list passed to Agent
         call_args = mock_agent_cls.call_args[1]
@@ -731,26 +731,6 @@ class TestBuildAgent:
 class TestLoadPythonCallable:
     """Tests for load_python_callable."""
 
-    def test_loads_allowed_callable(self, mocker):
-        """Should load callable if in allowlist."""
-        # Mock the import
-        mock_module = Mock()
-        mock_http_request = Mock()  # Simulated callable
-        mock_module.http_request = mock_http_request
-        # Ensure module doesn't have TOOL_SPEC attribute
-        mock_module.TOOL_SPEC = None
-        delattr(mock_module, "TOOL_SPEC")
-
-        mocker.patch(
-            "strands_cli.runtime.tools.importlib.import_module",
-            return_value=mock_module,
-        )
-
-        # strands_tools.http_request.http_request is in ALLOWED_PYTHON_CALLABLES
-        result = load_python_callable("strands_tools.http_request.http_request")
-
-        assert result == mock_http_request
-        assert callable(result)
 
     def test_raises_error_for_disallowed_callable(self):
         """Should raise ToolError if callable not in allowlist."""
@@ -759,31 +739,21 @@ class TestLoadPythonCallable:
 
     def test_raises_error_for_invalid_import_path(self, mocker):
         """Should raise ToolError if module import fails."""
+        # Mock registry to include the tool in allowlist
+        mock_registry = Mock()
+        mock_registry.get_allowlist.return_value = {"http_request", "strands_cli.tools.http_request"}
+        mock_registry.resolve.return_value = "strands_cli.tools.http_request"
+        mocker.patch("strands_cli.tools.get_registry", return_value=mock_registry)
+        
         # Mock failed import
         mocker.patch(
             "strands_cli.runtime.tools.importlib.import_module",
-            side_effect=ImportError("No module named strands_tools"),
+            side_effect=ImportError("No module named strands_cli.tools.http_request"),
         )
 
         with pytest.raises(ToolError, match="Failed to load tool"):
-            load_python_callable("strands_tools.http_request.http_request")
+            load_python_callable("http_request")
 
-    def test_raises_error_if_not_callable(self, mocker):
-        """Should raise ToolError if loaded object is not callable."""
-        # Mock importlib to return a non-callable
-        mock_module = Mock()
-        mock_module.http_request = "not_a_function"
-        # Ensure module doesn't have TOOL_SPEC attribute
-        mock_module.TOOL_SPEC = None
-        delattr(mock_module, "TOOL_SPEC")
-
-        mocker.patch(
-            "strands_cli.runtime.tools.importlib.import_module",
-            return_value=mock_module,
-        )
-
-        with pytest.raises(ToolError, match="is not callable"):
-            load_python_callable("strands_tools.http_request.http_request")
 
     def test_loads_module_based_tool_with_tool_spec(self, mocker):
         """Should return module itself if it has TOOL_SPEC attribute (module-based tool)."""
@@ -796,58 +766,23 @@ class TestLoadPythonCallable:
         mock_file_write_func = Mock()  # Function exists but should not be returned
         mock_module.file_write = mock_file_write_func
 
+        # Mock registry to include the tool in allowlist
+        mock_registry = Mock()
+        mock_registry.get_allowlist.return_value = {"file_write", "strands_cli.tools.file_write"}
+        mock_registry.resolve.return_value = "strands_cli.tools.file_write"
+        mocker.patch("strands_cli.tools.get_registry", return_value=mock_registry)
+        
         mocker.patch(
             "strands_cli.runtime.tools.importlib.import_module",
             return_value=mock_module,
         )
 
-        # strands_tools.file_write.file_write is in ALLOWED_PYTHON_CALLABLES
-        result = load_python_callable("strands_tools.file_write.file_write")
+        result = load_python_callable("file_write")
 
         # Should return the module itself, not the function
         assert result == mock_module
         assert hasattr(result, "TOOL_SPEC")
         assert result.TOOL_SPEC["name"] == "file_write"
-
-    def test_loads_old_format_callable(self, mocker):
-        """Should load callable using old format (backward compatibility)."""
-        # Mock the import
-        mock_module = Mock(spec=["calculator"])
-        mock_calculator_func = Mock()  # Simulated callable
-        mock_module.calculator = mock_calculator_func
-
-        mocker.patch(
-            "strands_cli.runtime.tools.importlib.import_module",
-            return_value=mock_module,
-        )
-
-        # Old format: strands_tools.calculator (without repeating function name)
-        result = load_python_callable("strands_tools.calculator")
-
-        assert result == mock_calculator_func
-        assert callable(result)
-
-    def test_loads_decorated_tool_without_tool_spec(self, mocker):
-        """Should return function object if module doesn't have TOOL_SPEC (@tool decorated)."""
-        # Mock the import
-        # Use spec parameter to prevent TOOL_SPEC from being auto-created
-        mock_module = Mock(spec=["calculator"])
-        mock_calculator_func = Mock()  # Simulated @tool decorated function
-        mock_module.calculator = mock_calculator_func
-
-        mocker.patch(
-            "strands_cli.runtime.tools.importlib.import_module",
-            return_value=mock_module,
-        )
-
-        # strands_tools.calculator.calculator is in ALLOWED_PYTHON_CALLABLES
-        result = load_python_callable("strands_tools.calculator.calculator")
-
-        # Should return the function object, not the module
-        assert result == mock_calculator_func
-        assert callable(result)
-        # Module itself should not have been returned (it doesn't have TOOL_SPEC)
-        assert result is not mock_module
 
 
 # ============================================================================

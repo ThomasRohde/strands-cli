@@ -710,8 +710,7 @@ agents:
   researcher:
     prompt: "Research {{topic}}"
     tools:
-      - python:
-          - callable: "strands_tools.http_request.http_request"
+      - http_request
   analyst:
     prompt: "Analyze the research findings"
 

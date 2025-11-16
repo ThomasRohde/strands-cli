@@ -17,8 +17,6 @@ All tools raise ToolError on failures for consistent error handling.
 import importlib
 from typing import Any
 
-from strands_cli.capability import ALLOWED_PYTHON_CALLABLES
-
 
 class ToolError(Exception):
     """Raised when tool initialization or execution fails."""
@@ -33,17 +31,15 @@ def load_python_callable(import_path: str) -> Any:
     1. @tool decorated functions: Returns the decorated function object
     2. Module-based tools: Returns the module itself (has TOOL_SPEC)
 
-    Security: Only loads from the ALLOWED_PYTHON_CALLABLES allowlist and native
-    tools registry to prevent arbitrary code execution.
+    Security: Only loads from native tools registry to prevent arbitrary code
+    execution. All tools must be auto-discovered with TOOL_SPEC pattern.
 
-    Supports multiple path formats:
-    - Native short ID: "python_exec" (resolved via registry)
-    - Native full path: "strands_cli.tools.python_exec"
-    - Old format: "strands_tools.http_request" (infers function name)
-    - New format: "strands_tools.http_request.http_request" (explicit)
+    Supports native tool path formats:
+    - Short ID: "python_exec" (resolved via registry)
+    - Full path: "strands_cli.tools.python_exec"
 
     Args:
-        import_path: Dotted import path, short ID, or legacy format
+        import_path: Native tool short ID or full dotted import path
 
     Returns:
         Either a decorated function tool or a module-based tool object
@@ -55,8 +51,7 @@ def load_python_callable(import_path: str) -> Any:
     from strands_cli.tools import get_registry
 
     registry = get_registry()
-    # Combine hardcoded allowlist (strands_tools.*) with native tools from registry
-    allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+    allowed = registry.get_allowlist()
 
     if import_path not in allowed:
         raise ToolError(
@@ -80,31 +75,10 @@ def load_python_callable(import_path: str) -> Any:
             if hasattr(module, "TOOL_SPEC"):
                 return module
 
-        # Handle legacy strands_tools.* paths
-        # Normalize old format to new format for consistent handling
-        # Old: "strands_tools.http_request" -> New: "strands_tools.http_request.http_request"
-        if import_path.count(".") == 1:  # Old format (module.submodule)
-            # Extract the function name from the last part of the path
-            func_name = import_path.split(".")[-1]
-            module_path = import_path
-        else:  # New format (module.submodule.function)
-            module_path, func_name = import_path.rsplit(".", 1)
-
-        module = importlib.import_module(module_path)
-
-        # Check if this is a module-based tool (has TOOL_SPEC)
-        # According to Strands docs, module-based tools should pass the module itself
-        if hasattr(module, "TOOL_SPEC"):
-            # Module-based tool: return the module, not the function
-            # This fixes the "unrecognized tool specification" warning
-            return module
-
-        # Otherwise, get the callable (should be @tool decorated)
-        callable_obj = getattr(module, func_name)
-        if not callable(callable_obj):
-            raise ToolError(f"'{import_path}' is not callable")
-
-        return callable_obj
+        # Should not reach here if registry resolution and native path checks didn't match
+        raise ToolError(
+            f"Tool '{import_path}' not found. Use short ID or full path for native tools."
+        )
 
     except Exception as e:
         raise ToolError(f"Failed to load tool '{import_path}': {e}") from e

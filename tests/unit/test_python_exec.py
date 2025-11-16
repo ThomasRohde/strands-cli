@@ -381,10 +381,9 @@ class TestPythonExecToolIntegration:
         registry = get_registry()
         allowlist = registry.get_allowlist()
 
-        # Should have all three formats
-        assert "strands_cli.tools.python_exec" in allowlist  # New format
-        assert "strands_tools.python_exec.python_exec" in allowlist  # Legacy full
-        assert "strands_tools.python_exec" in allowlist  # Legacy short
+        # Should have both formats
+        assert "python_exec" in allowlist  # Short ID
+        assert "strands_cli.tools.python_exec" in allowlist  # Full path
 
     def test_registry_resolves_short_id(self) -> None:
         """Test that registry resolves short ID to full path."""
@@ -395,23 +394,6 @@ class TestPythonExecToolIntegration:
 
         assert resolved == "strands_cli.tools.python_exec"
 
-    def test_registry_resolves_legacy_short_format(self) -> None:
-        """Test that registry resolves legacy short format."""
-        from strands_cli.tools import get_registry
-
-        registry = get_registry()
-        resolved = registry.resolve("strands_tools.python_exec")
-
-        assert resolved == "strands_cli.tools.python_exec"
-
-    def test_registry_resolves_legacy_full_format(self) -> None:
-        """Test that registry resolves legacy full format."""
-        from strands_cli.tools import get_registry
-
-        registry = get_registry()
-        resolved = registry.resolve("strands_tools.python_exec.python_exec")
-
-        assert resolved == "strands_cli.tools.python_exec"
 
     def test_load_python_callable_with_short_id(self) -> None:
         """Test that load_python_callable can load python_exec with short ID."""
@@ -433,10 +415,3 @@ class TestPythonExecToolIntegration:
         assert hasattr(tool_module, "TOOL_SPEC")
         assert hasattr(tool_module, "python_exec")
 
-    def test_python_exec_not_in_hardcoded_allowlist(self) -> None:
-        """Test that python_exec is NOT in the hardcoded ALLOWED_PYTHON_CALLABLES."""
-        from strands_cli.capability import ALLOWED_PYTHON_CALLABLES
-
-        # python_exec should only be in registry, not hardcoded list
-        assert "python_exec" not in ALLOWED_PYTHON_CALLABLES
-        assert "strands_cli.tools.python_exec" not in ALLOWED_PYTHON_CALLABLES

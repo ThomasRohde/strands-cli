@@ -38,7 +38,7 @@ agents:
 
 tools:
   python:
-    - strands_tools.file_read.file_read
+    - file_read
 
 pattern:
   type: chain

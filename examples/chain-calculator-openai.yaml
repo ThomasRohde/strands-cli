@@ -1,6 +1,6 @@
 # Chain Example with Calculator Tool (OpenAI)
 #
-# This example demonstrates using the strands_tools.calculator tool with OpenAI.
+# This example demonstrates using the calculator tool with OpenAI.
 # The workflow uses a mathematical assistant agent with the calculator tool to
 # solve complex mathematical problems and provide step-by-step explanations.
 #
@@ -16,7 +16,7 @@
 #   uv run strands run examples/chain-calculator-openai.yaml --var problem="Calculate the integral of sin(x) + cos(x)"
 #
 # Features Demonstrated:
-#   - Python tool integration (strands_tools.calculator)
+#   - Native calculator tool integration
 #   - Tool usage in chain pattern
 #   - Multi-step workflow with tool-enabled agent
 #   - Mathematical operations (derivatives, integrals, equation solving)
@@ -54,7 +54,7 @@ agents:
 
 tools:
   python:
-    - strands_tools.calculator.calculator
+    - calculator
 
 pattern:
   type: chain

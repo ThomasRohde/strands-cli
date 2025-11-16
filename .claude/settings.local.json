@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(uv run pytest:*)",
-      "Bash(.scriptsdev.ps1 test)"
+      "Bash(.scriptsdev.ps1 test)",
+      "Bash(.scriptsdev.ps1 ci)",
+      "Bash(pwsh:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

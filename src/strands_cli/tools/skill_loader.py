@@ -62,7 +62,7 @@ def create_skill_loader_tool(
         "skill_loader_tool_created",
         spec_name=getattr(spec, "name", None),
         spec_dir=spec_dir,
-        skills_count=len(spec.skills) if getattr(spec, "skills", None) else 0,
+        skills_count=len(spec.skills) if spec.skills else 0,
     )
 
     def skill(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:

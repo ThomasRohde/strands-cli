@@ -281,12 +281,12 @@ Skill bundles containing code, documentation, or assets that agents can referenc
 Tool definitions available to agents. Supports three types: (1) Python callables from allowlisted modules, (2) Model Context Protocol (MCP) servers via stdio or HTTPS, and (3) HTTP executors for REST APIs. Tools can be assigned globally or per-agent.
 
 
-#### Properties
+##### Properties
 
 **`python`** (*optional*)
 
 - Type: `array`
-- Python callable tools imported from modules. MVP supports allowlisted callables (strands_tools.http_request, strands_tools.file_read) and native tools with TOOL_SPEC pattern. Tools must return ToolResult dict with toolUseId, status, and content fields.
+- Native tool references using short IDs (e.g., http_request, file_read) or full paths (strands_cli.tools.http_request). All tools must have TOOL_SPEC pattern and be auto-discovered. Tools return ToolResult dict with toolUseId, status, and content fields.
 
 **`mcp`** (*optional*)
 
@@ -640,7 +640,7 @@ Agent specification defining behavior, capabilities, and configuration. Each age
 **`tools`** (*optional*)
 
 - Type: `array`
-- List of tool IDs this agent can use. References tools defined in top-level 'tools' section. Tool IDs can be python callables (e.g., 'strands_tools.http_request'), MCP server IDs, HTTP executor IDs, or native tool names. Empty array or omit for agents without tool access.
+- List of tool IDs this agent can use. References tools defined in top-level 'tools' section. Tool IDs can be native short IDs (e.g., 'http_request'), full paths (e.g., 'strands_cli.tools.http_request'), MCP server IDs, or HTTP executor IDs. Empty array or omit for agents without tool access.
 
 **`provider`** (*optional*)
 
@@ -670,7 +670,7 @@ No description available.
 **`python`** (*optional*)
 
 - Type: `array`
-- Python callable tools imported from modules. MVP supports allowlisted callables (strands_tools.http_request, strands_tools.file_read) and native tools with TOOL_SPEC pattern. Tools must return ToolResult dict with toolUseId, status, and content fields.
+- Native tool references using short IDs (e.g., http_request, file_read) or full paths (strands_cli.tools.http_request). All tools must have TOOL_SPEC pattern and be auto-discovered. Tools return ToolResult dict with toolUseId, status, and content fields.
 
 **`mcp`** (*optional*)
 

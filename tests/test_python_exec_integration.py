@@ -213,7 +213,7 @@ outputs:
         assert any("allowlist" in issue.reason.lower() for issue in report.issues)
 
     def test_python_exec_with_legacy_format(self, tmp_path: Path) -> None:
-        """Test that legacy strands_tools.python_exec format works via registry."""
+        """Test that python_exec format works via registry."""
         from strands_cli.capability import check_capability
 
         spec_content = """
@@ -239,7 +239,7 @@ pattern:
 
 tools:
   python:
-    - strands_tools.python_exec
+    - python_exec
 
 outputs:
   artifacts:

@@ -20,7 +20,7 @@ agents:
       Always check the "Previous Workflow Steps" section to understand what research has been done.
       Be thorough but concise in your analysis.
     tools:
-      - strands_tools.http_request
+      - http_request
 
   data_analyzer:
     prompt: |
@@ -35,7 +35,7 @@ agents:
       Check "Previous Workflow Steps" to understand what data has been collected.
       Summarize findings clearly.
     tools:
-      - strands_tools.file_read
+      - file_read
 
   report_writer:
     prompt: |
@@ -126,8 +126,8 @@ pattern:
 
 tools:
   python:
-    - strands_tools.http_request
-    - strands_tools.file_read
+    - http_request
+    - file_read
 
 inputs:
   values:

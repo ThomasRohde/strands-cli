@@ -37,23 +37,6 @@ class ToolInfo:
         """
         return self.module_path
 
-    @property
-    def legacy_path(self) -> str:
-        """Backward-compatible 'strands_tools.*' path.
-
-        Returns:
-            Legacy format path (e.g., "strands_tools.http_request.http_request")
-        """
-        return f"strands_tools.{self.id}.{self.id}"
-
-    @property
-    def legacy_short(self) -> str:
-        """Old short format.
-
-        Returns:
-            Legacy short format (e.g., "strands_tools.http_request")
-        """
-        return f"strands_tools.{self.id}"
 
 
 class ToolRegistry:
@@ -169,10 +152,8 @@ class ToolRegistry:
     def resolve(self, user_input: str) -> str | None:
         """Resolve user input to canonical import path.
 
-        Supports multiple formats for backward compatibility:
+        Supports native tool ID format:
         - Direct ID: "http_request" → "strands_cli.tools.http_request"
-        - Legacy short: "strands_tools.http_request" → "strands_cli.tools.http_request"
-        - Legacy full: "strands_tools.http_request.http_request" → "strands_cli.tools.http_request"
 
         Args:
             user_input: Tool reference from workflow spec
@@ -180,17 +161,8 @@ class ToolRegistry:
         Returns:
             Canonical import path or None if not found
         """
-        # Direct ID lookup
         if user_input in self._tools:
             return self._tools[user_input].import_path
-
-        # Legacy format: "strands_tools.X" or "strands_tools.X.X"
-        if user_input.startswith("strands_tools."):
-            parts = user_input.split(".")
-            tool_id = parts[1] if len(parts) >= 2 else None
-            if tool_id and tool_id in self._tools:
-                return self._tools[tool_id].import_path
-
         return None
 
     def get_allowlist(self) -> set[str]:
@@ -198,19 +170,15 @@ class ToolRegistry:
 
         Returns all valid import formats for all discovered tools:
         - Short ID: "python_exec"
-        - New format: "strands_cli.tools.python_exec"
-        - Legacy full: "strands_tools.python_exec.python_exec"
-        - Legacy short: "strands_tools.python_exec"
+        - Full path: "strands_cli.tools.python_exec"
 
         Returns:
             Set of all valid import path formats
         """
         allowlist = set()
         for tool in self._tools.values():
-            allowlist.add(tool.id)  # Short ID: "python_exec"
-            allowlist.add(tool.import_path)  # New: "strands_cli.tools.python_exec"
-            allowlist.add(tool.legacy_path)  # Legacy: "strands_tools.python_exec.python_exec"
-            allowlist.add(tool.legacy_short)  # Legacy: "strands_tools.python_exec"
+            allowlist.add(tool.id)
+            allowlist.add(tool.import_path)
         return allowlist
 
     def _reset(self) -> None:

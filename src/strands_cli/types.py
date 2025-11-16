@@ -174,7 +174,7 @@ class Skill(BaseModel):
 class PythonTool(BaseModel):
     """Python callable tool configuration."""
 
-    callable: str  # Import path like "strands_tools.http_request"
+    callable: str  # Native short ID (e.g., "http_request") or full path ("strands_cli.tools.http_request")
 
 
 class HttpExecutor(BaseModel):

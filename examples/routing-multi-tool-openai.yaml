@@ -73,10 +73,10 @@ agents:
 
 tools:
   python:
-    - strands_tools.calculator
-    - strands_tools.file_read
-    - strands_tools.current_time
-    - strands_tools.http_request
+    - calculator
+    - file_read
+    - current_time
+    - http_request
 
 pattern:
   type: routing

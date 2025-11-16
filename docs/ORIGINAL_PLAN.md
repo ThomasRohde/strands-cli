@@ -47,9 +47,9 @@
 
 **Tool System:**
 - ✅ HTTP executors with metadata support
-- ✅ Python callable allowlisting (`strands_tools.*`)
+- ✅ Native tool auto-discovery with `TOOL_SPEC` pattern
 - ✅ Tool override validation in capability checker
-- ✅ Auto-discovery registry pattern with `TOOL_SPEC` exports
+- ✅ Registry-based allowlisting and resolution
 
 **Quality & Testing:**
 - ✅ 795 comprehensive tests (unit, integration, E2E)
@@ -701,7 +701,7 @@ pattern:
         max_rounds: 3
     worker_template:
       agent: researcher
-      tools: ["http_executors", "strands_tools.http_request"]
+      tools: ["http_executors", "http_request"]
     reduce:
       agent: synthesizer
     writeup:

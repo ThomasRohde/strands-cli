@@ -85,7 +85,7 @@ def full_orchestrator_spec() -> Spec:
                 ),
                 worker_template=WorkerTemplate(
                     agent="researcher",
-                    tools=["http_executors", "strands_tools.http_request"],
+                    tools=["http_executors", "http_request"],
                 ),
                 reduce=ChainStep(
                     agent="aggregator",
@@ -478,7 +478,7 @@ async def test_orchestrator_worker_tool_overrides(mock_cache_class):
                 orchestrator=OrchestratorConfig(agent="planner"),
                 worker_template=WorkerTemplate(
                     agent="researcher",
-                    tools=["http_executors", "strands_tools.http_request"],  # Override
+                    tools=["http_executors", "http_request"],  # Override
                 ),
             ),
         },
@@ -515,7 +515,7 @@ async def test_orchestrator_worker_tool_overrides(mock_cache_class):
     # Second call: worker (with tool overrides)
     assert calls[1].kwargs.get("tool_overrides") == [
         "http_executors",
-        "strands_tools.http_request",
+        "http_request",
     ]
 
 

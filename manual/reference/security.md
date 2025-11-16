@@ -200,7 +200,7 @@ Python tools can perform file operations and execute code within the workflow en
 ```yaml
 tools:
   python:
-    - callable: "strands_tools.file_write.file_write"
+    - file_write
 ```
 ```bash
 # Malicious prompt could attempt to overwrite system files
@@ -212,12 +212,12 @@ strands run workflow.yaml --var path="/etc/passwd" --var content="malicious"
 **Implementation** (`src/strands_cli/capability/checker.py`, `src/strands_cli/runtime/tools.py`):
 
 #### Allowlisted Python Tools
-Only the following Python callables are permitted:
-- `strands_tools.http_request.http_request` - Make HTTP requests (subject to SSRF protection)
-- `strands_tools.file_read.file_read` - Read files (read-only access)
-- `strands_tools.file_write.file_write` - Write files (requires consent)
-- `strands_tools.calculator.calculator` - Mathematical calculations (SymPy-based)
-- `strands_tools.current_time.current_time` - Get current date/time (read-only)
+Only the following native tools are permitted:
+- `http_request` - Make HTTP requests (subject to SSRF protection)
+- `file_read` - Read files (read-only access)
+- `file_write` - Write files (requires consent)
+- `calculator` - Mathematical calculations (SymPy-based)
+- `current_time` - Get current date/time (read-only)
 
 Any tool not in this allowlist will trigger exit code 18 with remediation report.
 
@@ -270,14 +270,14 @@ logger.warning(
 ```
 
 **What's Allowed**:
-- Allowlisted tools only (see list above)
-- String format: `["strands_tools.calculator.calculator"]`
-- Dict format: `[{"callable": "strands_tools.calculator.calculator"}]`
+- Allowlisted native tools only (see list above)
+- Short ID format: `["calculator"]`
+- Full path format: `["strands_cli.tools.calculator"]`
 
 **What's Blocked**:
 - Any Python callable not in allowlist
 - Arbitrary imports like `os.system`, `subprocess.run`
-- Tools with old path format (migration required)
+- Legacy strands_tools.* path format (no longer supported)
 
 ### Best Practices
 

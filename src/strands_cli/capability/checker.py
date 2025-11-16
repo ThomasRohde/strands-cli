@@ -38,24 +38,6 @@ from strands_cli.types import (
 
 logger = structlog.get_logger(__name__)
 
-# Allowlisted Python callable paths for security
-# Only these imports are permitted to prevent arbitrary code execution
-# Supports both old format (strands_tools.http_request) and new format
-# (strands_tools.http_request.http_request) for backward compatibility
-ALLOWED_PYTHON_CALLABLES = {
-    # New format (full path)
-    "strands_tools.http_request.http_request",
-    "strands_tools.file_read.file_read",
-    "strands_tools.file_write.file_write",
-    "strands_tools.calculator.calculator",
-    "strands_tools.current_time.current_time",
-    # Old format (backward compatibility)
-    "strands_tools.http_request",
-    "strands_tools.file_read",
-    "strands_tools.file_write",
-    "strands_tools.calculator",
-    "strands_tools.current_time",
-}
 
 
 def detect_cycles_in_dag(tasks: list[Any]) -> list[str]:
@@ -939,23 +921,22 @@ def _validate_tools(spec: Spec, issues: list[CapabilityIssue]) -> None:
         spec: Workflow spec
         issues: List to append issues to
     """
-    # Python tools must be in allowlist (hardcoded + registry)
+    # Python tools must be in allowlist (registry-only)
     if spec.tools and spec.tools.python:
         # Import registry here to avoid circular imports
         from strands_cli.tools import get_registry
 
         registry = get_registry()
-        # Combine hardcoded allowlist (strands_tools.*) with native tools from registry
-        allowed = ALLOWED_PYTHON_CALLABLES | registry.get_allowlist()
+        allowed = registry.get_allowlist()
 
         for i, tool in enumerate(spec.tools.python):
             if tool.callable not in allowed:
                 # Build helpful remediation message
                 native_tools = ', '.join(sorted(t.id for t in registry.list_all()))
                 remediation = (
-                    f"Use existing tools or native tools: {native_tools}"
+                    f"Use native tools: {native_tools}"
                     if native_tools
-                    else f"Use one of: {', '.join(sorted(ALLOWED_PYTHON_CALLABLES))}"
+                    else "No native tools available"
                 )
 
                 issues.append(

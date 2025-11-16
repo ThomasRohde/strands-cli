@@ -57,13 +57,13 @@ runtime:
   host: http://localhost:11434
 tools:
   python:
-    - strands_tools.http_request.http_request
-    - strands_tools.calculator.calculator
+    - http_request
+    - calculator
 agents:
   test:
     prompt: "Test agent"
     tools:
-      - strands_tools.http_request.http_request
+      - http_request
 pattern:
   type: chain
   config:
@@ -83,8 +83,8 @@ outputs:
         assert spec.tools is not None
         assert spec.tools.python is not None
         assert len(spec.tools.python) == 2
-        assert spec.tools.python[0].callable == "strands_tools.http_request.http_request"
-        assert spec.tools.python[1].callable == "strands_tools.calculator.calculator"
+        assert spec.tools.python[0].callable == "http_request"
+        assert spec.tools.python[1].callable == "calculator"
 
     def test_load_yaml_with_skills(self, with_skills_spec: Path) -> None:
         """Test loading spec with skills."""
@@ -396,7 +396,7 @@ runtime:
 
 tools:
   python:
-    - callable: "strands_tools.file_read.file_read"
+    - callable: "file_read"
 
 agents:
   test:
@@ -422,7 +422,7 @@ outputs:
         assert spec.tools is not None
         assert spec.tools.python is not None
         assert len(spec.tools.python) == 1
-        assert spec.tools.python[0].callable == "strands_tools.file_read.file_read"
+        assert spec.tools.python[0].callable == "file_read"
 
     def test_python_tools_mixed_formats_validates(self, tmp_path: Path) -> None:
         """Test that mixing string and object formats works correctly."""
@@ -436,8 +436,8 @@ runtime:
 
 tools:
   python:
-    - callable: "strands_tools.file_read.file_read"
-    - strands_tools.file_write.file_write
+    - callable: "file_read"
+    - file_write
 
 agents:
   test:
@@ -463,5 +463,5 @@ outputs:
         assert spec.tools is not None
         assert spec.tools.python is not None
         assert len(spec.tools.python) == 2
-        assert spec.tools.python[0].callable == "strands_tools.file_read.file_read"
-        assert spec.tools.python[1].callable == "strands_tools.file_write.file_write"
+        assert spec.tools.python[0].callable == "file_read"
+        assert spec.tools.python[1].callable == "file_write"

@@ -890,12 +890,12 @@ if tool_info:
     print(f"Import path: {tool_info.import_path}")
 
 # Resolve user input
-canonical_path = registry.resolve("strands_tools.echo")
+canonical_path = registry.resolve("echo")
 # Returns: "strands_cli.tools.echo"
 
 # Get allowlist for validation
 allowlist = registry.get_allowlist()
-# Returns: {"echo", "strands_cli.tools.echo", "strands_tools.echo", ...}
+# Returns: {"echo", "strands_cli.tools.echo", ...}
 ```
 
 ---

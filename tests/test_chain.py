@@ -215,7 +215,7 @@ class TestRunChain:
         # Add tool overrides to step
         steps = chain_spec_3_steps.pattern.config.steps
         if steps:
-            steps[0].tool_overrides = ["strands_tools.http_request.http_request"]
+            steps[0].tool_overrides = ["http_request"]
 
         mock_agent = MagicMock()
         mock_agent.invoke_async = AsyncMock(
@@ -232,7 +232,7 @@ class TestRunChain:
         assert result.success is True
         # Verify get_or_build_agent was called with tool_overrides for first step
         first_call = mock_get_agent.call_args_list[0]
-        assert first_call[1]["tool_overrides"] == ["strands_tools.http_request.http_request"]
+        assert first_call[1]["tool_overrides"] == ["http_request"]
 
 
 class TestChainTemplateRendering:

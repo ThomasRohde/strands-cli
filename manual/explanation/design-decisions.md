@@ -332,7 +332,7 @@ outputs:
 **Risk**: Arbitrary code execution via Python callables.
 
 **Mitigation**:
-- Allowlist of safe Python callables: `strands_tools.http_request`, `strands_tools.file_read`, etc.
+- Allowlist of safe native tools: `http_request`, `file_read`, `calculator`, etc.
 - User consent prompts for dangerous operations (file_write)
 - `--bypass-tool-consent` flag for CI/CD (with warnings)
 

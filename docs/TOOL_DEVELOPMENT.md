@@ -691,8 +691,9 @@ Old format still works via registry resolution:
 ```yaml
 tools:
   python:
-    - strands_tools.echo          # Resolves to strands_cli.tools.echo
-    - strands_tools.python_exec   # Resolves to strands_cli.tools.python_exec
+    - echo          # Short ID (auto-discovered)
+    - python_exec   # Short ID (auto-discovered)
+    - strands_cli.tools.echo  # Full path also supported
 ```
 
 ### Complete Workflow Example

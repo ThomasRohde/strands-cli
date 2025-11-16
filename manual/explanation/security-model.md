@@ -523,13 +523,10 @@ tools:
 
 **Allowlisted Callables** (`capability/checker.py`):
 ```python
-ALLOWED_PYTHON_CALLABLES = {
-    "strands_tools.http_request.http_request",  # HTTP requests (SSRF protection)
-    "strands_tools.file_read.file_read",        # File reading (read-only)
-    "strands_tools.file_write.file_write",      # File writing (requires consent)
-    "strands_tools.calculator.calculator",      # Math calculations (SymPy-based)
-    "strands_tools.current_time.current_time",  # Date/time (read-only)
-}
+# Native tools are allowlisted via registry auto-discovery
+registry = get_registry()
+allowed = registry.get_allowlist()
+# Returns: {"http_request", "file_read", "file_write", "calculator", "current_time", ...}
 ```
 
 **Capability Checking** (`capability/checker.py`):

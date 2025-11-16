@@ -31,25 +31,6 @@ class TestToolInfo:
 
         assert tool_info.import_path == "strands_cli.tools.http_request"
 
-    def test_legacy_path_property(self):
-        """Test legacy_path property returns strands_tools format."""
-        tool_info = ToolInfo(
-            id="http_request",
-            module_path="strands_cli.tools.http_request",
-            description="HTTP request tool",
-        )
-
-        assert tool_info.legacy_path == "strands_tools.http_request.http_request"
-
-    def test_legacy_short_property(self):
-        """Test legacy_short property returns short strands_tools format."""
-        tool_info = ToolInfo(
-            id="http_request",
-            module_path="strands_cli.tools.http_request",
-            description="HTTP request tool",
-        )
-
-        assert tool_info.legacy_short == "strands_tools.http_request"
 
 
 class TestToolRegistrySingleton:
@@ -349,47 +330,6 @@ class TestToolRegistryResolve:
         resolved = registry.resolve("http_request")
         assert resolved == "strands_cli.tools.http_request"
 
-    def test_resolve_legacy_short_format(self, mocker):
-        """Test resolve() with legacy short format (strands_tools.X)."""
-        mock_module = Mock(spec=ModuleType)
-        mock_module.TOOL_SPEC = {"name": "http_request", "description": "HTTP tool"}
-
-        mocker.patch(
-            "strands_cli.tools.registry.pkgutil.iter_modules",
-            return_value=[(None, "http_request", False)],
-        )
-        mocker.patch(
-            "strands_cli.tools.registry.importlib.import_module",
-            return_value=mock_module,
-        )
-
-        registry = ToolRegistry()
-        registry._tools.clear()
-        registry._discover_tools()
-
-        resolved = registry.resolve("strands_tools.http_request")
-        assert resolved == "strands_cli.tools.http_request"
-
-    def test_resolve_legacy_full_format(self, mocker):
-        """Test resolve() with legacy full format (strands_tools.X.X)."""
-        mock_module = Mock(spec=ModuleType)
-        mock_module.TOOL_SPEC = {"name": "http_request", "description": "HTTP tool"}
-
-        mocker.patch(
-            "strands_cli.tools.registry.pkgutil.iter_modules",
-            return_value=[(None, "http_request", False)],
-        )
-        mocker.patch(
-            "strands_cli.tools.registry.importlib.import_module",
-            return_value=mock_module,
-        )
-
-        registry = ToolRegistry()
-        registry._tools.clear()
-        registry._discover_tools()
-
-        resolved = registry.resolve("strands_tools.http_request.http_request")
-        assert resolved == "strands_cli.tools.http_request"
 
     def test_resolve_returns_none_for_unknown_tool(self, mocker):
         """Test resolve() returns None for unknown tool."""
@@ -402,8 +342,6 @@ class TestToolRegistryResolve:
         resolved = registry.resolve("unknown_tool")
         assert resolved is None
 
-        resolved = registry.resolve("strands_tools.unknown_tool")
-        assert resolved is None
 
 
 class TestToolRegistryAllowlist:
@@ -429,12 +367,10 @@ class TestToolRegistryAllowlist:
 
         allowlist = registry.get_allowlist()
 
-        # Should have all four formats (short ID, full, legacy full, legacy short)
+        # Should have both formats (short ID and full)
         assert "http_request" in allowlist  # Short ID
         assert "strands_cli.tools.http_request" in allowlist
-        assert "strands_tools.http_request.http_request" in allowlist
-        assert "strands_tools.http_request" in allowlist
-        assert len(allowlist) == 4
+        assert len(allowlist) == 2
 
     def test_get_allowlist_with_multiple_tools(self, mocker):
         """Test get_allowlist() with multiple tools."""
@@ -461,8 +397,8 @@ class TestToolRegistryAllowlist:
 
         allowlist = registry.get_allowlist()
 
-        # Should have 4 formats * 2 tools = 8 entries
-        assert len(allowlist) == 8
+        # Should have 2 formats * 2 tools = 4 entries
+        assert len(allowlist) == 4
         assert "strands_cli.tools.http_request" in allowlist
         assert "strands_cli.tools.file_read" in allowlist
 

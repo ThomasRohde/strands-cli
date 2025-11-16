@@ -34,7 +34,7 @@ runtime:
 agents:
   researcher:
     prompt: "Research {{topic}} and cite sources."
-    tools: ["strands_tools.http_request"]
+    tools: ["http_request"]
   writer:
     prompt: "Write a 600-word report for {{audience}}."
 
@@ -358,7 +358,7 @@ context_policy:
 
 tools:
   python:
-    - callable: "strands_tools.http_request"
+    - http_request
 ```
 
 The agent gets both `http_request` (from `tools.python`) and JIT retrieval tools (auto-injected).
@@ -411,7 +411,7 @@ skills:
 ```yaml
 tools:
   python:
-    - "strands_tools.http_request"
+    - "http_request"
     - "./local_tools/confluence.py:search_pages"
   mcp:
     - id: "domains"
@@ -761,7 +761,7 @@ pattern:
         max_rounds: 3
     worker_template:
       agent: researcher
-      tools: ["strands_tools.http_request", "gh"]
+      tools: ["http_request", "gh"]
     reduce:
       agent: writer
       input: "Synthesize workers' findings; deduplicate and score sources."
@@ -1356,7 +1356,7 @@ security:
   guardrails:
     deny_network: false
     pii_redaction: true
-    allow_tools: ["strands_tools.http_request", "gh"]
+    allow_tools: ["http_request", "gh"]
 ```
 
 - Prefer **allow-lists** for tools in controlled environments.
@@ -1413,11 +1413,11 @@ security:
     "optional": {{"audience": "string"}}
   }},
   "tools": {{
-    "python": ["strands_tools.http_request"],
+    "python": ["http_request"],
     "http_executors": [{{"id": "gh", "base_url": "https://api.github.com", "headers": {{"Authorization": "Bearer ${GITHUB_TOKEN}"}}}}]
   }},
   "agents": {{
-    "researcher": {{"prompt": "Research {{{{topic}}}} and cite sources.", "tools": ["strands_tools.http_request", "gh"]}},
+    "researcher": {{"prompt": "Research {{{{topic}}}} and cite sources.", "tools": ["http_request", "gh"]}},
     "writer": {{"prompt": "Write a concise report for {{{{audience}}}}."}}
   }},
   "pattern": {{
