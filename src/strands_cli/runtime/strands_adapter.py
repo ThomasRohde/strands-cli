@@ -526,7 +526,7 @@ def build_agent(  # noqa: C901
         skill_loader_tool = create_skill_loader_tool(spec, spec_dir, loaded_skills)
         tools.append(skill_loader_tool)
 
-        logger.debug(
+        logger.info(
             "skill_loader_injected",
             agent_id=agent_id,
             skills_count=len(spec.skills),

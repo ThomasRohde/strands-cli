@@ -13,6 +13,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import structlog
+
 from strands_cli.types import Spec
 
 
@@ -33,6 +35,8 @@ def create_skill_loader_tool(
     Returns:
         Module-based tool with TOOL_SPEC and Skill function
     """
+    logger = structlog.get_logger(__name__)
+
     # Tool specification for Strands SDK
     tool_spec = {
         "name": "Skill",
@@ -54,6 +58,13 @@ def create_skill_loader_tool(
         },
     }
 
+    logger.info(
+        "skill_loader_tool_created",
+        spec_name=getattr(spec, "name", None),
+        spec_dir=spec_dir,
+        skills_count=len(spec.skills) if getattr(spec, "skills", None) else 0,
+    )
+
     def skill(tool: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         """Load skill content from filesystem.
 
@@ -72,8 +83,15 @@ def create_skill_loader_tool(
         tool_input = tool.get("input", {})
         skill_id = tool_input.get("skill_id", "")
 
+        logger.info(
+            "skill_load_requested",
+            skill_id=skill_id or None,
+            spec_name=getattr(spec, "name", None),
+        )
+
         # Validate inputs
         if not skill_id:
+            logger.warning("skill_load_missing_param", missing="skill_id")
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
@@ -82,6 +100,11 @@ def create_skill_loader_tool(
 
         # Check if skill already loaded (warn but don't error)
         if skill_id in loaded_skills:
+            logger.info(
+                "skill_already_loaded",
+                skill_id=skill_id,
+                loaded_count=len(loaded_skills),
+            )
             return {
                 "toolUseId": tool_use_id,
                 "status": "success",
@@ -101,6 +124,11 @@ def create_skill_loader_tool(
         if skill is None:
             # Provide helpful error with list of available skills
             available = ", ".join([s.id for s in spec.skills]) if spec.skills else "none"
+            logger.warning(
+                "skill_not_found",
+                skill_id=skill_id,
+                available=available.split(", ") if available != "none" else [],
+            )
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
@@ -114,6 +142,7 @@ def create_skill_loader_tool(
 
         # Validate and resolve skill path
         if not skill.path:
+            logger.warning("skill_no_path", skill_id=skill_id)
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
@@ -133,11 +162,16 @@ def create_skill_loader_tool(
             # Additional check: ensure resolved path is still within expected boundaries
             # (This is a basic check; adjust based on security requirements)
         except (OSError, RuntimeError) as e:
+            logger.error(
+                "skill_path_invalid", skill_id=skill_id, path=str(skill_path), error=str(e)
+            )
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Error: Invalid skill path for '{skill_id}': {e}"}],
             }
+
+        logger.info("skill_path_resolved", skill_id=skill_id, path=str(skill_path))
 
         # Look for SKILL.md file
         skill_file = skill_path / "SKILL.md"
@@ -145,6 +179,11 @@ def create_skill_loader_tool(
             # Fallback to README.md
             skill_file = skill_path / "README.md"
             if not skill_file.exists():
+                logger.warning(
+                    "skill_file_missing",
+                    skill_id=skill_id,
+                    tried=[str(skill_path / "SKILL.md"), str(skill_path / "README.md")],
+                )
                 return {
                     "toolUseId": tool_use_id,
                     "status": "error",
@@ -154,20 +193,47 @@ def create_skill_loader_tool(
                         }
                     ],
                 }
+            else:
+                logger.info(
+                    "skill_file_selected",
+                    skill_id=skill_id,
+                    file=str(skill_file),
+                    fallback=True,
+                )
+        else:
+            logger.info(
+                "skill_file_selected", skill_id=skill_id, file=str(skill_file), fallback=False
+            )
 
         # Read skill content
         try:
             # Read file synchronously (tools are called in async context by SDK)
             content = _read_skill_file(skill_file)
         except Exception as e:
+            logger.error(
+                "skill_file_read_error", skill_id=skill_id, file=str(skill_file), error=str(e)
+            )
             return {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Error reading skill file for '{skill_id}': {e}"}],
             }
 
+        logger.info(
+            "skill_file_read",
+            skill_id=skill_id,
+            file=str(skill_file),
+            content_len=len(content),
+        )
+
         # Mark skill as loaded
         loaded_skills.add(skill_id)
+
+        logger.info(
+            "skill_loaded",
+            skill_id=skill_id,
+            loaded_count=len(loaded_skills),
+        )
 
         # Format skill content for injection
         formatted_content = _format_skill_content(skill_id, skill.description, content)
