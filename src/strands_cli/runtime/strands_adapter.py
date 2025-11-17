@@ -104,7 +104,26 @@ def build_system_prompt(
             skills_lines.append(skill_line)
         sections.append("\n".join(skills_lines))
 
-    # 4. Runtime banner
+    # 4. HTTP Executor Tool Metadata
+    if spec.tools and spec.tools.http_executors:
+        http_tool_lines = ["", "# HTTP Tools Reference", ""]
+        for http_exec in spec.tools.http_executors:
+            http_tool_lines.append(f"## Tool: `{http_exec.id}`")
+            if http_exec.description:
+                http_tool_lines.append(f"**Description**: {http_exec.description}")
+            http_tool_lines.append(f"**Base URL**: `{http_exec.base_url}`")
+            if http_exec.common_endpoints:
+                http_tool_lines.append("**Common Endpoints**:")
+                for endpoint in http_exec.common_endpoints:
+                    path = endpoint.get("path", "N/A")
+                    description = endpoint.get("description", "No description")
+                    http_tool_lines.append(f"- `{path}` - {description}")
+            if http_exec.authentication_info:
+                http_tool_lines.append(f"**Authentication**: {http_exec.authentication_info}")
+            http_tool_lines.append("")
+        sections.append("\n".join(http_tool_lines))
+
+    # 5. Runtime banner
     banner_lines = ["", "# Runtime Context", ""]
     banner_lines.append(f"- **Workflow:** {spec.name}")
     if spec.description:

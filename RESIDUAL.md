@@ -81,24 +81,15 @@ for step in steps:
 |---------|------|----------------|--------|-------|
 | `retries` | integer (min: 0) | - | ✅ **Implemented** | Used in `exec/utils.py` `invoke_agent_with_retry()` via `tenacity` |
 | `backoff` | enum | exponential | ✅ **Implemented** | Exponential backoff working; constant/jittered not tested |
-| `wait_min` | integer (min: 0) | - | ⚠️ **Parsed Only** | Not passed to `tenacity` retry decorator |
-| `wait_max` | integer (min: 0) | - | ⚠️ **Parsed Only** | Not passed to `tenacity` retry decorator |
+| `wait_min` | integer (min: 0) | - | ✅ **Implemented** | Passed to `tenacity` retry decorator for exponential backoff. |
+| `wait_max` | integer (min: 0) | - | ✅ **Implemented** | Passed to `tenacity` retry decorator for exponential backoff. |
 
 **Implementation Details**:
-- ✅ **Retries**: `src/strands_cli/exec/utils.py` lines 246-261
-  - Uses `tenacity.retry()` with `stop_after_attempt(retries + 1)`
-  - Hardcoded `wait=wait_exponential(multiplier=1, min=2, max=30)`
-- ❌ **Custom wait times**: `failure_policy.wait_min` and `failure_policy.wait_max` are loaded into `Runtime` Pydantic model but **never referenced** in retry logic
+- ✅ **Full support**: `src/strands_cli/exec/utils.py` lines 97-123 (`get_retry_config`) and 153-170 (`create_retry_decorator`) correctly extract and apply `retries`, `wait_min`, and `wait_max` from the spec.
+- ✅ The `tenacity.retry()` decorator is configured with `wait=wait_exponential(multiplier=1, min=wait_min, max=wait_max)`, ensuring custom wait times are respected.
+- ✅ **Testing**: Verified in `tests/test_exec_utils.py` with `test_create_retry_decorator_uses_custom_wait_times`.
 
 **Capability Checker**: No validation (silently accepted)
-
-**Remediation**:
-```python
-# In exec/utils.py, replace hardcoded wait with:
-wait_min = runtime.failure_policy.wait_min or 2
-wait_max = runtime.failure_policy.wait_max or 30
-wait_strategy = wait_exponential(multiplier=1, min=wait_min, max=wait_max)
-```
 
 ---
 
@@ -257,20 +248,16 @@ if secret.source != SecretSource.ENV:
 
 | Feature | Type | Schema Default | Status | Notes |
 |---------|------|----------------|--------|-------|
-| `file` | string | - | ✅ **Implemented** | Markdown notes written to file path |
-| `include_last` | integer (min: 1) | 12 | ✅ **Implemented** | Last N notes injected into agent context |
-| `format` | enum (markdown, json) | markdown | ⚠️ **Parsed Only** | Only markdown implemented; JSON format ignored |
+| `file` | string | - | ✅ **Implemented** | Notes written to file path. |
+| `include_last` | integer (min: 1) | 12 | ✅ **Implemented** | Last N notes injected into agent context. |
+| `format` | enum (markdown, json) | markdown | ✅ **Implemented** | Both "markdown" and "json" formats are now supported. |
 
 **Implementation Details**:
-- ✅ **Markdown notes**: `src/strands_cli/exec/utils.py` lines 94-120
-  - `NotesHook` tracks step/task execution and writes structured notes
-  - Notes injected into system prompt via `build_agent()` parameter
-  - Format: `## Step {n}: {agent_id}\n- **Input**: ...\n- **Output**: ...`
-- ❌ **JSON format**: No code found that serializes notes as JSON when `format: json`
+- ✅ **Markdown and JSON notes**: `src/strands_cli/tools/notes_manager.py` now supports both "markdown" and "json" formats for writing notes.
+- ✅ The `format` is passed down from the executor (`chain.py`, `workflow.py`, etc.) to the `NotesManager`.
+- ✅ **Testing**: Verified in `tests/test_hooks.py` with `test_notes_appender_hook_writes_note_json`.
 
-**Capability Checker**: No validation (silently accepts `format: json` but outputs markdown)
-
-**Documentation Gap**: Manual describes notes but doesn't specify markdown-only limitation
+**Capability Checker**: No validation.
 
 ---
 
@@ -501,20 +488,18 @@ if secret.source != SecretSource.ENV:
 | `base_url` | ✅ **Implemented** | Required |
 | `headers` | ✅ **Implemented** | Secret resolution working |
 | `timeout_ms` | ✅ **Implemented** | Converted to seconds for httpx |
-| `description` | ⚠️ **Parsed Only** | Loaded but not injected into prompt |
-| `examples` | ⚠️ **Parsed Only** | Loaded but not used for agent guidance |
-| `common_endpoints` | ⚠️ **Parsed Only** | Loaded but not surfaced to agent |
-| `response_format` | ⚠️ **Parsed Only** | Loaded but not documented to agent |
-| `authentication_info` | ⚠️ **Parsed Only** | Loaded but not injected into prompt |
+| `description` | ✅ **Implemented** | Injected into system prompt. |
+| `examples` | ✅ **Implemented** | Injected into system prompt. |
+| `common_endpoints` | ✅ **Implemented** | Injected into system prompt. |
+| `response_format` | ✅ **Implemented** | Injected into system prompt. |
+| `authentication_info` | ✅ **Implemented** | Injected into system prompt. |
 
 **Implementation Details**:
-- ✅ **Core execution**: `src/strands_cli/runtime/tools.py` lines 70-108 create httpx clients
-- ❌ **Metadata injection**: No code found that adds `description` or `examples` to agent system prompt
-- **Use Case**: Rich metadata would help agents understand when/how to use each HTTP executor
+- ✅ **Core execution**: `src/strands_cli/runtime/tools.py` lines 70-108 create httpx clients.
+- ✅ **Metadata injection**: `src/strands_cli/runtime/strands_adapter.py` in the `build_system_prompt` function now injects all metadata fields into the agent's system prompt, providing better context.
+- ✅ **Testing**: Verified in `tests/test_runtime.py` with `test_injects_http_executor_metadata`.
 
-**Capability Checker**: No validation for metadata fields
-
-**Remediation**: Modify `strands_adapter.py` to inject HTTP executor metadata into agent system prompt alongside tool specs
+**Capability Checker**: No validation for metadata fields.
 
 ---
 

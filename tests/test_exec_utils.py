@@ -680,6 +680,15 @@ async def test_agent_cache_session_manager_creates_unique_cache_keys() -> None:
         await cache.close()
 
 
+def test_create_retry_decorator_uses_custom_wait_times(mocker: Any) -> None:
+    """Test that create_retry_decorator passes wait times to tenacity."""
+    mock_wait_exponential = mocker.patch("strands_cli.exec.utils.wait_exponential")
+
+    create_retry_decorator(max_attempts=3, wait_min=5, wait_max=50)
+
+    mock_wait_exponential.assert_called_once_with(multiplier=1, min=5, max=50)
+
+
 @pytest.mark.asyncio
 async def test_agent_cache_same_session_manager_returns_cached_agent() -> None:
     """Test that agents with the same session manager are cached together (Phase 2)."""

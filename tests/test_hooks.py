@@ -256,10 +256,10 @@ async def test_proactive_compaction_hook_without_token_counter_or_metrics(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_notes_appender_hook_writes_note(tmp_path: Any) -> None:
+async def test_notes_appender_hook_writes_note_markdown(tmp_path: Any) -> None:
     """Test NotesAppenderHook writes note after invocation."""
     notes_file = tmp_path / "test-notes.md"
-    notes_manager = NotesManager(str(notes_file))
+    notes_manager = NotesManager(str(notes_file), format="markdown")
     step_counter = [0]
     agent_tools = {"test-agent": ["tool-a", "tool-b"]}
 
@@ -296,10 +296,63 @@ async def test_notes_appender_hook_writes_note(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_notes_appender_hook_writes_note_json(tmp_path: Any) -> None:
+    """Test NotesAppenderHook writes note in JSON format."""
+    import json
+
+    notes_file = tmp_path / "test-notes.json"
+    notes_manager = NotesManager(str(notes_file), format="json")
+    step_counter = [0]
+    agent_tools = {"test-agent": ["tool-a", "tool-b"]}
+
+    hook = NotesAppenderHook(notes_manager, step_counter, agent_tools)
+
+    # Create mock agent with messages
+    mock_agent = Mock()
+    mock_agent.name = "test-agent"
+    mock_agent.messages = [
+        {"role": "user", "content": "What is the weather?"},
+        {"role": "assistant", "content": "It's sunny!"},
+    ]
+
+    # Create mock event
+    from strands.hooks import AfterInvocationEvent
+
+    mock_event = Mock(spec=AfterInvocationEvent)
+    mock_event.agent = mock_agent
+
+    # Trigger hook
+    hook._append_note(mock_event)
+
+    # Verify step counter incremented
+    assert step_counter[0] == 1
+
+    # Verify note file exists and contains valid JSON
+    assert notes_file.exists()
+    content = notes_file.read_text()
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        pytest.fail("Notes file does not contain valid JSON")
+
+    assert data["agent"] == "test-agent"
+    assert data["step"] == 1
+    assert data["tools_used"] == ["tool-a", "tool-b"]
+    assert "What is the weather?" in data["input"]
+    assert "It's sunny!" in data["outcome"]
+
+
+@pytest.mark.asyncio
 async def test_notes_appender_hook_handles_write_errors(tmp_path: Any) -> None:
     """Test NotesAppenderHook handles write errors gracefully (no raise)."""
-    # Create notes manager with invalid path
-    notes_manager = NotesManager("/invalid/path/notes.md")
+    # Create a read-only directory to simulate a write error
+    read_only_dir = tmp_path / "read-only"
+    read_only_dir.mkdir()
+    read_only_dir.chmod(0o555)
+    notes_file = read_only_dir / "notes.md"
+
+    # Create notes manager with a path it cannot write to
+    notes_manager = NotesManager(str(notes_file))
     step_counter = [0]
     agent_tools = {}
 

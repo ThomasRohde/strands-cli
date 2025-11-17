@@ -54,14 +54,16 @@ class NotesManager:
         last_notes = manager.read_last_n(3)
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, format: str = "markdown"):
         """Initialize notes manager.
 
         Args:
             file_path: Path to notes file (e.g., "artifacts/workflow-notes.md")
+            format: The format of the notes, either "markdown" or "json".
         """
         self.file_path = Path(file_path)
         self.lock_path = Path(f"{file_path}.lock")
+        self.format = format
 
         # Ensure parent directory exists
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -316,6 +318,19 @@ class NotesManager:
         Returns:
             Formatted Markdown entry
         """
+        if self.format == "json":
+            import json
+
+            entry_data = {
+                "timestamp": timestamp,
+                "agent": agent_name,
+                "step": step_index,
+                "input": input_summary,
+                "tools_used": tools_used or [],
+                "outcome": outcome,
+            }
+            return json.dumps(entry_data)
+
         tools_str = ", ".join(tools_used) if tools_used else "None"
 
         # Truncate long inputs/outcomes for readability

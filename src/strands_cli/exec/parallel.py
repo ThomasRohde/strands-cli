@@ -876,7 +876,8 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
         notes_manager = None
         step_counter = [0]  # Mutable container for hook to track step count across all branches
         if spec.context_policy and spec.context_policy.notes:
-            notes_manager = NotesManager(spec.context_policy.notes.file)
+            notes_format = spec.context_policy.notes.format or "markdown"
+            notes_manager = NotesManager(spec.context_policy.notes.file, format=notes_format)
 
             # Build agent_id → tools mapping for notes hook
             agent_tools: dict[str, list[str]] = {}
@@ -885,7 +886,11 @@ async def run_parallel(  # noqa: C901 - Complexity acceptable for multi-branch o
                     agent_tools[agent_id] = agent_config.tools
 
             hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
-            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+            logger.info(
+                "notes_enabled",
+                notes_file=spec.context_policy.notes.file,
+                format=notes_format,
+            )
 
         # Create AgentCache for this execution
         cache = agent_cache or AgentCache()
