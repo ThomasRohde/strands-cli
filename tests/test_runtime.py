@@ -8,7 +8,9 @@ from strands_cli.runtime.providers import (
     ProviderError,
     RuntimeConfig,
     _create_model_cached,
+    create_anthropic_model,
     create_bedrock_model,
+    create_gemini_model,
     create_model,
     create_ollama_model,
     create_openai_model,
@@ -286,6 +288,373 @@ class TestOpenAIModelCreation:
             create_openai_model(runtime)
 
 
+class TestAnthropicModelCreation:
+    """Tests for create_anthropic_model."""
+
+    def test_creates_anthropic_model_with_api_key(self, mocker, monkeypatch):
+        """Should create AnthropicModel with valid API key from environment."""
+        # Set API key in environment
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key-12345")
+
+        # Create mock model
+        mock_model = Mock()
+
+        # Mock the entire strands.models.anthropic module and its AnthropicModel class
+        mock_anthropic_model_cls = Mock(return_value=mock_model)
+        mock_module = Mock()
+        mock_module.AnthropicModel = mock_anthropic_model_cls
+
+        # Patch sys.modules to inject the mock module
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(
+            provider=ProviderType.ANTHROPIC,
+            model_id="claude-sonnet-4-20250514",
+        )
+
+        result = create_anthropic_model(runtime)
+
+        # Verify AnthropicModel created with correct params (no params when empty)
+        mock_anthropic_model_cls.assert_called_once_with(
+            client_args={"api_key": "sk-ant-test-key-12345"},
+            model_id="claude-sonnet-4-20250514",
+            max_tokens=1024,
+        )
+
+        assert result == mock_model
+
+    def test_uses_default_model_id_if_not_specified(self, mocker, monkeypatch):
+        """Should use claude-sonnet-4-20250514 as default model ID when not provided."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        # Mock AnthropicModel
+        mock_anthropic_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.AnthropicModel = mock_anthropic_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        create_anthropic_model(runtime)
+
+        # Check that default model ID was used
+        call_kwargs = mock_anthropic_model_cls.call_args[1]
+        assert call_kwargs["model_id"] == "claude-sonnet-4-20250514"
+
+    def test_raises_error_when_api_key_missing(self, mocker, monkeypatch):
+        """Should raise ProviderError when ANTHROPIC_API_KEY is not set."""
+        # Ensure API key is not in environment
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        # Mock the import to succeed (but we won't get there due to missing API key)
+        mock_module = Mock()
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        with pytest.raises(
+            ProviderError,
+            match=r"Anthropic provider requires ANTHROPIC_API_KEY environment variable",
+        ):
+            create_anthropic_model(runtime)
+
+    def test_passes_inference_params_to_model(self, mocker, monkeypatch):
+        """Should pass temperature and top_p to params dict."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        # Mock AnthropicModel
+        mock_anthropic_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.AnthropicModel = mock_anthropic_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(
+            provider=ProviderType.ANTHROPIC,
+            model_id="claude-opus-4-20250514",
+            temperature=0.8,
+            max_tokens=2048,
+            top_p=0.95,
+        )
+
+        create_anthropic_model(runtime)
+
+        # Verify params dict was constructed correctly
+        call_kwargs = mock_anthropic_model_cls.call_args[1]
+        assert call_kwargs["params"] == {
+            "temperature": 0.8,
+            "top_p": 0.95,
+        }
+        assert call_kwargs["max_tokens"] == 2048
+
+    def test_uses_default_max_tokens_when_not_specified(self, mocker, monkeypatch):
+        """Should use 1024 as default max_tokens when not provided."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        # Mock AnthropicModel
+        mock_anthropic_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.AnthropicModel = mock_anthropic_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        create_anthropic_model(runtime)
+
+        # Verify default max_tokens was used
+        call_kwargs = mock_anthropic_model_cls.call_args[1]
+        assert call_kwargs["max_tokens"] == 1024
+
+    def test_omits_params_when_not_specified(self, mocker, monkeypatch):
+        """Should not pass params dict when no inference params specified."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        # Mock AnthropicModel
+        mock_anthropic_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.AnthropicModel = mock_anthropic_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        create_anthropic_model(runtime)
+
+        # Verify params is not passed when empty
+        call_kwargs = mock_anthropic_model_cls.call_args[1]
+        assert "params" not in call_kwargs
+
+    def test_raises_error_on_import_failure(self, mocker, monkeypatch):
+        """Should raise ProviderError when strands-agents[anthropic] is not installed."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        # Simulate ImportError by making the import fail
+        # We need to ensure the import statement in create_anthropic_model raises ImportError
+        import builtins
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "strands.models.anthropic":
+                raise ImportError("No module named 'strands.models.anthropic'")
+            return original_import(name, *args, **kwargs)
+
+        mocker.patch("builtins.__import__", side_effect=mock_import)
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        with pytest.raises(
+            ProviderError,
+            match=r"Anthropic provider requires 'strands-agents\[anthropic\]' to be installed",
+        ):
+            create_anthropic_model(runtime)
+
+    def test_raises_error_on_anthropic_model_failure(self, mocker, monkeypatch):
+        """Should raise ProviderError when AnthropicModel init fails."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+        # Mock AnthropicModel to raise exception
+        mock_anthropic_model_cls = Mock(side_effect=Exception("Invalid API key"))
+        mock_module = Mock()
+        mock_module.AnthropicModel = mock_anthropic_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.anthropic": mock_module})
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        with pytest.raises(ProviderError, match="Failed to create AnthropicModel"):
+            create_anthropic_model(runtime)
+
+
+class TestGeminiModelCreation:
+    """Tests for create_gemini_model."""
+
+    def test_creates_gemini_model_with_google_api_key(self, mocker, monkeypatch):
+        """Should create GeminiModel with valid GOOGLE_API_KEY from environment."""
+        # Set API key in environment (using GOOGLE_API_KEY)
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test-key-12345")
+
+        # Mock GeminiModel class
+        mock_model = Mock()
+        mock_gemini_model_cls = Mock(return_value=mock_model)
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(
+            provider=ProviderType.GEMINI,
+            model_id="gemini-2.5-flash",
+        )
+
+        result = create_gemini_model(runtime)
+
+        # Verify GeminiModel created with correct params
+        mock_gemini_model_cls.assert_called_once_with(
+            client_args={"api_key": "AIza-test-key-12345"},
+            model_id="gemini-2.5-flash",
+        )
+
+        assert result == mock_model
+
+    def test_accepts_gemini_api_key_as_alternative(self, mocker, monkeypatch):
+        """Should accept GEMINI_API_KEY as alternative to GOOGLE_API_KEY."""
+        # Set GEMINI_API_KEY instead
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-test-key-alt")
+
+        # Mock GeminiModel
+        mock_gemini_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        create_gemini_model(runtime)
+
+        # Verify GEMINI_API_KEY was used
+        call_kwargs = mock_gemini_model_cls.call_args[1]
+        assert call_kwargs["client_args"]["api_key"] == "AIza-test-key-alt"
+
+    def test_prefers_google_api_key_over_gemini_api_key(self, mocker, monkeypatch):
+        """Should prefer GOOGLE_API_KEY when both are set."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-google-key")
+        monkeypatch.setenv("GEMINI_API_KEY", "AIza-gemini-key")
+
+        # Mock GeminiModel
+        mock_gemini_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        create_gemini_model(runtime)
+
+        # Verify GOOGLE_API_KEY was used
+        call_kwargs = mock_gemini_model_cls.call_args[1]
+        assert call_kwargs["client_args"]["api_key"] == "AIza-google-key"
+
+    def test_uses_default_model_id_if_not_specified(self, mocker, monkeypatch):
+        """Should use gemini-2.5-flash as default model ID when not provided."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test-key")
+
+        # Mock GeminiModel
+        mock_gemini_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        create_gemini_model(runtime)
+
+        # Check that default model ID was used
+        call_kwargs = mock_gemini_model_cls.call_args[1]
+        assert call_kwargs["model_id"] == "gemini-2.5-flash"
+
+    def test_raises_error_when_api_key_missing(self, mocker, monkeypatch):
+        """Should raise ProviderError when neither GOOGLE_API_KEY nor GEMINI_API_KEY is set."""
+        # Ensure API keys are not in environment
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+        # Mock the import to succeed (but we won't get there due to missing API key)
+        mock_module = Mock()
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        with pytest.raises(
+            ProviderError,
+            match=r"Gemini provider requires GOOGLE_API_KEY or GEMINI_API_KEY environment variable",
+        ):
+            create_gemini_model(runtime)
+
+    def test_passes_inference_params_to_model(self, mocker, monkeypatch):
+        """Should pass temperature, max_tokens (as max_output_tokens), and top_p to params dict."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test-key")
+
+        # Mock GeminiModel
+        mock_gemini_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(
+            provider=ProviderType.GEMINI,
+            model_id="gemini-2.0-flash-exp",
+            temperature=0.9,
+            max_tokens=2048,
+            top_p=0.8,
+        )
+
+        create_gemini_model(runtime)
+
+        # Verify params dict was constructed correctly
+        # Note: Gemini uses max_output_tokens instead of max_tokens
+        call_kwargs = mock_gemini_model_cls.call_args[1]
+        assert call_kwargs["params"] == {
+            "temperature": 0.9,
+            "max_output_tokens": 2048,
+            "top_p": 0.8,
+        }
+
+    def test_omits_params_when_not_specified(self, mocker, monkeypatch):
+        """Should not pass params dict when no inference params specified."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test-key")
+
+        # Mock GeminiModel
+        mock_gemini_model_cls = Mock()
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        create_gemini_model(runtime)
+
+        # Verify params is not passed when empty
+        call_kwargs = mock_gemini_model_cls.call_args[1]
+        assert "params" not in call_kwargs
+
+    def test_raises_error_on_import_failure(self, mocker, monkeypatch):
+        """Should raise ProviderError when strands-agents[gemini] is not installed."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test-key")
+
+        # Simulate ImportError by making the import fail
+        import builtins
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "strands.models.gemini":
+                raise ImportError("No module named 'strands.models.gemini'")
+            return original_import(name, *args, **kwargs)
+
+        mocker.patch("builtins.__import__", side_effect=mock_import)
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        with pytest.raises(
+            ProviderError,
+            match=r"Gemini provider requires 'strands-agents\[gemini\]' to be installed",
+        ):
+            create_gemini_model(runtime)
+
+    def test_raises_error_on_gemini_model_failure(self, mocker, monkeypatch):
+        """Should raise ProviderError when GeminiModel init fails."""
+        monkeypatch.setenv("GOOGLE_API_KEY", "AIza-test-key")
+
+        # Mock GeminiModel to raise exception
+        mock_gemini_model_cls = Mock(side_effect=Exception("Invalid API key"))
+        mock_module = Mock()
+        mock_module.GeminiModel = mock_gemini_model_cls
+        mocker.patch.dict("sys.modules", {"strands.models.gemini": mock_module})
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        with pytest.raises(ProviderError, match="Failed to create GeminiModel"):
+            create_gemini_model(runtime)
+
+
 class TestCreateModel:
     """Tests for create_model factory function."""
 
@@ -326,6 +695,32 @@ class TestCreateModel:
         result = create_model(runtime)
 
         mock_openai.assert_called_once_with(runtime)
+        assert result == mock_model
+
+    def test_creates_anthropic_model_when_provider_is_anthropic(self, mocker):
+        """Should delegate to create_anthropic_model."""
+        mock_anthropic = mocker.patch("strands_cli.runtime.providers.create_anthropic_model")
+        mock_model = Mock()
+        mock_anthropic.return_value = mock_model
+
+        runtime = Runtime(provider=ProviderType.ANTHROPIC)
+
+        result = create_model(runtime)
+
+        mock_anthropic.assert_called_once()
+        assert result == mock_model
+
+    def test_creates_gemini_model_when_provider_is_gemini(self, mocker):
+        """Should delegate to create_gemini_model."""
+        mock_gemini = mocker.patch("strands_cli.runtime.providers.create_gemini_model")
+        mock_model = Mock()
+        mock_gemini.return_value = mock_model
+
+        runtime = Runtime(provider=ProviderType.GEMINI)
+
+        result = create_model(runtime)
+
+        mock_gemini.assert_called_once()
         assert result == mock_model
 
     def test_raises_error_for_unsupported_provider(self):
