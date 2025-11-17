@@ -3,13 +3,11 @@
 Tests the http_request tool which makes HTTP requests.
 """
 
+import importlib.util
+
 import pytest
 
-try:
-    import httpx
-    HTTPX_AVAILABLE = True
-except ImportError:
-    HTTPX_AVAILABLE = False
+HTTPX_AVAILABLE = importlib.util.find_spec("httpx") is not None
 
 
 class TestHttpRequestToolSpec:

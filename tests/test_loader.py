@@ -511,12 +511,12 @@ outputs:
 
         # Load spec with only required variable
         spec = load_spec(str(spec_file), {"use_case": "test case"})
-        
+
         # Verify that defaults were applied to inputs.values
         assert spec.inputs is not None
         assert "values" in spec.inputs
         values = spec.inputs["values"]
-        
+
         assert values["use_case"] == "test case"  # From CLI
         assert values["requirements"] == ""  # Default applied
         assert values["provider"] == "openai"  # Default applied
@@ -562,12 +562,12 @@ outputs:
 
         # Load spec without providing any variables (defaults should be applied)
         spec = load_spec(str(spec_file), {})
-        
+
         # Verify that defaults were applied to inputs.values
         assert spec.inputs is not None
         assert "values" in spec.inputs
         values = spec.inputs["values"]
-        
+
         assert values["topic"] == "general"  # Default applied
         assert values["format"] == "markdown"  # Default applied
 
@@ -608,10 +608,10 @@ outputs:
 
         # Load spec with CLI override
         spec = load_spec(str(spec_file), {"setting": "cli-override"})
-        
+
         # Verify that CLI value overrode the default
         assert spec.inputs is not None
         assert "values" in spec.inputs
         values = spec.inputs["values"]
-        
+
         assert values["setting"] == "cli-override"  # CLI override wins

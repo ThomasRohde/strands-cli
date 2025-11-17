@@ -780,7 +780,7 @@ class TestLoadPythonCallable:
         mock_registry.get_allowlist.return_value = {"http_request", "strands_cli.tools.http_request"}
         mock_registry.resolve.return_value = "strands_cli.tools.http_request"
         mocker.patch("strands_cli.tools.get_registry", return_value=mock_registry)
-        
+
         # Mock failed import
         mocker.patch(
             "strands_cli.runtime.tools.importlib.import_module",
@@ -807,7 +807,7 @@ class TestLoadPythonCallable:
         mock_registry.get_allowlist.return_value = {"file_write", "strands_cli.tools.file_write"}
         mock_registry.resolve.return_value = "strands_cli.tools.file_write"
         mocker.patch("strands_cli.tools.get_registry", return_value=mock_registry)
-        
+
         mocker.patch(
             "strands_cli.runtime.tools.importlib.import_module",
             return_value=mock_module,

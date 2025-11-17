@@ -189,7 +189,7 @@ class TestFileReadFunction:
 
             tool_input = {"toolUseId": "relative", "input": {"path": str(relative)}}
 
-            result = file_read(tool_input)
+            file_read(tool_input)
 
         finally:
             Path(temp_path).unlink()

@@ -63,15 +63,15 @@ def _eval_expr(node: ast.AST) -> float | int | complex:
         left = _eval_expr(node.left)
         right = _eval_expr(node.right)
         op_func = SAFE_OPERATORS[type(node.op)]
-        result: float | int | complex = op_func(left, right)  # type: ignore[assignment]
-        return result
+        bin_result = op_func(left, right)  # type: ignore[operator]
+        return bin_result  # type: ignore[no-any-return]
     elif isinstance(node, ast.UnaryOp):
         if type(node.op) not in SAFE_OPERATORS:
             raise ValueError(f"Unsupported unary operation: {type(node.op).__name__}")
         operand = _eval_expr(node.operand)
-        op_func = SAFE_OPERATORS[type(node.op)]
-        result: float | int | complex = op_func(operand)  # type: ignore[assignment]
-        return result
+        op_func_unary = SAFE_OPERATORS[type(node.op)]
+        unary_result = op_func_unary(operand)  # type: ignore[operator]
+        return unary_result  # type: ignore[no-any-return]
     elif isinstance(node, ast.Expression):
         return _eval_expr(node.body)
     else:

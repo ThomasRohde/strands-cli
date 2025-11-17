@@ -3,7 +3,7 @@
 Tests the current_time tool which returns the current date and time.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 class TestCurrentTimeToolSpec:
@@ -158,7 +158,7 @@ class TestCurrentTimeFunction:
 
         assert result["status"] == "success"
         timestamp = int(result["content"][0]["text"])
-        now_timestamp = int(datetime.now(timezone.utc).timestamp())
+        now_timestamp = int(datetime.now(UTC).timestamp())
         assert abs(timestamp - now_timestamp) < 2
 
 
