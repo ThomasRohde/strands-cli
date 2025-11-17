@@ -148,7 +148,8 @@ async def run_single_agent(
         shared_hooks = []
         step_counter = [0]  # Mutable container for hook to track step count
         if spec.context_policy and spec.context_policy.notes:
-            notes_manager = NotesManager(spec.context_policy.notes.file)
+            notes_format = spec.context_policy.notes.format or "markdown"
+            notes_manager = NotesManager(spec.context_policy.notes.file, format=notes_format)
 
             # Build agent_id → tools mapping for notes hook
             agent_tools: dict[str, list[str]] = {}
@@ -156,7 +157,11 @@ async def run_single_agent(
                 agent_tools[agent_id] = agent_config.tools
 
             shared_hooks.append(NotesAppenderHook(notes_manager, step_counter, agent_tools))
-            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+            logger.info(
+                "notes_enabled",
+                notes_file=spec.context_policy.notes.file,
+                format=notes_format,
+            )
 
         # Create agent cache for this execution
         # Phase 3: Single executor-scoped cache (cleanup in finally)

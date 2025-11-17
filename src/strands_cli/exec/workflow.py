@@ -840,7 +840,8 @@ async def run_workflow(  # noqa: C901
         notes_manager = None
         task_counter = [0]  # Mutable container for hook to track task count
         if spec.context_policy and spec.context_policy.notes:
-            notes_manager = NotesManager(spec.context_policy.notes.file)
+            notes_format = spec.context_policy.notes.format or "markdown"
+            notes_manager = NotesManager(spec.context_policy.notes.file, format=notes_format)
 
             # Build agent_id → tools mapping for notes hook
             agent_tools: dict[str, list[str]] = {}
@@ -849,7 +850,11 @@ async def run_workflow(  # noqa: C901
                     agent_tools[agent_id] = agent_config.tools
 
             hooks.append(NotesAppenderHook(notes_manager, task_counter, agent_tools))
-            logger.info("notes_enabled", notes_file=spec.context_policy.notes.file)
+            logger.info(
+                "notes_enabled",
+                notes_file=spec.context_policy.notes.file,
+                format=notes_format,
+            )
 
         # Phase 5: Create AgentCache for agent reuse across tasks
         # Phase 3: Support optional shared agent_cache from context manager
