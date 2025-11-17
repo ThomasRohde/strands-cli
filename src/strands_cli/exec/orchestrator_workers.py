@@ -1320,7 +1320,8 @@ async def _setup_context_and_hooks(spec: Spec) -> tuple[Any, Any, Any, AgentCach
     step_counter: list[int] = [0]  # Shared counter for notes (list[int] for NotesAppenderHook)
     if spec.context_policy and spec.context_policy.notes:
         notes_config = spec.context_policy.notes
-        notes_manager = NotesManager(notes_config.file)
+        notes_format = notes_config.format or "markdown"
+        notes_manager = NotesManager(notes_config.file, format=notes_format)
 
     # Define hook factory that creates fresh instances per agent invocation
     def create_hooks() -> list[Any]:

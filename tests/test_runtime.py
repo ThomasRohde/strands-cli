@@ -589,6 +589,42 @@ class TestBuildSystemPrompt:
         # Should have tags in banner
         assert "**Tags:** test, development" in result
 
+    def test_injects_http_executor_metadata(self, sample_ollama_spec):
+        """Should inject a formatted block of HTTP tool metadata into the prompt."""
+        agent_config = AgentConfig(prompt="Base prompt")
+        sample_ollama_spec.tools = Tools(
+            http_executors=[
+                HttpExecutor(
+                    id="weather-api",
+                    base_url="https://api.weather.com",
+                    description="API for getting weather forecasts.",
+                    common_endpoints=[
+                        {"path": "/current?city={city}", "description": "Get current weather"},
+                        {
+                            "path": "/forecast?city={city}&days=5",
+                            "description": "Get 5-day forecast",
+                        },
+                    ],
+                    authentication_info="API key required in X-API-Key header.",
+                )
+            ]
+        )
+
+        result = build_system_prompt(
+            agent_config=agent_config,
+            spec=sample_ollama_spec,
+            agent_id="agent1",
+        )
+
+        assert "# HTTP Tools Reference" in result
+        assert "## Tool: `weather-api`" in result
+        assert "**Description**: API for getting weather forecasts." in result
+        assert "**Base URL**: `https://api.weather.com`" in result
+        assert "**Common Endpoints**:" in result
+        assert "- `/current?city={city}`" in result
+        assert "- `/forecast?city={city}&days=5`" in result
+        assert "**Authentication**: API key required in X-API-Key header." in result
+
 
 class TestBuildAgent:
     """Tests for build_agent."""
