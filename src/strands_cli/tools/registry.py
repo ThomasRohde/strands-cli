@@ -71,6 +71,7 @@ class ToolRegistry:
             "registry",  # This registry module
             "http_executor_factory",  # Creates HTTP executor tools dynamically
             "notes_manager",  # Utility for notes management
+            "skill_loader",  # Factory for skill loading (dynamically injected)
         }
 
         # Scan all .py files (skip __init__, registry, etc.)

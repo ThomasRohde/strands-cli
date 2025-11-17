@@ -1,0 +1,84 @@
+# Mermaid Diagram Generator with Skills (Anthropic)
+#
+# This example demonstrates the progressive skill loading feature by having
+# an agent dynamically load the Mermaid Master skill to create diagrams.
+#
+# Prerequisites:
+#   1. Set ANTHROPIC_API_KEY environment variable:
+#      - Linux/Mac: export ANTHROPIC_API_KEY=your-api-key
+#      - Windows: $env:ANTHROPIC_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/mermaid-diagram-generator-anthropic.yaml --var diagram_type="flowchart" --var topic="User authentication flow"
+#   uv run strands run examples/mermaid-diagram-generator-anthropic.yaml --var diagram_type="sequence" --var topic="API payment processing"
+#   uv run strands run examples/mermaid-diagram-generator-anthropic.yaml --var diagram_type="class" --var topic="E-commerce product catalog"
+#   uv run strands run examples/mermaid-diagram-generator-anthropic.yaml --var diagram_type="state" --var topic="Order lifecycle"
+#
+# Features Demonstrated:
+#   - Progressive skill loading (Claude Code-like behavior)
+#   - Anthropic provider with Claude Sonnet
+#   - Chain pattern with skill invocation
+#   - Dynamic diagram generation based on user input
+#   - Artifact output with mermaid code
+
+version: 0
+name: mermaid-diagram-generator-anthropic
+description: |
+  Agent that dynamically loads the Mermaid Master skill to create
+  professional diagrams based on user requirements.
+
+runtime:
+  provider: anthropic
+  model_id: claude-sonnet-4-20250514
+  temperature: 0.7
+  max_tokens: 4096
+
+# Define available skills
+skills:
+  - id: mermaid-master
+    path: ./skills/mermaid-master
+    description: |
+      World-class creation of valid, beautiful, and accessible Mermaid diagrams.
+      Handles flowcharts, sequence diagrams, class diagrams, state machines,
+      entity relationship diagrams, Gantt charts, and more.
+
+agents:
+  diagram-creator:
+    prompt: |
+      You are a technical documentation specialist who creates clear,
+      professional diagrams to visualize complex concepts.
+
+      When asked to create a diagram:
+      1. Load the mermaid-master skill if it's relevant to the task
+      2. Analyze the requirements carefully
+      3. Choose the most appropriate diagram type
+      4. Create a valid, well-structured Mermaid diagram
+      5. Include proper styling and clear labels
+      6. Follow best practices for visual clarity
+
+      Always output ONLY the mermaid code block, nothing else.
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: diagram-creator
+        input: |
+          Create a {{ diagram_type }} diagram for the following topic:
+
+          Topic: {{ topic }}
+
+          Requirements:
+          - Use proper Mermaid syntax
+          - Include clear, descriptive labels
+          - Apply appropriate styling for visual clarity
+          - Keep the diagram focused and not overly complex
+          - Follow diagram type best practices
+
+          Output ONLY the mermaid code block (```mermaid ... ```), nothing else.
+
+outputs:
+  artifacts:
+    - path: ./diagrams/{{ diagram_type }}-diagram.md
+      from: "{{ last_response }}"
