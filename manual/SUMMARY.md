@@ -4,6 +4,10 @@
 
 ## Tutorials
 - [Quickstart with Ollama](tutorials/quickstart-ollama.md)
+- [Quickstart with Bedrock](tutorials/quickstart-bedrock.md)
+- [Quickstart with OpenAI](tutorials/quickstart-openai.md)
+- [Quickstart with Anthropic](tutorials/quickstart-anthropic.md)
+- [Quickstart with Gemini](tutorials/quickstart-gemini.md)
 - [First Multi-Step Workflow](tutorials/first-multi-step.md)
 - [Builder API](tutorials/builder-api.md)
 

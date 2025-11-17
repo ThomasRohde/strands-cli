@@ -265,7 +265,7 @@ def _handle_unsupported_spec(
     # Show summary
     for issue in capability_report.issues[:3]:
         console.print(f"  • {issue.reason}")
-        console.print(f"    [dim]→ {issue.remediation}[/dim]\n")
+        console.print(f"    [dim]-> {issue.remediation}[/dim]\n")
 
     if len(capability_report.issues) > 3:
         console.print(f"  [dim]... and {len(capability_report.issues) - 3} more issue(s)[/dim]\n")
@@ -751,7 +751,7 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
                         result.artifacts_written.append(trace_file)
 
                 # Show success summary
-                console.print("\n[bold green]✓ Workflow resumed successfully[/bold green]")
+                console.print("\n[bold green][OK] Workflow resumed successfully[/bold green]")
                 console.print(f"Duration: {result.duration_seconds:.2f}s")
 
                 if result.artifacts_written:
@@ -924,7 +924,7 @@ def run(  # noqa: C901 - Complexity acceptable for main CLI command orchestratio
                 result.artifacts_written.append(trace_file)
 
         # Show success summary
-        console.print("\n[bold green]✓ Workflow completed successfully[/bold green]")
+        console.print("\n[bold green][OK] Workflow completed successfully[/bold green]")
         console.print(f"Duration: {result.duration_seconds:.2f}s")
 
         if result.artifacts_written:
@@ -1075,7 +1075,7 @@ def _display_plan_markdown(spec: Spec, capability_report: CapabilityReport) -> N
 
     # Capability status
     if capability_report.supported:
-        console.print("\n[green]✓ MVP Compatible[/green]")
+        console.print("\n[green][OK] MVP Compatible[/green]")
     else:
         console.print(f"\n[yellow]⚠ Unsupported Features:[/yellow] {len(capability_report.issues)}")
         for issue in capability_report.issues[:3]:
@@ -1195,7 +1195,7 @@ def explain(
         capability_report = check_capability(spec)
 
         if capability_report.supported:
-            console.print("[green]✓ No unsupported features detected.[/green]")
+            console.print("[green][OK] No unsupported features detected.[/green]")
             console.print("This workflow is compatible with the current MVP.")
             sys.exit(EX_OK)
 
@@ -1495,7 +1495,7 @@ def sessions_delete(
 
     # Delete session
     asyncio.run(repo.delete(session_id))
-    console.print(f"[green]✓[/green] Session deleted: {session_id[:12]}...")
+    console.print(f"[green][OK][/green] Session deleted: {session_id[:12]}...")
 
     sys.exit(EX_OK)
 
@@ -1555,7 +1555,7 @@ def sessions_cleanup(
     )
 
     if deleted_count > 0:
-        console.print(f"[green]✓[/green] Deleted {deleted_count} expired session(s)")
+        console.print(f"[green][OK][/green] Deleted {deleted_count} expired session(s)")
     else:
         console.print("[dim]No expired sessions found[/dim]")
 
@@ -1639,7 +1639,7 @@ def doctor() -> None:
     )
 
     if pysys.version_info >= (3, 12):  # noqa: UP036
-        console.print(f"  [green]✓[/green] Python {python_version} (>= 3.12 required)")
+        console.print(f"  [green][OK][/green] Python {python_version} (>= 3.12 required)")
         checks_passed += 1
     else:
         console.print(f"  [red]✗[/red] Python {python_version} (>= 3.12 required)")
@@ -1652,7 +1652,7 @@ def doctor() -> None:
 
         schema = get_schema()
         console.print(
-            f"  [green]✓[/green] Schema loaded: {schema.get('title', 'Unknown')} "
+            f"  [green][OK][/green] Schema loaded: {schema.get('title', 'Unknown')} "
             f"v{schema.get('version', 'Unknown')}"
         )
         checks_passed += 1
@@ -1669,7 +1669,7 @@ def doctor() -> None:
     for module_name in required_modules:
         try:
             __import__(module_name.replace(".agent", ".agent"))  # Handle strands.agent
-            console.print(f"  [green]✓[/green] {module_name}")
+            console.print(f"  [green][OK][/green] {module_name}")
         except ImportError:
             console.print(f"  [red]✗[/red] {module_name} (not installed)")
             missing_modules.append(module_name)
@@ -1685,7 +1685,7 @@ def doctor() -> None:
 
         response = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
         if response.status_code == 200:
-            console.print("  [green]✓[/green] Ollama server is running at http://localhost:11434")
+            console.print("  [green][OK][/green] Ollama server is running at http://localhost:11434")
             checks_passed += 1
         else:
             console.print(
@@ -1703,12 +1703,12 @@ def doctor() -> None:
     total_required = 3  # Python, schema, dependencies (Ollama is optional)
 
     if checks_failed == 0:
-        console.print(f"  [green]✓ All {total_required} required checks passed![/green]")
+        console.print(f"  [green][OK] All {total_required} required checks passed![/green]")
         console.print("\n[dim]strands-cli is ready to use.[/dim]")
         sys.exit(EX_OK)
     else:
         console.print(f"  [red]✗ {checks_failed} check(s) failed[/red]")
-        console.print(f"  [green]✓ {checks_passed} check(s) passed[/green]")
+        console.print(f"  [green][OK] {checks_passed} check(s) passed[/green]")
         console.print("\n[yellow]Please fix the issues above before running workflows.[/yellow]")
         sys.exit(EX_RUNTIME)
 

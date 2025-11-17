@@ -279,6 +279,55 @@ strands run workflow-openai.yaml
 
 ---
 
+### Anthropic
+
+#### `ANTHROPIC_API_KEY`
+
+**Type**: `string`
+**Default**: `None` (required for Anthropic provider)
+**Description**: Anthropic API key for Claude models
+
+**Usage**:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+strands run workflow-anthropic.yaml
+```
+
+**Requirements**:
+- Install provider extra: `uv pip install -e ".[anthropic]"`
+- Get API key from [Anthropic Console](https://console.anthropic.com/)
+
+**Note**: This is an Anthropic SDK variable, not a Strands variable.
+
+---
+
+### Google Gemini
+
+#### `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+
+**Type**: `string`
+**Default**: `None` (required for Gemini provider)
+**Description**: Google API key for Gemini models
+
+**Usage**:
+```bash
+# Option 1: Standard Google API key name
+export GOOGLE_API_KEY=AIza...
+strands run workflow-gemini.yaml
+
+# Option 2: Alternative Gemini-specific name
+export GEMINI_API_KEY=AIza...
+strands run workflow-gemini.yaml
+```
+
+**Requirements**:
+- Install provider extra: `uv pip install -e ".[gemini]"`
+- Get API key from [Google AI Studio](https://aistudio.google.com/apikey)
+
+**Note**: Both environment variable names are supported. The provider checks `GOOGLE_API_KEY` first, then falls back to `GEMINI_API_KEY`.
+
+---
+
 ## Telemetry Configuration
 
 ### `STRANDS_MAX_TRACE_SPANS`

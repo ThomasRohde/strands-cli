@@ -98,6 +98,48 @@ runtime:
 - Ollama server running
 - Model pulled: `ollama pull llama3.2:3b`
 
+### Anthropic
+
+```yaml
+runtime:
+  provider: anthropic
+  model_id: "claude-sonnet-4-20250514"
+  temperature: 0.7
+  max_tokens: 2048
+```
+
+**Requirements**:
+- Install extra: `uv pip install -e ".[anthropic]"`
+- `ANTHROPIC_API_KEY` environment variable
+- API key from [Anthropic Console](https://console.anthropic.com/)
+
+**Supported Models**:
+- `claude-sonnet-4-20250514` (default)
+- `claude-opus-4-20250514`
+- `claude-3-5-sonnet-20241022`
+- Other Claude 3.x models
+
+### Gemini
+
+```yaml
+runtime:
+  provider: gemini
+  model_id: "gemini-2.5-flash"
+  temperature: 0.7
+  max_tokens: 2048
+  top_p: 0.9
+```
+
+**Requirements**:
+- Install extra: `uv pip install -e ".[gemini]"`
+- `GOOGLE_API_KEY` or `GEMINI_API_KEY` environment variable
+- API key from [Google AI Studio](https://aistudio.google.com/apikey)
+
+**Supported Models**:
+- `gemini-2.5-flash` (default) - Best performance/cost balance
+- `gemini-2.5-pro` - Most advanced reasoning
+- `gemini-2.5-flash-lite` - Most cost-efficient
+
 ### Common Fields
 
 | Field | Type | Default | Description |

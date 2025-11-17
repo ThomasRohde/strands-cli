@@ -1,0 +1,69 @@
+# Single-Agent Chain Example with Gemini Provider
+#
+# This example demonstrates a minimal workflow using Google's Gemini models.
+# The workflow consists of a single agent executing one step in a chain pattern.
+#
+# Prerequisites:
+#   1. Set GOOGLE_API_KEY environment variable:
+#      - Linux/Mac: export GOOGLE_API_KEY=your-api-key
+#      - Windows: $env:GOOGLE_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/single-agent-chain-gemini.yaml --var topic="AI ethics"
+#
+# Features Demonstrated:
+#   - Gemini provider configuration
+#   - Temperature and max_tokens inference parameters
+#   - Single-agent chain pattern
+#   - Jinja2 template variable substitution
+#   - Artifact output to file
+#
+# Popular Gemini Models:
+#   - gemini-2.5-pro: Most advanced reasoning capabilities
+#   - gemini-2.5-flash: Best performance/cost balance (default)
+#   - gemini-2.5-flash-lite: Most cost-efficient option
+
+version: 0
+name: single-agent-chain-gemini
+description: |
+  Minimal single-agent chain workflow using Google Gemini.
+  Demonstrates basic text analysis with configurable topic.
+
+runtime:
+  provider: gemini
+  model_id: gemini-2.5-flash
+  temperature: 0.7
+  max_tokens: 2048
+  top_p: 0.9
+
+agents:
+  analyst:
+    prompt: |
+      You are a concise technical analyst specializing in clear, actionable insights.
+      
+      Your analysis should:
+      - Be structured with clear sections
+      - Use bullet points for readability
+      - Provide specific examples
+      - Keep the total response under 500 words
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: analyst
+        input: |
+          Analyze the following topic and provide a brief overview:
+          
+          Topic: {{ topic }}
+          
+          Please provide:
+          1. A brief definition/overview (2-3 sentences)
+          2. Key considerations or challenges (3-5 bullet points)
+          3. Potential implications or applications (2-3 bullet points)
+
+outputs:
+  artifacts:
+    - path: ./analysis-gemini.md
+      from: "{{ last_response }}"

@@ -23,6 +23,7 @@ Performance Optimization:
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import TYPE_CHECKING, Union
 
 import structlog
 from strands.models.bedrock import BedrockModel
@@ -30,6 +31,10 @@ from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
 
 from strands_cli.types import ProviderType, Runtime
+
+if TYPE_CHECKING:
+    from strands.models.anthropic import AnthropicModel
+    from strands.models.gemini import GeminiModel
 
 
 class ProviderError(Exception):
@@ -261,8 +266,151 @@ def create_openai_model(runtime: Runtime) -> OpenAIModel:
     return model
 
 
+def create_anthropic_model(runtime: Runtime) -> "AnthropicModel":
+    """Create an Anthropic model client.
+
+    Initializes Anthropic client using API key from environment.
+    Supports Claude models with configurable inference parameters.
+
+    Args:
+        runtime: Runtime configuration with provider=anthropic
+
+    Returns:
+        Configured AnthropicModel ready for agent creation
+
+    Raises:
+        ProviderError: If API key is missing or client creation fails
+    """
+    logger = structlog.get_logger(__name__)
+
+    try:
+        from strands.models.anthropic import AnthropicModel
+    except ImportError as e:
+        raise ProviderError(
+            "Anthropic provider requires 'strands-agents[anthropic]' to be installed. "
+            "Install it with: uv pip install 'strands-agents[anthropic]'"
+        ) from e
+
+    # Check for API key in environment
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ProviderError(
+            "Anthropic provider requires ANTHROPIC_API_KEY environment variable. "
+            "Set it with: export ANTHROPIC_API_KEY=your-api-key"
+        )
+
+    # Default model if not specified
+    model_id = runtime.model_id or "claude-sonnet-4-20250514"
+
+    # Build client_args with API key
+    client_args = {"api_key": api_key}
+
+    logger.debug("creating_anthropic_model", model_id=model_id)
+
+    # Build inference params from runtime configuration
+    params = {}
+    if runtime.temperature is not None:
+        params["temperature"] = runtime.temperature
+    if runtime.top_p is not None:
+        params["top_p"] = runtime.top_p
+
+    # max_tokens is required for Anthropic
+    max_tokens = runtime.max_tokens if runtime.max_tokens is not None else 1024
+
+    # Create Strands Anthropic model
+    try:
+        if params:
+            model = AnthropicModel(
+                client_args=client_args,
+                model_id=model_id,
+                max_tokens=max_tokens,
+                params=params,
+            )
+        else:
+            model = AnthropicModel(
+                client_args=client_args,
+                model_id=model_id,
+                max_tokens=max_tokens,
+            )
+    except Exception as e:
+        raise ProviderError(f"Failed to create AnthropicModel: {e}") from e
+
+    return model
+
+
+def create_gemini_model(runtime: Runtime) -> "GeminiModel":
+    """Create a Gemini model client.
+
+    Initializes Google Gemini client using API key from environment.
+    Supports Gemini models with configurable inference parameters.
+
+    Args:
+        runtime: Runtime configuration with provider=gemini
+
+    Returns:
+        Configured GeminiModel ready for agent creation
+
+    Raises:
+        ProviderError: If API key is missing or client creation fails
+    """
+    logger = structlog.get_logger(__name__)
+
+    try:
+        from strands.models.gemini import GeminiModel
+    except ImportError as e:
+        raise ProviderError(
+            "Gemini provider requires 'strands-agents[gemini]' to be installed. "
+            "Install it with: uv pip install 'strands-agents[gemini]'"
+        ) from e
+
+    # Check for API key in environment (try both GOOGLE_API_KEY and GEMINI_API_KEY)
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ProviderError(
+            "Gemini provider requires GOOGLE_API_KEY or GEMINI_API_KEY environment variable. "
+            "Set it with: export GOOGLE_API_KEY=your-api-key (or GEMINI_API_KEY=your-api-key)"
+        )
+
+    # Default model if not specified
+    model_id = runtime.model_id or "gemini-2.5-flash"
+
+    # Build client_args with API key
+    client_args = {"api_key": api_key}
+
+    logger.debug("creating_gemini_model", model_id=model_id)
+
+    # Build inference params from runtime configuration
+    params = {}
+    if runtime.temperature is not None:
+        params["temperature"] = runtime.temperature
+    if runtime.max_tokens is not None:
+        params["max_output_tokens"] = runtime.max_tokens
+    if runtime.top_p is not None:
+        params["top_p"] = runtime.top_p
+
+    # Create Strands Gemini model
+    try:
+        if params:
+            model = GeminiModel(
+                client_args=client_args,
+                model_id=model_id,
+                params=params,
+            )
+        else:
+            model = GeminiModel(
+                client_args=client_args,
+                model_id=model_id,
+            )
+    except Exception as e:
+        raise ProviderError(f"Failed to create GeminiModel: {e}") from e
+
+    return model
+
+
 @lru_cache(maxsize=16)
-def _create_model_cached(config: RuntimeConfig) -> BedrockModel | OllamaModel | OpenAIModel:
+def _create_model_cached(
+    config: RuntimeConfig,
+) -> Union[BedrockModel, OllamaModel, OpenAIModel, "AnthropicModel", "GeminiModel"]:
     """Create a model client with LRU caching.
 
     This cached version prevents redundant model client creation in multi-step
@@ -289,7 +437,8 @@ def _create_model_cached(config: RuntimeConfig) -> BedrockModel | OllamaModel | 
         provider_enum = ProviderType(config.provider)
     except ValueError as e:
         raise ProviderError(
-            f"Unsupported provider: {config.provider}. Use 'bedrock', 'ollama', or 'openai'."
+            f"Unsupported provider: {config.provider}. "
+            f"Use 'bedrock', 'ollama', 'openai', 'anthropic', or 'gemini'."
         ) from e
 
     runtime = Runtime(
@@ -316,13 +465,20 @@ def _create_model_cached(config: RuntimeConfig) -> BedrockModel | OllamaModel | 
         return create_ollama_model(runtime)
     elif runtime.provider == ProviderType.OPENAI:
         return create_openai_model(runtime)
+    elif runtime.provider == ProviderType.ANTHROPIC:
+        return create_anthropic_model(runtime)
+    elif runtime.provider == ProviderType.GEMINI:
+        return create_gemini_model(runtime)
     else:
         raise ProviderError(
-            f"Unsupported provider: {runtime.provider}. Use 'bedrock', 'ollama', or 'openai'."
+            f"Unsupported provider: {runtime.provider}. "
+            f"Use 'bedrock', 'ollama', 'openai', 'anthropic', or 'gemini'."
         )
 
 
-def create_model(runtime: Runtime) -> BedrockModel | OllamaModel | OpenAIModel:
+def create_model(
+    runtime: Runtime,
+) -> Union[BedrockModel, OllamaModel, OpenAIModel, "AnthropicModel", "GeminiModel"]:
     """Create a model client based on the provider.
 
     This function converts the Runtime object to a hashable RuntimeConfig
@@ -335,7 +491,7 @@ def create_model(runtime: Runtime) -> BedrockModel | OllamaModel | OpenAIModel:
         runtime: Runtime configuration
 
     Returns:
-        Strands model (BedrockModel, OllamaModel, or OpenAIModel)
+        Strands model (BedrockModel, OllamaModel, OpenAIModel, AnthropicModel, or GeminiModel)
 
     Raises:
         ProviderError: If provider is unsupported or configuration is invalid

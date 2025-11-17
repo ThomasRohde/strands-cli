@@ -90,7 +90,9 @@ class ProviderType(str, Enum):
 
     BEDROCK = "bedrock"  # AWS Bedrock (requires region)
     OLLAMA = "ollama"  # Ollama local/self-hosted (requires host)
-    OPENAI = "openai"  # OpenAI API (future support)
+    OPENAI = "openai"  # OpenAI API
+    ANTHROPIC = "anthropic"  # Anthropic Claude API (requires API key)
+    GEMINI = "gemini"  # Google Gemini API (requires API key)
     AZURE_OPENAI = "azure_openai"  # Azure OpenAI (future support)
 
 

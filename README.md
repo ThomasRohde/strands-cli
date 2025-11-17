@@ -61,6 +61,8 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 - **AWS Bedrock** (Anthropic Claude, Amazon Titan)
 - **Ollama** (local models: llama2, mistral, mixtral, etc.)
 - **OpenAI** (GPT-4, GPT-4o, o1-preview, o1-mini)
+- **Anthropic** (Claude direct API - optional extra)
+- **Google Gemini** (Gemini 2.5 Pro/Flash - optional extra)
 
 📊 **Production Observability**
 - Full OpenTelemetry tracing (OTLP/Console exporters)
@@ -130,6 +132,24 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 
 </details>
 
+<details>
+<summary><b>Anthropic</b> (Claude models) - Optional</summary>
+
+1. Install provider: `uv pip install -e ".[anthropic]"`
+2. Get API key from [Anthropic Console](https://console.anthropic.com/)
+3. Set environment variable: `export ANTHROPIC_API_KEY=your-key-here`
+
+</details>
+
+<details>
+<summary><b>Google Gemini</b> (Gemini models) - Optional</summary>
+
+1. Install provider: `uv pip install -e ".[gemini]"`
+2. Get API key from [Google AI Studio](https://aistudio.google.com/apikey)
+3. Set environment variable: `export GOOGLE_API_KEY=your-key-here` (or `GEMINI_API_KEY`)
+
+</details>
+
 ### Installation
 
 **From source** (not yet published to PyPI):
@@ -138,6 +158,21 @@ Strands CLI is a Python 3.12+ command-line tool that executes declarative agenti
 git clone https://github.com/ThomasRohde/strands-cli.git
 cd strands-cli
 uv sync
+```
+
+**Optional AI Provider Extras:**
+
+Install additional AI providers beyond the core Bedrock/Ollama/OpenAI support:
+
+```bash
+# Install Anthropic Claude support
+uv pip install -e ".[anthropic]"
+
+# Install Google Gemini support
+uv pip install -e ".[gemini]"
+
+# Install all optional providers
+uv pip install -e ".[all-providers]"
 ```
 
 **Verify installation:**
@@ -1032,8 +1067,8 @@ Specify provider and model in workflow specs:
 ```yaml
 runtime:
   # Provider selection
-  provider: bedrock  # or ollama, openai
-  
+  provider: bedrock  # or ollama, openai, anthropic, gemini
+
   # Model configuration
   model_id: anthropic.claude-3-sonnet-20240229-v1:0
   

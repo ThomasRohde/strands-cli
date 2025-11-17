@@ -84,6 +84,10 @@ web = [
   "fastapi>=0.100.0",
   "uvicorn>=0.20.0",
 ]
+# AI provider extras - optional model providers beyond core Bedrock/Ollama/OpenAI
+anthropic = ["strands-agents[anthropic]>=1.16.0"]
+gemini = ["strands-agents[gemini]>=1.16.0"]
+all-providers = ["strands-agents[anthropic,gemini]>=1.16.0"]
 
 # CLI entry point
 [project.scripts]

@@ -1,0 +1,63 @@
+# Single-Agent Chain Example with Anthropic Provider
+#
+# This example demonstrates a minimal workflow using Anthropic's Claude models.
+# The workflow consists of a single agent executing one step in a chain pattern.
+#
+# Prerequisites:
+#   1. Set ANTHROPIC_API_KEY environment variable:
+#      - Linux/Mac: export ANTHROPIC_API_KEY=your-api-key
+#      - Windows: $env:ANTHROPIC_API_KEY="your-api-key"
+#   2. Install dependencies: uv sync
+#
+# Usage:
+#   uv run strands run examples/single-agent-chain-anthropic.yaml --var topic="AI ethics"
+#
+# Features Demonstrated:
+#   - Anthropic provider configuration
+#   - Temperature and max_tokens inference parameters
+#   - Single-agent chain pattern
+#   - Jinja2 template variable substitution
+#   - Artifact output to file
+
+version: 0
+name: single-agent-chain-anthropic
+description: |
+  Minimal single-agent chain workflow using Anthropic Claude.
+  Demonstrates basic text analysis with configurable topic.
+
+runtime:
+  provider: anthropic
+  model_id: claude-sonnet-4-20250514
+  temperature: 0.7
+  max_tokens: 2048
+
+agents:
+  analyst:
+    prompt: |
+      You are a concise technical analyst specializing in clear, actionable insights.
+      
+      Your analysis should:
+      - Be structured with clear sections
+      - Use bullet points for readability
+      - Provide specific examples
+      - Keep the total response under 500 words
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: analyst
+        input: |
+          Analyze the following topic and provide a brief overview:
+          
+          Topic: {{ topic }}
+          
+          Please provide:
+          1. A brief definition/overview (2-3 sentences)
+          2. Key considerations or challenges (3-5 bullet points)
+          3. Potential implications or applications (2-3 bullet points)
+
+outputs:
+  artifacts:
+    - path: ./analysis-anthropic.md
+      from: "{{ last_response }}"

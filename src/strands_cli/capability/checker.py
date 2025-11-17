@@ -7,7 +7,7 @@ structured error reports rather than silently ignoring them.
 Supported Features (Phase 9):
     - Multiple agents (for all pattern types)
     - Pattern: chain (multi-step), workflow (multi-task with DAG), routing, parallel, evaluator_optimizer, orchestrator_workers, graph
-    - Providers: bedrock, ollama, openai
+    - Providers: bedrock, ollama, openai, anthropic, gemini
     - Python tools: strands_tools.{http_request, file_read, file_write, calculator, current_time}.{function}
     - HTTP executors: full support
     - MCP tools: stdio and HTTPS transports
@@ -112,17 +112,19 @@ def _validate_provider(spec: Spec, issues: list[CapabilityIssue]) -> None:
         spec: Workflow spec
         issues: List to append issues to
     """
-    # Provider must be bedrock, ollama, or openai
+    # Provider must be bedrock, ollama, openai, anthropic, or gemini
     if spec.runtime.provider not in {
         ProviderType.BEDROCK,
         ProviderType.OLLAMA,
         ProviderType.OPENAI,
+        ProviderType.ANTHROPIC,
+        ProviderType.GEMINI,
     }:
         issues.append(
             CapabilityIssue(
                 pointer="/runtime/provider",
                 reason=f"Provider '{spec.runtime.provider}' not supported",
-                remediation="Use 'bedrock', 'ollama', or 'openai'",
+                remediation="Use 'bedrock', 'ollama', 'openai', 'anthropic', or 'gemini'",
             )
         )
 
@@ -159,19 +161,46 @@ def _validate_provider(spec: Spec, issues: list[CapabilityIssue]) -> None:
                 )
             )
 
+    # Anthropic requires API key in environment
+    if spec.runtime.provider == ProviderType.ANTHROPIC:
+        import os
+
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            issues.append(
+                CapabilityIssue(
+                    pointer="/runtime/provider",
+                    reason="Anthropic provider requires ANTHROPIC_API_KEY environment variable",
+                    remediation="Set environment variable: export ANTHROPIC_API_KEY=your-api-key",
+                )
+            )
+
+    # Gemini requires API key in environment
+    if spec.runtime.provider == ProviderType.GEMINI:
+        import os
+
+        if not (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")):
+            issues.append(
+                CapabilityIssue(
+                    pointer="/runtime/provider",
+                    reason="Gemini provider requires GOOGLE_API_KEY or GEMINI_API_KEY environment variable",
+                    remediation="Set environment variable: export GOOGLE_API_KEY=your-api-key (or GEMINI_API_KEY=your-api-key)",
+                )
+            )
+
 
 def _validate_inference_compatibility(spec: Spec, issues: list[CapabilityIssue]) -> None:  # noqa: C901
     """Validate inference parameter compatibility with provider.
 
     Issues always-on warnings when inference parameters are used with
-    providers that don't support them (Bedrock/Ollama). OpenAI/Azure
-    fully support temperature, top_p, max_tokens.
+    providers that don't support them (Bedrock/Ollama). OpenAI, Anthropic,
+    and Gemini fully support temperature, top_p, max_tokens.
 
     Args:
         spec: Workflow spec
         issues: List to append warning issues to
     """
     # Check runtime-level inference parameters
+    # Note: Anthropic and Gemini support inference parameters
     if spec.runtime.provider in {ProviderType.BEDROCK, ProviderType.OLLAMA}:
         runtime_params = []
         if spec.runtime.temperature is not None:
