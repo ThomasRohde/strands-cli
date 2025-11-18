@@ -258,3 +258,141 @@ def test_skill_loader_content_formatting(minimal_spec, temp_skill_dir):
     assert "**Description**: A test skill for unit tests" in content
     assert "---" in content  # Separator
     assert "# Test Skill" in content  # Original skill content
+
+
+def test_skill_loader_nested_module_success(minimal_spec, temp_skill_dir):
+    """Test successfully loading a nested skill module."""
+    # Create a module file (e.g., patterns.md)
+    patterns_file = temp_skill_dir / "patterns.md"
+    patterns_file.write_text(
+        "# Workflow Patterns\n\n## Chain Pattern\nSequential execution.\n\n## Parallel Pattern\nConcurrent execution."
+    )
+
+    loaded_skills = set()
+    tool_module = create_skill_loader_tool(minimal_spec, str(temp_skill_dir.parent), loaded_skills)
+
+    # Invoke Skill tool with nested path
+    result = tool_module.Skill(
+        {
+            "toolUseId": "test-555",
+            "input": {"skill_id": "test_skill/patterns"},
+        }
+    )
+
+    # Verify success
+    assert result["toolUseId"] == "test-555"
+    assert result["status"] == "success"
+    assert "Workflow Patterns" in result["content"][0]["text"]
+    assert "Chain Pattern" in result["content"][0]["text"]
+    assert "test_skill/patterns" in loaded_skills
+
+
+def test_skill_loader_nested_module_not_found(minimal_spec, temp_skill_dir):
+    """Test loading a non-existent nested module."""
+    # Create some module files to show in error
+    (temp_skill_dir / "patterns.md").write_text("# Patterns")
+    (temp_skill_dir / "tools.md").write_text("# Tools")
+
+    loaded_skills = set()
+    tool_module = create_skill_loader_tool(minimal_spec, str(temp_skill_dir.parent), loaded_skills)
+
+    # Invoke Skill tool with invalid module path
+    result = tool_module.Skill(
+        {
+            "toolUseId": "test-666",
+            "input": {"skill_id": "test_skill/nonexistent"},
+        }
+    )
+
+    # Verify error with helpful message
+    assert result["toolUseId"] == "test-666"
+    assert result["status"] == "error"
+    assert "Module 'nonexistent' not found" in result["content"][0]["text"]
+    assert "test_skill" in result["content"][0]["text"]
+    assert "patterns" in result["content"][0]["text"]  # Available modules
+    assert "tools" in result["content"][0]["text"]
+
+
+def test_skill_loader_nested_module_base_skill_not_found(minimal_spec, temp_skill_dir):
+    """Test loading nested module when base skill doesn't exist."""
+    loaded_skills = set()
+    tool_module = create_skill_loader_tool(minimal_spec, str(temp_skill_dir.parent), loaded_skills)
+
+    # Invoke Skill tool with nested path for non-existent base skill
+    result = tool_module.Skill(
+        {
+            "toolUseId": "test-777",
+            "input": {"skill_id": "nonexistent_skill/patterns"},
+        }
+    )
+
+    # Verify error
+    assert result["toolUseId"] == "test-777"
+    assert result["status"] == "error"
+    assert "Skill 'nonexistent_skill' not found" in result["content"][0]["text"]
+    assert "test_skill" in result["content"][0]["text"]  # Available skills list
+
+
+def test_skill_loader_nested_module_formatting(minimal_spec, temp_skill_dir):
+    """Test that nested module content is properly formatted."""
+    # Create a module file
+    tools_file = temp_skill_dir / "tools.md"
+    tools_file.write_text("# Tool Configuration\n\nHow to configure tools.")
+
+    loaded_skills = set()
+    tool_module = create_skill_loader_tool(minimal_spec, str(temp_skill_dir.parent), loaded_skills)
+
+    # Invoke Skill tool with nested path
+    result = tool_module.Skill(
+        {
+            "toolUseId": "test-888",
+            "input": {"skill_id": "test_skill/tools"},
+        }
+    )
+
+    # Verify formatting (simpler than full skill - no description)
+    content = result["content"][0]["text"]
+    assert content.startswith("# Loaded Skill Module: test_skill/tools")
+    assert "---" in content  # Separator
+    assert "# Tool Configuration" in content  # Original module content
+    # Should NOT include skill description
+    assert "**Description**" not in content
+
+
+def test_skill_loader_nested_module_independent_tracking(minimal_spec, temp_skill_dir):
+    """Test that base skill and modules are tracked independently."""
+    # Create a module file
+    (temp_skill_dir / "advanced.md").write_text("# Advanced Features")
+
+    loaded_skills = set()
+    tool_module = create_skill_loader_tool(minimal_spec, str(temp_skill_dir.parent), loaded_skills)
+
+    # Load base skill
+    result1 = tool_module.Skill(
+        {
+            "toolUseId": "test-991",
+            "input": {"skill_id": "test_skill"},
+        }
+    )
+    assert result1["status"] == "success"
+    assert "test_skill" in loaded_skills
+
+    # Load module (should succeed even though base is loaded)
+    result2 = tool_module.Skill(
+        {
+            "toolUseId": "test-992",
+            "input": {"skill_id": "test_skill/advanced"},
+        }
+    )
+    assert result2["status"] == "success"
+    assert "test_skill/advanced" in loaded_skills
+
+    # Try loading module again
+    result3 = tool_module.Skill(
+        {
+            "toolUseId": "test-993",
+            "input": {"skill_id": "test_skill/advanced"},
+        }
+    )
+    assert result3["status"] == "success"
+    assert "already loaded" in result3["content"][0]["text"]
