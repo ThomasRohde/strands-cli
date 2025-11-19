@@ -29,7 +29,7 @@ def _esc_text(value: Any) -> str:
 
 
 @tool
-def openai_vector_store_search(
+def file_search(
     query: str,
     vector_store_id: str,
     max_num_results: int = 10,
@@ -265,7 +265,7 @@ from my_tools_module import openai_vector_store_search
 
 agent = Agent(
     model="openai/gpt-4.1-mini",
-    tools=[openai_vector_store_search],
+    tools=[file_search],
 )
 
 response = agent("Find policies about woodchucks in North America.")
