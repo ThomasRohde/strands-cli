@@ -1,0 +1,31 @@
+ M CHANGELOG.md
+ M README.md
+ M docs/ATOMIC_AGENTS.md
+ M manual/SUMMARY.md
+ M manual/explanation/patterns.md
+ M manual/index.md
+ M manual/reference/cli.md
+ M manual/reference/spec.md
+ M mkdocs.yml
+ M src/strands_cli/__main__.py
+ M src/strands_cli/loader/yaml_loader.py
+ M src/strands_cli/schema/strands-workflow.schema.json
+ M src/strands_cli/types.py
+ M tests/conftest.py
+ M tests/test_async_context.py
+?? agents/
+?? examples/atomic-ref-demo-openai.yaml
+?? examples/classify_emails_e2e.py
+?? examples/customer-support-intake-composite-openai.yaml
+?? examples/data/
+?? examples/test_customer_support_intake.py
+?? manual/explanation/atomic-agents.md
+?? manual/howto/atomic-agents.md
+?? manual/reference/atomic-quick-reference.md
+?? manual/tutorials/atomic-agents.md
+?? migrate/
+?? src/strands_cli/atomic/
+?? tests/test_agent_references.py
+?? tests/test_atomic_cli.py
+?? tests/test_atomic_detection.py
+?? tests/test_schema_metadata_and_contracts.py

@@ -1,0 +1,28 @@
+version: 0
+name: classify_from_summary
+description: Classify ticket priority based on email summary.
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+agents:
+  classify_from_summary:
+    prompt: |
+      You are a support triage assistant.
+      Given an email summary, assign a priority (low, medium, high, urgent) with rationale.
+      Return JSON with "priority" and "rationale" fields.
+    input_schema: ./schemas/input.json
+    output_schema: ./schemas/output.json
+metadata:
+  labels:
+    strands.io/agent_type: atomic
+    strands.io/domain: customer_service
+    strands.io/capability: classification
+    strands.io/version: v1
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: classify_from_summary
+        input: |
+          Email Summary:
+          {{ summary }}

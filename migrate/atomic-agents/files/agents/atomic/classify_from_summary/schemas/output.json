@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "priority": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "urgent"],
+      "description": "Ticket priority level"
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Brief explanation for the priority assignment"
+    }
+  },
+  "required": ["priority", "rationale"]
+}

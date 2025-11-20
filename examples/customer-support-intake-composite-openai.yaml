@@ -1,0 +1,84 @@
+# Customer Support Intake - Atomic Agents Workflow (OpenAI GPT-4o-mini)
+#
+# Demonstrates workflow pattern using atomic agent composition via $ref:
+#  1) Summarize an incoming email (references: agents/atomic/summarize_customer_email.yaml)
+#  2) Classify the ticket priority using the summary (references: agents/atomic/classify_from_summary.yaml)
+#
+# This example uses the new $ref feature to compose atomic agents, enabling:
+#  - Single source of truth (atomic agents defined once, reused everywhere)
+#  - DRY principle (no duplication of prompts, schemas, or configurations)
+#  - Contract enforcement (schemas guaranteed to match atomic agent definitions)
+#  - Easy maintenance (update atomic agent once, all workflows automatically update)
+#
+# Usage:
+#   uv run strands run examples/customer-support-intake-composite-openai.yaml \
+#     --var subject="Refund request for recent order" \
+#     --var body="Hi, the headset I bought last week is defective. Please refund or replace. Order #12345."
+#
+#   Or test with Python API (see: examples/test_customer_support_intake.py)
+#
+# Outputs:
+#   - artifacts/support-intake.md (includes summary + priority)
+
+version: 0
+name: customer-support-intake-atomic
+description: Compose atomic agents for email summarization and priority classification using $ref.
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.3
+
+inputs:
+  required:
+    subject: string
+    body: string
+
+# Agent definitions now reference atomic agents via $ref
+# The prompt, schemas, and tools are inherited from the atomic agent specs
+# This example shows both basic reference and reference with overrides
+agents:
+  summarize:
+    # Basic reference: Inherit everything from atomic agent
+    $ref: ../agents/atomic/summarize_customer_email/summarize_customer_email.yaml
+
+  classify:
+    # Reference with override: Use atomic agent but with different model
+    $ref: ../agents/atomic/classify_from_summary/classify_from_summary.yaml
+    # model_id: gpt-4o  # Uncomment to override model for this agent
+
+pattern:
+  type: workflow
+  config:
+    tasks:
+      # Task 1: Summarize the email using referenced atomic agent
+      - id: summarize
+        agent: summarize
+        input: |
+          {
+            "subject": {{ subject | tojson }},
+            "body": {{ body | tojson }}
+          }
+
+      # Task 2: Classify priority based on summary (depends on task 1)
+      - id: classify
+        agent: classify
+        deps: [summarize]
+        input: |
+          {
+            "summary": {{ tasks.summarize.response | tojson }}
+          }
+
+outputs:
+  artifacts:
+    - path: ./artifacts/support-intake.md
+      from: |
+        ## Support Intake Report
+
+        **Subject:** {{ subject }}
+
+        ### Email Summary
+        {{ tasks.summarize.response }}
+
+        ### Priority Classification
+        {{ tasks.classify.response }}

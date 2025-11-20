@@ -1,0 +1,31 @@
+version: 0
+name: summarize_customer_email
+description: Summarize a single customer email into a concise digest.
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+agents:
+  summarize_customer_email:
+    prompt: |
+      You are an expert customer support summarizer.
+      Return a JSON object with:
+      - "summary": a short summary
+      - "bullets": a list of 3 bullet points of key details
+    input_schema: ./schemas/input.json
+    output_schema: ./schemas/output.json
+metadata:
+  labels:
+    strands.io/agent_type: atomic
+    strands.io/domain: customer_service
+    strands.io/capability: summarization
+    strands.io/version: v1
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: summarize_customer_email
+        input: |
+          Please summarize this email:
+
+          Subject: {{ subject }}
+          Body: {{ body }}

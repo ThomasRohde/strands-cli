@@ -1,0 +1,23 @@
+[
+  {
+    "id": "email-001",
+    "customer": "Ava Martinez",
+    "channel": "email",
+    "subject": "Order #10245 arrived damaged",
+    "body": "Hello team, my espresso machine (Order 10245) arrived with a cracked water reservoir and leaks badly. I need a replacement before my holiday guests arrive next weekend."
+  },
+  {
+    "id": "email-002",
+    "customer": "Noah Patel",
+    "channel": "web_form",
+    "subject": "Tracking update requested",
+    "body": "Can you confirm when my standing desk (Order #88431) will ship? I placed the order 6 days ago for my home office setup and haven't seen a tracking number yet."
+  },
+  {
+    "id": "email-003",
+    "customer": "Mia Chen",
+    "channel": "email",
+    "subject": "Subscription renewal question",
+    "body": "Hi, I'm evaluating whether to renew our team analytics subscription. Could you send the new pricing tiers and clarify if the Pro plan still includes unlimited dashboards?"
+  }
+]

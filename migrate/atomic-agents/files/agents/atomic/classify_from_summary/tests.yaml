@@ -1,0 +1,8 @@
+tests:
+  - name: urgent_summary
+    input: ./examples/sample.json
+    expect:
+      output_schema: ./schemas/output.json
+      checks:
+        - type: has_keys
+          keys: ["priority", "rationale"]

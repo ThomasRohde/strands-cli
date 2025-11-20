@@ -1,0 +1,30 @@
+version: 0
+name: classify_ticket_priority
+description: Classify a support ticket into priority buckets.
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+agents:
+  classify_ticket_priority:
+    prompt: |
+      You are a support triage assistant.
+      Output a JSON object with:
+      - "priority": one of (low, medium, high, urgent)
+      - "rationale": a short rationale
+    input_schema: ./schemas/input.json
+    output_schema: ./schemas/output.json
+metadata:
+  labels:
+    strands.io/agent_type: atomic
+    strands.io/domain: customer_service
+    strands.io/capability: classification
+    strands.io/version: v1
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: classify_ticket_priority
+        input: |
+          Ticket details:
+          Subject: {{ subject }}
+          Body: {{ body }}

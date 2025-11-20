@@ -1,0 +1,75 @@
+# Atomic Agent Reference Demo - OpenAI
+#
+# This example demonstrates the $ref feature for composing atomic agents.
+# Instead of duplicating agent definitions, we reference external atomic agent
+# spec files, enabling:
+#
+# ✅ Single source of truth (change atomic agent once, all workflows update)
+# ✅ DRY principle (no duplication)
+# ✅ Contract enforcement (schemas guaranteed to match)
+# ✅ Override support (can customize model, tools, etc. per usage)
+#
+# Usage:
+#   uv run strands run examples/atomic-ref-demo-openai.yaml \
+#     --var subject="Urgent: Server outage in production" \
+#     --var body="Production server went down at 2PM EST. Multiple users affected."
+#
+# Compare this to the old pattern of duplicating prompts and schemas inline.
+
+version: 0
+name: atomic-ref-demo
+description: Demonstrates atomic agent composition using $ref
+
+runtime:
+  provider: openai
+  model_id: gpt-4o-mini
+  temperature: 0.3
+
+inputs:
+  required:
+    subject: string
+    body: string
+
+agents:
+  # Reference atomic agent - inherits everything (prompt, schemas, tools)
+  summarizer:
+    $ref: ../agents/atomic/summarize_customer_email/summarize_customer_email.yaml
+
+  # Reference with override - use atomic agent but with different model
+  classifier:
+    $ref: ../agents/atomic/classify_from_summary/classify_from_summary.yaml
+    model_id: gpt-4o  # Override: Use larger model for classification
+
+pattern:
+  type: chain
+  config:
+    steps:
+      - agent: summarizer
+        input: |
+          {
+            "subject": {{ subject | tojson }},
+            "body": {{ body | tojson }}
+          }
+
+      - agent: classifier
+        input: |
+          {
+            "summary": {{ steps[0].response | tojson }}
+          }
+
+outputs:
+  artifacts:
+    - path: ./artifacts/atomic-ref-demo.md
+      from: |
+        # Atomic Agent Reference Demo
+
+        **Email Subject:** {{ subject }}
+
+        ## Summary (via $ref to atomic agent)
+        {{ steps[0].response }}
+
+        ## Priority (via $ref with model override)
+        {{ steps[1].response }}
+
+        ---
+        *This output was generated using atomic agent composition with $ref*
